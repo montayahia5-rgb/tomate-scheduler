@@ -770,6 +770,11 @@ def choose_vehicles(tons, allowed_raw, usine=None):
     def _alloc(veh, qty):
         """Alloue qty tonnes sur veh. Garantit: sum(trips × each) = qty exactement."""
         if qty <= 0: return []
+        # ✅ TRACTEUR: max 1 voyage/agriculteur (cap global COMOCAP ~100t/jour)
+        if veh == "TRACTEUR":
+            mn, mx = FLEET_CAPACITY.get(veh, (9, 11))
+            tons_one = min(qty, mx)
+            return [{"vehicle": veh, "trips": 1, "tons_each": round(tons_one, 2)}]
         mn, mx = FLEET_CAPACITY.get(veh, (7, 25))
         if qty < mn:
             return [{"vehicle": veh, "trips": 1, "tons_each": round(qty, 2)}]
