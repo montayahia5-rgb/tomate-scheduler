@@ -1439,7 +1439,12 @@ for comm in COMMERCIAL_CAPS:
     mx_pic  = sub_pic.groupby("Date")["Tonnes/Jour"].sum().max() if not sub_pic.empty else 0
     mx_all  = sub.groupby("Date")["Tonnes/Jour"].sum().max()
     ok_pic  = "✅" if mx_pic <= cap else "❌ DEPASSE PENDANT PIC"
-    print(f"    {comm:<20}: max PIC={mx_pic:.0f}t/j | max hors-pic={mx_all:.0f}t/j | limite={cap}t {ok_pic}")
+    # ✅ Nombre de véhicules par jour (max journalier)
+    veh_per_day = sub.groupby("Date")["Nb Voyages"].sum()
+    max_veh_day = int(veh_per_day.max()) if not veh_per_day.empty else 0
+    max_veh_date = veh_per_day.idxmax().strftime("%d/%m") if not veh_per_day.empty else "?"
+    print(f"    {comm:<20}: max PIC={mx_pic:.0f}t/j | max hors-pic={mx_all:.0f}t/j | "
+          f"limite={cap}t {ok_pic} | 🚛 max véhicules/jour={max_veh_day} ({max_veh_date})")
 print()
 print("  Factory caps (vérification PIC UNIQUEMENT 1-15 Juillet):")
 factory_start_ts = pd.Timestamp(FACTORY_CAP_START)

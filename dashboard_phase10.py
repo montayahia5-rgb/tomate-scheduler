@@ -236,6 +236,25 @@ def show_login_page():
                 else:
                     st.error("❌ Identifiant ou mot de passe incorrect.")
 
+# ── Timeout de session : déconnexion après 30 min d'inactivité ─
+SESSION_TIMEOUT_MIN = 30
+
+def _check_session_timeout():
+    """Déconnecte automatiquement après SESSION_TIMEOUT_MIN minutes."""
+    import time
+    now = time.time()
+    last = st.session_state.get("last_activity", now)
+    if now - last > SESSION_TIMEOUT_MIN * 60:
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
+        st.warning("⏱️ Session expirée après inactivité. Reconnectez-vous.")
+        st.stop()
+    st.session_state["last_activity"] = now
+
 # ── Helpers tokens URL pour persister la session entre refreshs ─
 def _make_token(username):
     """Génère un token simple à partir du username + secret."""
@@ -275,6 +294,7 @@ if not st.session_state["logged_in"]:
     st.stop()   # ← Stop here if not logged in. Nothing below executes.
 
 # ── At this point: user is logged in ─────────────────────────
+_check_session_timeout()  # ← Vérifier timeout d'inactivité
 CURRENT_USER   = st.session_state["username"]
 CURRENT_ROLE   = st.session_state["role"]
 CURRENT_NAME   = st.session_state["name"]
@@ -716,7 +736,38 @@ with st.sidebar:
         st.subheader("⚙️ Mise à jour données")
         st.caption("Recalcule le planning et met à jour Supabase.")
         if st.button("🔄 Régénérer le planning", use_container_width=True, type="primary"):
-            if os.path.exists(PHASE4_SCRIPT):
+            # ✅ SÉCURITÉ: vérifier qu'aucune régénération n'est en cours
+            _regen_locked = False
+            try:
+                _sb_lock = get_supabase()
+                _lock = _sb_lock.table("app_locks").select("*").eq(
+                    "lock_name", "planning_regen").execute().data
+                import datetime as _dt
+                if _lock and _lock[0].get("expires_at"):
+                    _exp = _dt.datetime.fromisoformat(
+                        _lock[0]["expires_at"].replace("Z","+00:00"))
+                    if _exp > _dt.datetime.now(_dt.timezone.utc):
+                        _regen_locked = True
+                        _by = _lock[0].get("locked_by","?")
+                        st.warning(f"⚠️ Régénération déjà en cours par {_by}. Réessaye dans 2 min.")
+            except Exception:
+                pass  # Si table n'existe pas, continuer
+
+            if not _regen_locked and os.path.exists(PHASE4_SCRIPT):
+                # Poser le verrou
+                try:
+                    import datetime as _dt2
+                    _exp_time = (_dt2.datetime.now(_dt2.timezone.utc) + 
+                                 _dt2.timedelta(minutes=10)).isoformat()
+                    get_supabase().table("app_locks").upsert({
+                        "lock_name":  "planning_regen",
+                        "locked_by":  CURRENT_USER,
+                        "locked_at":  _dt2.datetime.now(_dt2.timezone.utc).isoformat(),
+                        "expires_at": _exp_time,
+                    }).execute()
+                except Exception:
+                    pass
+                
                 migrate_script = os.path.join(SCRIPT_DIR, "migrate.py")
                 with st.spinner("Etape 1/2 : Calcul du planning..."):
                     r1 = subprocess.run(
@@ -735,6 +786,19 @@ with st.sidebar:
                             cwd=SCRIPT_DIR, encoding="utf-8", errors="replace",
                         )
                     if r2.returncode == 0:
+                        # Libérer le verrou
+                        try:
+                            get_supabase().table("app_locks").delete().eq(
+                                "lock_name", "planning_regen").execute()
+                            # Audit log
+                            get_supabase().table("audit_log").insert({
+                                "user_name": CURRENT_USER,
+                                "user_role": CURRENT_ROLE,
+                                "action":    "planning_regenerated",
+                                "details":   f"Planning régénéré avec succès",
+                            }).execute()
+                        except Exception:
+                            pass
                         st.success("✅ Planning recalculé et Supabase mis à jour !")
                         st.session_state["sb_refresh"] += 1
                         st.cache_data.clear()
@@ -3317,6 +3381,5 @@ with tab10:
             CURRENT_FILTER=CURRENT_FILTER,
             GLOBAL_COMMERCIAL_FARMERS=GLOBAL_COMMERCIAL_FARMERS,
             GLOBAL_COMMERCIAL_TONS=GLOBAL_COMMERCIAL_TONS,
-            
             df_to_csv=df_to_csv,
         )
