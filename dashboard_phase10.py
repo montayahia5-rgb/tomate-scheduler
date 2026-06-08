@@ -226,13 +226,49 @@ def show_login_page():
                     st.session_state["role"]       = users[u]["role"]
                     st.session_state["name"]       = users[u]["name"]
                     st.session_state["filter"]     = users[u]["filter"]
+                    # Sauvegarder dans l'URL pour survivre aux refreshs
+                    try:
+                        st.query_params["u"] = u
+                        st.query_params["t"] = _make_token(u)
+                    except Exception:
+                        pass
                     st.rerun()
                 else:
                     st.error("❌ Identifiant ou mot de passe incorrect.")
 
-# ── Check login state ─────────────────────────────────────────
+# ── Helpers tokens URL pour persister la session entre refreshs ─
+def _make_token(username):
+    """Génère un token simple à partir du username + secret."""
+    import hashlib
+    secret = "tomate2026_secret_seed"
+    return hashlib.sha256(f"{username}|{secret}".encode()).hexdigest()[:32]
+
+def _verify_token(username, token):
+    """Vérifie qu'un token correspond au username."""
+    return token == _make_token(username)
+
+# ── Check login state — vérifier d'abord les query params (refresh) ─
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
+
+# Si pas connecté mais URL contient un token valide → reconnecter auto
+if not st.session_state["logged_in"]:
+    try:
+        qp = st.query_params
+        url_user  = qp.get("u", "")
+        url_token = qp.get("t", "")
+        if url_user and url_token:
+            users = load_users()
+            u = url_user.strip().lower()
+            if u in users and _verify_token(u, url_token):
+                # Restaurer la session depuis l'URL
+                st.session_state["logged_in"] = True
+                st.session_state["username"]  = u
+                st.session_state["role"]      = users[u]["role"]
+                st.session_state["name"]      = users[u]["name"]
+                st.session_state["filter"]    = users[u]["filter"]
+    except Exception:
+        pass
 
 if not st.session_state["logged_in"]:
     show_login_page()
@@ -666,6 +702,11 @@ with st.sidebar:
     if st.button("🚪 Déconnexion", use_container_width=True):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
+        # Effacer le token de l'URL pour ne pas rester connecté au refresh
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
         st.rerun()
     st.divider()
 
