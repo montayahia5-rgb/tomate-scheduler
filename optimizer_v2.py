@@ -825,6 +825,8 @@ def choose_vehicles(tons, allowed_raw, usine=None):
     REGLES_USINE = {
         "SICAM":    [("SEMI",   1.00)],
         "TUCAL":    [("SEMI",   0.70), ("PL",   0.30)],
+        # COMOCAP: TRACTEUR limité à max 1 voyage/agriculteur (~10t)
+        # Cap global ~100t/jour si jusqu'à 10 agriculteurs livrent à COMOCAP
         "COMOCAP":  [("TRACTEUR", 0.14), ("PPL", 0.43), ("PL", 0.26), ("SEMI", 0.17)],
         "ABIDA":    [("PL",     0.50), ("SEMI", 0.50)],
         "ELFALLEH": [("PPL",    0.70), ("PL",   0.30)],
@@ -853,11 +855,18 @@ def choose_vehicles(tons, allowed_raw, usine=None):
             if not is_last:
                 remaining = round(remaining - qty, 2)
 
-    # Fallback si rien alloué
+    # ✅ Respecter STRICTEMENT l'accessibilité de l'agriculteur
+    # Fallback uniquement avec véhicules AUTORISÉS
     if not result or sum(v["trips"]*v.get("tons_each",0) for v in result
                           if not v.get("note")) < tons * 0.1:
-        best = "PL" if "PL" in allowed else ("PPL" if "PPL" in allowed else "SEMI")
-        result.extend(_alloc(best, tons))
+        # Priorité selon accessibilité déclarée: SEMI > PL > PPL > TRACTEUR
+        prio = ["SEMI", "PL", "PPL", "TRACTEUR"]
+        best = next((v for v in prio if v in allowed), None)
+        if best:
+            result.extend(_alloc(best, tons))
+        else:
+            # Aucun véhicule autorisé : utiliser PL en dernier recours
+            result.extend(_alloc("PL", tons))
 
     return result
 
@@ -866,7 +875,8 @@ for f_idx, farmer in enumerate(farmers):
     for d_idx, date in enumerate(all_dates):
         tons = solution[(f_idx, d_idx)]
         if tons <= 0.5: continue
-        tons      = round(tons, 1)
+        # ✅ ARRONDI à la dizaine supérieure (6→10, 26→30, 43→50, 28→30)
+        tons      = math.ceil(round(tons, 1) / 10) * 10
         vehicles  = choose_vehicles(tons, farmer.allowed_veh, usine=farmer.usine)
         # Filter out zero-ton extra tracteur from display string
         # Build veh_str with consistent format: "VEHICLE x{trips}({tons}t)"
