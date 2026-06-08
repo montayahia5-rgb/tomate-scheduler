@@ -769,123 +769,144 @@ print("\nBuilding output tables...")
 
 def choose_vehicles(tons, allowed_raw, usine=None):
     """
-    VERSION V3 — Mathématiquement correcte.
-    Corrections vs V2:
-    1. RM: jamais de surcharge (tons_each <= 40t garanti)
-    2. Proportions: dernier item = reste exact → somme = tons exactement
-    3. alloc(): trips × tons_each = qty garanti (pas d'arrondi perdu)
-    4. TRACTEUR COMOCAP = vrai transport (10t/voyage) à 14% du tonnage COMOCAP
+    VERSION V5 — Logique simplifiée et correcte.
+    
+    Principe:
+    - L'accessibilité (PL/SEMI, PL/PPL...) = véhicules PHYSIQUEMENT possibles sur ce terrain
+    - On choisit UN seul type de véhicule pour chaque livraison (le plus adapté au tonnage)
+    - Exceptionnellement 2 types pour COMOCAP (TRACTEUR + transport principal)
+    - Pas de découpage proportionnel artificiel en 4-5 types
+    
+    Logique de sélection:
+    1. Regarder la préférence usine (SICAM préfère SEMI, ELFALLEH préfère PPL...)
+    2. Si le véhicule préféré est accessible → l'utiliser
+    3. Sinon → choisir le meilleur véhicule accessible pour le tonnage
+    4. _alloc() répartit en voyages en respectant mn ≤ charge ≤ mx
     """
     # Normaliser allowed
     _norm = {"PETIT POILOUR":"PPL","POILOUR":"PL"}
     allowed = list(dict.fromkeys(_norm.get(v,v) for v in allowed_raw))
+    if not allowed:
+        allowed = ["PL"]
 
     def _alloc(veh, qty):
-        """Alloue qty tonnes sur veh. Garantit: sum(trips × each) = qty exactement."""
+        """
+        Alloue qty tonnes sur veh. Respecte mn ≤ charge ≤ mx par voyage.
+        Si la répartition parfaite est impossible, répartition équilibrée.
+        """
         if qty <= 0: return []
-        # ✅ TRACTEUR: max 1 voyage/agriculteur (cap global COMOCAP ~100t/jour)
+        
         if veh == "TRACTEUR":
-            mn, mx = FLEET_CAPACITY.get(veh, (9, 11))
-            tons_one = min(qty, mx)
-            return [{"vehicle": veh, "trips": 1, "tons_each": round(tons_one, 2)}]
+            mn_t, mx_t = FLEET_CAPACITY.get(veh, (9, 11))
+            return [{"vehicle": veh, "trips": 1, "tons_each": round(min(qty, mx_t), 2)}]
+        
         mn, mx = FLEET_CAPACITY.get(veh, (7, 25))
-        if qty < mn:
+        
+        # 1 voyage suffit
+        if qty <= mx:
             return [{"vehicle": veh, "trips": 1, "tons_each": round(qty, 2)}]
+        
+        # Plusieurs voyages nécessaires
         trips = math.ceil(qty / mx)
-        if trips == 1:
-            return [{"vehicle": veh, "trips": 1, "tons_each": round(qty, 2)}]
-        each_full = round(qty / trips, 2)
-        remainder = round(qty - each_full * (trips - 1), 2)
+        each  = qty / trips
+        
+        # Si chaque voyage < mn → réduire le nombre de voyages
+        while each < mn and trips > 1:
+            trips -= 1
+            each = qty / trips
+        
+        # Répartition équilibrée
+        base  = int(qty // trips)
+        extra = int(qty - base * trips)  # nb voyages avec 1t de plus
+        
         entries = []
-        if trips - 1 > 0:
-            entries.append({"vehicle": veh, "trips": trips-1, "tons_each": each_full})
-        if remainder > 0:
-            entries.append({"vehicle": veh, "trips": 1, "tons_each": remainder})
+        n_heavy = extra        # voyages à (base+1)t
+        n_light = trips - extra  # voyages à base t
+        if n_heavy > 0:
+            entries.append({"vehicle": veh, "trips": n_heavy,
+                            "tons_each": round(base + 1, 2)})
+        if n_light > 0:
+            entries.append({"vehicle": veh, "trips": n_light,
+                            "tons_each": round(base, 2)})
         return entries
 
-    def _fallback(vtype):
-        prefs = {"PPL":["PL","TRACTEUR","SEMI"],"PL":["PPL","TRACTEUR","SEMI"],
-                 "SEMI":["PL","PPL","TRACTEUR"],"TRACTEUR":["PL","PPL","SEMI"]}
-        for v in prefs.get(vtype,[]):
-            if v in allowed: return v
-        return allowed[0] if allowed else None
+    def _best_for_tons(qty, candidates):
+        """
+        Parmi les candidats accessibles, choisit celui qui gère qty le plus proprement.
+        Score: 0=parfait, 1=léger sous-charge, 2=multi-voyages propre, 3=surcharge
+        """
+        best, best_score = None, 999
+        for veh in candidates:
+            if veh not in allowed:
+                continue
+            mn_v, mx_v = FLEET_CAPACITY.get(veh, (7, 25))
+            if qty <= mx_v and qty >= mn_v:
+                score = 0  # 1 voyage parfait
+            elif qty <= mx_v:
+                score = 1  # 1 voyage léger sous-charge
+            else:
+                trips = math.ceil(qty / mx_v)
+                each  = qty / trips
+                score = 2 if each >= mn_v else 3
+            if score < best_score:
+                best_score, best = score, veh
+        return best
 
-    # ── CAS RM : SEMI uniquement ─────────────────────────────────────────
-    # RM = Récolte Mécanique : machine collecte et charge les Semis directement
-    # Correction: le nombre de voyages = ceil(tons/40t) avec minimum 1
-    # (pas minimum 3 — les 3-5 Semi/jour = capacité MACHINE totale du champ,
-    #  mais chaque agriculteur livre son tonnage journalier calculé par OR-Tools)
+    # ── CAS SPÉCIAL : RM (Récolte Mécanique) ────────────────────────────
     if allowed == ["SEMI"]:
-        mn, mx = FLEET_CAPACITY["SEMI"]   # mn=25t, mx=40t
+        mn, mx = FLEET_CAPACITY["SEMI"]
         if tons <= 0: return []
-        
-        # Calculer le nombre de voyages nécessaires (jamais de surcharge)
         trips = max(1, math.ceil(tons / mx))
         each  = round(tons / trips, 2)
-        
-        # Si chaque voyage < minimum Semi (25t) → livraison partielle acceptable
-        # (c'est la fin de la récolte ou un petit agriculteur RM)
-        note_partiel = ""
-        if each < mn:
-            note_partiel = f" (livraison partielle {each}t, normal fin récolte)"
-        
-        # Double vérification anti-surcharge
-        if each > mx:
-            trips = math.ceil(tons / mx)
+        while each < mn and trips > 1:
+            trips -= 1
             each  = round(tons / trips, 2)
-        
-        result = [{"vehicle": "SEMI", "trips": trips, "tons_each": each,
-                   "note_rm": note_partiel}]
-        # COMOCAP TRACTEUR est maintenant géré dans REGLES_USINE comme vrai transport
-        return result
+        return [{"vehicle": "SEMI", "trips": trips, "tons_each": each}]
 
-    # ── REGLES PAR USINE × ACCESSIBILITÉ ────────────────────────────────
-    REGLES_USINE = {
-        "SICAM":    [("SEMI",   1.00)],
-        "TUCAL":    [("SEMI",   0.70), ("PL",   0.30)],
-        # COMOCAP: TRACTEUR limité à max 1 voyage/agriculteur (~10t)
-        # Cap global ~100t/jour si jusqu'à 10 agriculteurs livrent à COMOCAP
-        "COMOCAP":  [("TRACTEUR", 0.14), ("PPL", 0.43), ("PL", 0.26), ("SEMI", 0.17)],
-        "ABIDA":    [("PL",     0.50), ("SEMI", 0.50)],
-        "ELFALLEH": [("PPL",    0.70), ("PL",   0.30)],
+    # ── PRÉFÉRENCES PAR USINE ───────────────────────────────────────────
+    # Ordre de préférence des véhicules selon l'usine
+    # Le système choisit le PREMIER véhicule de la liste qui est accessible
+    USINE_PREFS = {
+        "SICAM":    ["SEMI", "PL",  "PPL"],   # préfère SEMI
+        "TUCAL":    ["SEMI", "PL",  "PPL"],   # préfère SEMI
+        "COMOCAP":  ["PL",   "PPL", "SEMI"],  # préfère PL (TRACTEUR géré séparément)
+        "ABIDA":    ["PL",   "SEMI","PPL"],   # préfère PL
+        "ELFALLEH": ["PPL",  "PL",  "SEMI"],  # préfère PPL
     }
+    prefs = USINE_PREFS.get(usine, ["PL", "PPL", "SEMI"])
 
-    regles = REGLES_USINE.get(usine, [("PL", 0.50), ("PPL", 0.50)])
-    result    = []
-    remaining = tons   # compteur exact du tonnage restant
+    # ── CAS COMOCAP : TRACTEUR fixe (10t) + transport principal ─────────
+    if usine == "COMOCAP" and "TRACTEUR" in allowed:
+        result = []
+        # 1 voyage TRACTEUR ≈ 10t
+        trac_tons = min(10, tons * 0.14)
+        trac_tons = round(trac_tons)
+        if trac_tons > 0:
+            result.append({"vehicle": "TRACTEUR", "trips": 1,
+                           "tons_each": round(trac_tons, 2)})
+        remaining = round(tons - trac_tons, 2)
+        if remaining > 0:
+            main_veh = _best_for_tons(remaining, ["PL", "PPL", "SEMI"])
+            if not main_veh:
+                main_veh = "PL"
+            result.extend(_alloc(main_veh, remaining))
+        return result if result else _alloc("PL", tons)
 
-    # Séparer règles caisses et proportionnelles
-    prop_rules = [(vt, sh) for vt, sh in regles if sh != "CAISSE" and isinstance(sh, float)]
+    # ── CAS GÉNÉRAL : 1 véhicule principal ──────────────────────────────
+    # Choisir le meilleur véhicule accessible selon les préférences usine
+    primary = _best_for_tons(tons, prefs)
+    if not primary:
+        # Aucun des préférés n'est accessible → prendre n'importe quel accessible
+        primary = _best_for_tons(tons, ["SEMI", "PL", "PPL", "TRACTEUR"])
+    if not primary:
+        primary = "PL"  # dernier recours absolu
 
-    for vt, sh in regles:
-        if sh == "CAISSE":
-            # COMOCAP TRACTEUR géré par REGLES_USINE comme vrai transport
-            continue
-
-    for i, (vt, sh) in enumerate(prop_rules):
-        is_last = (i == len(prop_rules) - 1)
-        # Dernier item = reste exact → somme garantie = tons
-        qty = round(remaining, 2) if is_last else round(tons * sh, 2)
-        if qty <= 0: continue
-        target = vt if vt in allowed else _fallback(vt)
-        if target:
-            result.extend(_alloc(target, qty))
-            if not is_last:
-                remaining = round(remaining - qty, 2)
-
-    # ✅ Respecter STRICTEMENT l'accessibilité de l'agriculteur
-    # Fallback uniquement avec véhicules AUTORISÉS
-    if not result or sum(v["trips"]*v.get("tons_each",0) for v in result
-                          if not v.get("note")) < tons * 0.1:
-        # Priorité selon accessibilité déclarée: SEMI > PL > PPL > TRACTEUR
-        prio = ["SEMI", "PL", "PPL", "TRACTEUR"]
-        best = next((v for v in prio if v in allowed), None)
-        if best:
-            result.extend(_alloc(best, tons))
-        else:
-            # Aucun véhicule autorisé : utiliser PL en dernier recours
-            result.extend(_alloc("PL", tons))
-
+    result = _alloc(primary, tons)
+    
+    # Vérification minimale
+    if not result:
+        result = [{"vehicle": primary, "trips": 1, "tons_each": round(tons, 2)}]
+    
     return result
 
 all_days = []
