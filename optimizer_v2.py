@@ -55,6 +55,12 @@ FACTORY_CAPS = {
     "ABIDA":     150,
     "ELFALLEH":  100,
 }
+
+# ✅ MARGE pour absorber l'arrondi à la dizaine
+# L'arrondi peut ajouter jusqu'à +5t/agriculteur en moyenne
+# On réduit les caps solveur pour qu'APRÈS arrondi le cap OFFICIEL soit respecté
+ROUNDING_MARGIN_PCT = 0.05  # 5% de marge sous le cap pour le solveur
+ROUNDING_MARGIN_MIN = 30    # minimum 30t de marge (pour caps petits comme ABIDA)
 FLEET_CAPACITY = {
     "TRACTEUR":         (9, 11),     # min/max tonnes par voyage (moyenne ~10t)
     "PPL":              (7,  12),    # Petit Poilour
@@ -561,7 +567,11 @@ for d_idx, date in enumerate(all_dates):
         # Déterminer la période de cap pour ce commercial
         cap_start, cap_end = CAP_PERIOD_SPECIAL.get(comm, CAP_PERIOD_DEFAULT)
         if cap_start <= date <= cap_end:
-            model.Add(sum(vs) <= int(comm_effective_caps.get(comm, 1200) * SCALE))
+            # Réduire le cap solveur pour absorber l'arrondi
+            _cap_brut = comm_effective_caps.get(comm, 1200)
+            _marge    = max(ROUNDING_MARGIN_MIN, _cap_brut * ROUNDING_MARGIN_PCT)
+            _cap_solv = max(50, _cap_brut - _marge)  # min 50t
+            model.Add(sum(vs) <= int(_cap_solv * SCALE))
         # Hors pic: pas de limite journalière commerciale
 
 # Constraint 3: Factory daily cap — basé sur transport RÉEL confirmé + jokers
@@ -591,7 +601,10 @@ for d_idx, date in enumerate(all_dates):
         by_fact[f.usine].append(x[(f_idx, d_idx)])
     for fact, vs in by_fact.items():
         if FACTORY_CAP_START <= date <= FACTORY_CAP_END:
-            cap_reel = get_real_cap(fact)
+            cap_reel_brut = get_real_cap(fact)
+            # Réduire cap solveur pour absorber l'arrondi à la dizaine
+            _marge_f = max(ROUNDING_MARGIN_MIN, cap_reel_brut * ROUNDING_MARGIN_PCT)
+            cap_reel = max(20, cap_reel_brut - _marge_f)
             model.Add(sum(vs) <= int(cap_reel * SCALE))
         # Hors pic: pas de limite usine
 
@@ -880,8 +893,11 @@ for f_idx, farmer in enumerate(farmers):
     for d_idx, date in enumerate(all_dates):
         tons = solution[(f_idx, d_idx)]
         if tons <= 0.5: continue
-        # ✅ ARRONDI à la dizaine supérieure (6→10, 26→30, 43→50, 28→30)
-        tons      = math.ceil(round(tons, 1) / 10) * 10
+        # ✅ ARRONDI à la dizaine la plus proche (6→10, 26→30, 43→40, 28→30)
+        # Round half up to nearest 10 — minimise l'impact sur les caps
+        tons      = int(round(round(tons, 1) / 10)) * 10
+        if tons == 0 and round(solution[(f_idx, d_idx)], 1) > 0:
+            tons = 10  # toute valeur positive → minimum 10t (pas 0)
         vehicles  = choose_vehicles(tons, farmer.allowed_veh, usine=farmer.usine)
         # Filter out zero-ton extra tracteur from display string
         # Build veh_str with consistent format: "VEHICLE x{trips}({tons}t)"
