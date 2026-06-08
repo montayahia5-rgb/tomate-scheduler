@@ -769,7 +769,7 @@ else:
 # ============================================================
 print("\nBuilding output tables...")
 
-def choose_vehicles(tons, allowed_raw, usine=None):
+def choose_vehicles(tons, allowed_raw, usine=None, region=None):
     """
     VERSION V5 — Logique simplifiée et correcte.
     
@@ -900,18 +900,26 @@ def choose_vehicles(tons, allowed_raw, usine=None):
     prefs = USINE_PREFS.get(usine, ["PL", "PPL", "SEMI"])
 
     # ── CAS COMOCAP : TRACTEUR fixe (10t) + transport principal ─────────
-    # Le TRACTEUR appartient à l'USINE COMOCAP (flotte propre).
-    # 1 voyage TRACTEUR (10t) par livraison COMOCAP.
-    # Le post-traitement limite à max 10 voyages/jour au total.
+    # TRACTEUR = flotte propre COMOCAP — UNIQUEMENT pour CAP BON 1
+    # Les autres régions (CAP BON 2, NORD, etc.) n'ont pas accès au TRACTEUR COMOCAP
+    TRACTEUR_REGIONS = {"CAP BON 1"}  # seules régions avec TRACTEUR COMOCAP
+    
+    region_norm = str(region or "").strip().upper() if region else ""
+    use_tracteur = (region_norm in TRACTEUR_REGIONS)
+    
     if usine == "COMOCAP":
         result = []
         trac_mn, trac_mx = FLEET_CAPACITY.get("TRACTEUR", (9, 11))
-        # Ajouter 1 voyage TRACTEUR (10t) pour chaque livraison COMOCAP
-        # (pas de seuil minimum — le TRACTEUR tourne tous les jours)
-        trac_tons = min(trac_mx, max(trac_mn, round(tons * 0.14)))
-        result.append({"vehicle": "TRACTEUR", "trips": 1,
-                       "tons_each": round(trac_tons, 2)})
-        remaining = round(tons - trac_tons, 2)
+        
+        if use_tracteur:
+            # TRACTEUR uniquement pour CAP BON 1
+            trac_tons = min(trac_mx, max(trac_mn, round(tons * 0.14)))
+            result.append({"vehicle": "TRACTEUR", "trips": 1,
+                           "tons_each": round(trac_tons, 2)})
+            remaining = round(tons - trac_tons, 2)
+        else:
+            # Autres régions → pas de TRACTEUR, tout en PL/PPL
+            remaining = tons
         if remaining > 0:
             # Choisir le meilleur véhicule pour le reste
             # (PPL pour petits restes <15t, PL pour moyens, SEMI pour grands)
@@ -958,6 +966,22 @@ def choose_vehicles(tons, allowed_raw, usine=None):
     if not result:
         result = [{"vehicle": primary, "trips": 1, "tons_each": round(tons, 2)}]
     
+    # ✅ VÉRIFICATION FINALE: aucun SEMI si non autorisé
+    # Sécurité supplémentaire contre les edge cases
+    if "SEMI" not in allowed:
+        cleaned = []
+        for v in result:
+            if v.get("vehicle") == "SEMI":
+                # Convertir SEMI → PL (plus proche en capacité)
+                best_alt = "PL" if "PL" in allowed else ("PPL" if "PPL" in allowed else None)
+                if best_alt:
+                    cleaned.extend(_alloc(best_alt, v["trips"] * v.get("tons_each", 0)))
+                # sinon ignorer (absorbe dans autres voyages)
+            else:
+                cleaned.append(v)
+        if cleaned:
+            result = cleaned
+    
     return result
 
 all_days = []
@@ -989,7 +1013,8 @@ for (nom, usine, date), data in consolidated.items():
     if tons <= 0:
         continue
     
-    vehicles = choose_vehicles(tons, farmer.allowed_veh, usine=farmer.usine)
+    vehicles = choose_vehicles(tons, farmer.allowed_veh, 
+                              usine=farmer.usine, region=farmer.region)
     veh_parts = []
     for v in vehicles:
         if v.get('note') and v['tons_each'] == 0:
