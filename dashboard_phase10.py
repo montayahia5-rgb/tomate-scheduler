@@ -3200,7 +3200,7 @@ with tab9:
             )
 
 # ── TAB 11: UPLOAD PLANNING ──────────────────────────────────
-with tab11:
+with tab10:
     if not UPLOAD_AVAILABLE:
         st.error("❌ Fichier `upload_tab.py` introuvable dans le dossier.")
         st.info("Mets `upload_tab.py` dans le même dossier que `dashboard_phase10.py`.")
