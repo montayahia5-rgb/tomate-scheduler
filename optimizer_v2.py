@@ -57,10 +57,10 @@ FACTORY_CAPS = {
 }
 
 # ✅ MARGE pour absorber l'arrondi à la dizaine
-# L'arrondi peut ajouter jusqu'à +5t/agriculteur en moyenne
-# On réduit les caps solveur pour qu'APRÈS arrondi le cap OFFICIEL soit respecté
-ROUNDING_MARGIN_PCT = 0.10  # 10% de marge sous le cap pour le solveur (était 5%)
-ROUNDING_MARGIN_MIN = 50    # minimum 50t de marge (était 30t)
+# Réduite à 5% (était 10%) pour ne pas perdre trop de tonnage
+# L'arrondi à la dizaine ajoute en moyenne +2-3% → 5% de marge est suffisant
+ROUNDING_MARGIN_PCT = 0.05  # 5% de marge sous le cap pour le solveur
+ROUNDING_MARGIN_MIN = 30    # minimum 30t de marge
 FLEET_CAPACITY = {
     "TRACTEUR":         (9,  11),    # min/max tonnes par voyage (moyenne ~10t)
     "PPL":              (6,  14),    # Petit Poilour  — capacité mise à jour
@@ -534,7 +534,9 @@ for f_idx, farmer in enumerate(farmers):
     total_scaled   = int(farmer.tonnage * SCALE)
     window_max     = int(sum(farmer.window.values()) * SCALE)
     effective      = min(total_scaled, window_max)
-    tolerance      = max(int(total_scaled * 0.05), SCALE)
+    # ✅ Tolérance réduite à ±2% pour que le total planifié ≈ total déclaré
+    # (était ±5% → trop de tonnage "perdu")
+    tolerance      = max(int(total_scaled * 0.02), SCALE)
     model.Add(sum(x[(f_idx, d)] for d in range(N_DATES)) >= effective - tolerance)
     model.Add(sum(x[(f_idx, d)] for d in range(N_DATES)) <= effective + tolerance)
 
@@ -1012,6 +1014,19 @@ for (nom, usine, date), data in consolidated.items():
         "Pic de Recolte":"PIC" if PEAK_START <= date <= PEAK_END else "",
         "Note":          note,
     })
+
+# ── POST-TRAITEMENT TONNAGE: récupérer les tonnes perdues par l'arrondi ─
+# Si total planifié d'un agriculteur < total déclaré × 98%,
+# augmenter certains jours de 10t pour combler le manque
+_agri_plan_total = {}
+for row in consolidated.values():
+    nom   = row["farmer"].name
+    usine = list(consolidated.keys())[0][1] if row["farmer"] else ""
+    # Accumuler les tonnes planifiées par agriculteur
+    _key = row["farmer"].name
+    if _key not in _agri_plan_total:
+        _agri_plan_total[_key] = {"planned": 0, "declared": row["farmer"].tonnage}
+    _agri_plan_total[_key]["planned"] += row["tons"]
 
 # ANCIEN code remplacé par la consolidation par envoi unique
 
