@@ -62,11 +62,11 @@ FACTORY_CAPS = {
 ROUNDING_MARGIN_PCT = 0.10  # 10% de marge sous le cap pour le solveur (était 5%)
 ROUNDING_MARGIN_MIN = 50    # minimum 50t de marge (était 30t)
 FLEET_CAPACITY = {
-    "TRACTEUR":         (9, 11),     # min/max tonnes par voyage (moyenne ~10t)
-    "PPL":              (7,  12),    # Petit Poilour
-    "PL":               (13, 25),   # Poilour
-    "SEMI":             (25, 40),   # Semi-remorque
-    "DOUBLE_REM":       (30, 40),   # Double Remorque
+    "TRACTEUR":         (9,  11),    # min/max tonnes par voyage (moyenne ~10t)
+    "PPL":              (6,  14),    # Petit Poilour  — capacité mise à jour
+    "PL":               (15, 25),   # Poilour         — capacité mise à jour
+    "SEMI":             (27, 33),   # Semi-remorque   — capacité mise à jour
+    "DOUBLE_REM":       (27, 33),   # Double Remorque (= SEMI)
 }
 
 # Alias rétrocompatibilité
