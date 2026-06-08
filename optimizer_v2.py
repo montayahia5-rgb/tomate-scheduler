@@ -889,48 +889,68 @@ def choose_vehicles(tons, allowed_raw, usine=None):
     return result
 
 all_days = []
+# ✅ CONSOLIDATION : regrouper les parcelles du même agriculteur livrant
+# à la même usine le même jour pour optimiser le transport
+# (ex: 2 parcelles HAFEDH MOSBE × 10t = 1 voyage PL de 20t au lieu de 2)
+from collections import defaultdict as _dd_cons
+consolidated = _dd_cons(lambda: {"tons": 0, "farmer": None, "parcelles": []})
 for f_idx, farmer in enumerate(farmers):
     for d_idx, date in enumerate(all_dates):
         tons = solution[(f_idx, d_idx)]
         if tons <= 0.5: continue
-        # ✅ ARRONDI à la dizaine la plus proche (6→10, 26→30, 43→40, 28→30)
-        # Round half up to nearest 10 — minimise l'impact sur les caps
-        tons      = int(round(round(tons, 1) / 10)) * 10
-        if tons == 0 and round(solution[(f_idx, d_idx)], 1) > 0:
-            tons = 10  # toute valeur positive → minimum 10t (pas 0)
-        vehicles  = choose_vehicles(tons, farmer.allowed_veh, usine=farmer.usine)
-        # Filter out zero-ton extra tracteur from display string
-        # Build veh_str with consistent format: "VEHICLE x{trips}({tons}t)"
-        # TRACTEUR caisses shown separately (tons=0)
-        veh_parts = []
-        for v in vehicles:
-            if v.get('note') and v['tons_each'] == 0:
-                veh_parts.append("TRACTEUR x1 (caisses COMOCAP)")
-            elif v['tons_each'] > 0:
-                veh_parts.append(f"{v['vehicle']} x{v['trips']}({v['tons_each']}t)")
-        veh_str = " | ".join(veh_parts)
-        veh_type  = vehicles[0]["vehicle"] if vehicles else "POILOUR"
-        trips     = sum(v["trips"] for v in vehicles)
-        dist_km   = farmer.distance_km if farmer.distance_km < 999 else 0
-        all_days.append({
-            "Commercial":    farmer.commercial,
-            "Agriculteur":   farmer.name,
-            "Usine":         farmer.usine,
-            "Region":        farmer.geo_region,
-            "Zone":          farmer.zone,
-            "Accessibilite": farmer.access,
-            "Date":          date,
-            "Tonnes/Jour":   tons,
-            "Type Vehicule": veh_type,
-            "Vehicules":     veh_str,
-            "Nb Voyages":    trips,
-            "Distance km":   dist_km,
-            "Date Debut":    farmer.start,
-            "Date Fin":      farmer.end,
-            "Total Tonnes":  farmer.tonnage,
-            "Pic de Recolte":"PIC" if PEAK_START <= date <= PEAK_END else "",
-            "Note":          "AI-optimise",
-        })
+        # Clé : nom agriculteur + usine + date (= un envoi unique)
+        key = (farmer.name.strip().upper(), farmer.usine, date)
+        consolidated[key]["tons"] += round(tons, 1)
+        consolidated[key]["farmer"] = farmer  # garder la dernière référence
+        consolidated[key]["parcelles"].append(f_idx)
+
+# Génération des all_days à partir des envois consolidés
+for (nom, usine, date), data in consolidated.items():
+    tons_brut = data["tons"]
+    farmer    = data["farmer"]
+    n_parcelles = len(data["parcelles"])
+    
+    # ✅ ARRONDI à la dizaine la plus proche
+    tons = int(round(round(tons_brut, 1) / 10)) * 10
+    if tons == 0 and tons_brut > 0:
+        tons = 10  # minimum 10t
+    if tons <= 0:
+        continue
+    
+    vehicles = choose_vehicles(tons, farmer.allowed_veh, usine=farmer.usine)
+    veh_parts = []
+    for v in vehicles:
+        if v.get('note') and v['tons_each'] == 0:
+            veh_parts.append("TRACTEUR x1 (caisses COMOCAP)")
+        elif v['tons_each'] > 0:
+            veh_parts.append(f"{v['vehicle']} x{v['trips']}({v['tons_each']}t)")
+    veh_str = " | ".join(veh_parts)
+    veh_type = vehicles[0]["vehicle"] if vehicles else "POILOUR"
+    trips    = sum(v["trips"] for v in vehicles)
+    dist_km  = farmer.distance_km if farmer.distance_km < 999 else 0
+    note     = f"{n_parcelles} parcelles consolidées" if n_parcelles > 1 else "AI-optimise"
+    
+    all_days.append({
+        "Commercial":    farmer.commercial,
+        "Agriculteur":   farmer.name,
+        "Usine":         usine,
+        "Region":        farmer.geo_region,
+        "Zone":          farmer.zone,
+        "Accessibilite": farmer.access,
+        "Date":          date,
+        "Tonnes/Jour":   tons,
+        "Type Vehicule": veh_type,
+        "Vehicules":     veh_str,
+        "Nb Voyages":    trips,
+        "Distance km":   dist_km,
+        "Date Debut":    farmer.start,
+        "Date Fin":      farmer.end,
+        "Total Tonnes":  farmer.tonnage,
+        "Pic de Recolte":"PIC" if PEAK_START <= date <= PEAK_END else "",
+        "Note":          note,
+    })
+
+# ANCIEN code remplacé par la consolidation par envoi unique
 
 # ✅ POST-TRAITEMENT TRACTEUR COMOCAP : max 10 voyages/jour
 # DOIT être fait AVANT result_df pour aussi corriger transport_rows

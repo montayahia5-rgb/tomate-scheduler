@@ -1151,7 +1151,7 @@ with tab1:
         st.caption(f"Total: {len(p)} lignes")
     
     display_cols = [c for c in ["Date","Commercial","Agriculteur","Usine",
-                                "Tonnes/Jour","Type Véhicule","Nb Voyages",
+                                "Tonnes/Jour","Type Véhicule","Véhicules Requis","Nb Voyages",
                                 "Pic de Récolte","Note"] if c in p.columns]
     p_display = p[display_cols].sort_values("Date").reset_index(drop=True)
     
@@ -1260,7 +1260,7 @@ with tab2:
     st.plotly_chart(fig8, use_container_width=True)
 
     show_cols = [c for c in ["Date","Agriculteur","Usine","Tonnes/Jour",
-                              "Type Véhicule","Nb Voyages","Note"] if c in one.columns]
+                              "Type Véhicule","Véhicules Requis","Nb Voyages","Note"] if c in one.columns]
     st.dataframe(one[show_cols].sort_values("Date").reset_index(drop=True),
                  use_container_width=True, height=240)
     
@@ -1487,10 +1487,10 @@ with tab2:
         st.markdown("---")
         st.subheader(f"🚛 Transport & Voyages — {selected}")
         
-        if "Vehicules" in one.columns or "Type Véhicule" in one.columns:
+        if "Véhicules Requis" in one.columns or "Type Véhicule" in one.columns:
             # Construire le tableau transport: agriculteur × date × véhicules × voyages
             transp_cols = [c for c in ["Date","Agriculteur","Usine","Tonnes/Jour",
-                                       "Type Véhicule","Vehicules","Nb Voyages"] 
+                                       "Type Véhicule","Véhicules Requis","Nb Voyages"] 
                           if c in one.columns]
             df_transport = one[transp_cols].sort_values(["Date","Agriculteur"]).reset_index(drop=True)
             df_transport["Date"] = pd.to_datetime(df_transport["Date"]).dt.strftime("%d/%m/%Y")
