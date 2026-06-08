@@ -1475,13 +1475,77 @@ with tab2:
             st.dataframe(piv_table, use_container_width=True,
                          height=min(900, max(300, (n_farmers_piv + 2) * 35 + 40)))
 
-        # Export
+        # Export planning journalier
         st.download_button(
-            f"⬇️ Exporter tableau {selected} (CSV)",
+            f"⬇️ Exporter planning journalier {selected} (CSV)",
             data=piv_table.to_csv(index=True),
             file_name=f"planning_{selected.replace(' ','_')}_journalier.csv",
             mime="text/csv",
         )
+        
+        # ── 🚛 NOUVEAU: Export TRANSPORT du commercial ─────────────────
+        st.markdown("---")
+        st.subheader(f"🚛 Transport & Voyages — {selected}")
+        
+        if "Vehicules" in one.columns or "Type Véhicule" in one.columns:
+            # Construire le tableau transport: agriculteur × date × véhicules × voyages
+            transp_cols = [c for c in ["Date","Agriculteur","Usine","Tonnes/Jour",
+                                       "Type Véhicule","Vehicules","Nb Voyages"] 
+                          if c in one.columns]
+            df_transport = one[transp_cols].sort_values(["Date","Agriculteur"]).reset_index(drop=True)
+            df_transport["Date"] = pd.to_datetime(df_transport["Date"]).dt.strftime("%d/%m/%Y")
+            
+            # Affichage tableau
+            st.dataframe(df_transport, use_container_width=True, height=400, hide_index=True)
+            
+            # Stats résumées
+            col_t1, col_t2, col_t3, col_t4 = st.columns(4)
+            total_voyages = int(df_transport["Nb Voyages"].sum()) if "Nb Voyages" in df_transport.columns else 0
+            total_jours   = df_transport["Date"].nunique()
+            avg_per_day   = total_voyages / total_jours if total_jours > 0 else 0
+            
+            col_t1.metric("Total voyages saison", f"{total_voyages:,}")
+            col_t2.metric("Jours actifs", total_jours)
+            col_t3.metric("Voyages/jour (moy)", f"{avg_per_day:.1f}")
+            
+            # Comptage par type véhicule
+            if "Type Véhicule" in df_transport.columns:
+                veh_count = df_transport["Type Véhicule"].value_counts().to_dict()
+                veh_str = " | ".join(f"{v}: {c}" for v, c in veh_count.items())
+                col_t4.metric("Répartition véhicules", veh_str[:50])
+            
+            # Bouton export Excel (formaté)
+            import io
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                df_transport.to_excel(writer, sheet_name="Transport_jour", index=False)
+                # Résumé par jour
+                daily_summary = one.groupby(one["Date"].dt.date if "Date" in one.columns else "Date").agg({
+                    "Tonnes/Jour": "sum",
+                    "Nb Voyages": "sum" if "Nb Voyages" in one.columns else "count",
+                    "Agriculteur": "nunique",
+                }).reset_index()
+                daily_summary.columns = ["Date", "Total tonnes", "Total voyages", "Nb agriculteurs"]
+                daily_summary.to_excel(writer, sheet_name="Resume_par_jour", index=False)
+            buffer.seek(0)
+            
+            st.download_button(
+                f"⬇️ Exporter Transport & Voyages {selected} (Excel)",
+                data=buffer,
+                file_name=f"transport_{selected.replace(' ','_')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+            )
+            
+            # Aussi CSV simple
+            st.download_button(
+                f"⬇️ Exporter Transport {selected} (CSV)",
+                data=df_transport.to_csv(index=False).encode("utf-8-sig"),
+                file_name=f"transport_{selected.replace(' ','_')}.csv",
+                mime="text/csv",
+            )
+        else:
+            st.info("Colonnes véhicules non disponibles dans le planning.")
     else:
         st.info("Aucune donnée disponible pour ce commercial.")
 

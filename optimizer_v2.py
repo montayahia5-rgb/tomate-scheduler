@@ -935,6 +935,37 @@ for f_idx, farmer in enumerate(farmers):
 result_df = pd.DataFrame(all_days).sort_values(
     ["Date","Commercial","Agriculteur"]).reset_index(drop=True)
 
+# ✅ POST-TRAITEMENT TRACTEUR COMOCAP : max 10 voyages/jour
+# Si plus de 10 voyages TRACTEUR à COMOCAP un jour donné,
+# convertir les surplus en PPL (équivalent capacité)
+print("  Post-traitement TRACTEUR COMOCAP (max 10 voyages/jour)...")
+TRACTEUR_DAILY_LIMIT = 10  # max 10 voyages × 10t = 100t/jour
+nb_corrections = 0
+for date_val, group in result_df.groupby("Date"):
+    # Filtrer COMOCAP avec TRACTEUR
+    comocap_trac = group[
+        (group["Usine"] == "COMOCAP") &
+        (group["Vehicules"].str.contains("TRACTEUR", na=False))
+    ]
+    if len(comocap_trac) <= TRACTEUR_DAILY_LIMIT:
+        continue
+    # Trop de voyages TRACTEUR ce jour-là — convertir les excédents en PPL
+    # Garder les 10 premiers (ceux avec plus petit tonnage = vraiment courte distance)
+    sorted_idx = comocap_trac.sort_values("Tonnes/Jour").index.tolist()
+    to_convert = sorted_idx[TRACTEUR_DAILY_LIMIT:]  # au-delà du 10ème
+    for idx in to_convert:
+        # Remplacer TRACTEUR par PPL dans Vehicules
+        veh_old = result_df.at[idx, "Vehicules"]
+        ton     = result_df.at[idx, "Tonnes/Jour"]
+        # PPL capacité 7-12t → calculer voyages
+        n_voyages = max(1, math.ceil(ton / 12))
+        ton_each  = round(ton / n_voyages, 1)
+        result_df.at[idx, "Vehicules"]    = f"PPL x{n_voyages}({ton_each}t)"
+        result_df.at[idx, "Type Vehicule"] = "PPL"
+        result_df.at[idx, "Nb Voyages"]    = n_voyages
+        nb_corrections += 1
+print(f"    → {nb_corrections} agriculteur(s) TRACTEUR convertis en PPL pour respecter cap 10/jour")
+
 # Normalize Region column in result
 REGION_NORM_RESULT = {
     "NABEUL":"CAP BON 2","nabeul":"CAP BON 2",
