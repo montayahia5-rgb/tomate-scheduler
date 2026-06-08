@@ -63,11 +63,73 @@ ROUNDING_MARGIN_PCT = 0.05  # 5% de marge sous le cap pour le solveur
 ROUNDING_MARGIN_MIN = 30    # minimum 30t de marge
 FLEET_CAPACITY = {
     "TRACTEUR":         (9,  11),    # min/max tonnes par voyage (moyenne ~10t)
-    "PPL":              (6,  14),    # Petit Poilour  — capacité mise à jour
-    "PL":               (15, 25),   # Poilour         — capacité mise à jour
-    "SEMI":             (27, 33),   # Semi-remorque   — capacité mise à jour
-    "DOUBLE_REM":       (27, 33),   # Double Remorque (= SEMI)
+    "PPL":              (6,  14),    # Petit Poilour
+    "PL":               (15, 25),   # Poilour
+    "SEMI":             (27, 33),   # Semi-remorque
+    "DOUBLE_REM":       (27, 33),   # Double Remorque
 }
+
+# ── Flotte réelle depuis transport_disponible.xlsx ────────────────────
+# Chaque usine a ses propres bennes avec capacités exactes
+# Format: {"SICAM": {"SEMI":[30,30,...], "PL":[22,20,20,...], "PPL":[14]}, ...}
+REAL_FLEET = {}
+
+def _load_real_fleet():
+    """Charge les capacités réelles depuis transport_disponible.xlsx"""
+    import os, pandas as pd
+    from collections import defaultdict
+    
+    # Chercher le fichier dans le même dossier que le script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(script_dir, "transport_disponible.xlsx"),
+        "transport_disponible.xlsx",
+    ]
+    fpath = next((p for p in candidates if os.path.exists(p)), None)
+    if not fpath:
+        return {}  # Fallback vers FLEET_CAPACITY min/max
+    
+    try:
+        df = pd.read_excel(fpath, sheet_name=0)
+        df["usine"]   = df["usine"].astype(str).str.strip().str.upper()
+        df["vtype"]   = df["Type de vehicule"].astype(str).str.strip().str.upper()
+        df["tonnage"] = pd.to_numeric(df["tonnage"], errors="coerce")
+        df["actif"]   = df["actif"].astype(str).str.strip().str.lower()
+        
+        USINE_N = {"FELLEH":"ELFALLEH","FELLA":"ELFALLEH","FALLAH":"ELFALLEH",
+                   "FALLEH":"ELFALLEH"}
+        df["usine"] = df["usine"].map(lambda x: USINE_N.get(x, x))
+        
+        df_ok = df[(df["actif"].isin(["ok","oui","1","oui"])) &
+                   df["tonnage"].notna() & (df["tonnage"] > 0)]
+        
+        fleet = defaultdict(lambda: defaultdict(list))
+        for _, row in df_ok.iterrows():
+            usine = row["usine"]
+            vtype = row["vtype"]
+            tons  = float(row["tonnage"])
+            if usine and vtype and tons > 0:
+                fleet[usine][vtype].append(tons)
+        
+        # Trier chaque liste décroissant (plus grandes bennes en premier)
+        result = {}
+        for usine, vtypes in fleet.items():
+            result[usine] = {vt: sorted(caps, reverse=True) 
+                             for vt, caps in vtypes.items()}
+        return result
+    except Exception as e:
+        print(f"  ⚠️  transport_disponible.xlsx non chargé: {e}")
+        return {}
+
+REAL_FLEET = _load_real_fleet()
+if REAL_FLEET:
+    print(f"  ✅ Flotte réelle chargée: {sum(sum(len(v) for v in vt.values()) for vt in REAL_FLEET.values())} véhicules")
+    for usine, vts in sorted(REAL_FLEET.items()):
+        n = sum(len(v) for v in vts.values())
+        t = sum(sum(v) for v in vts.values())
+        print(f"     {usine:<10}: {n:2d} bennes | {t:.0f}t/j disponible")
+else:
+    print(f"  ℹ️  transport_disponible.xlsx absent — utilisation capacités théoriques")
 
 # Alias rétrocompatibilité
 FLEET_CAPACITY["PETIT POILOUR"] = FLEET_CAPACITY["PPL"]
@@ -791,46 +853,75 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None):
     if not allowed:
         allowed = ["PL"]
 
-    def _alloc(veh, qty):
+    def _alloc_real(veh, qty, usine_name=None):
         """
-        Alloue qty tonnes sur veh. Respecte mn ≤ charge ≤ mx par voyage.
-        Si la répartition parfaite est impossible, répartition équilibrée.
+        Alloue qty tonnes en utilisant les vraies bennes disponibles.
+        Chaque benne a sa capacité exacte du tableau transport_disponible.
+        Retourne une liste de dicts avec capacité RÉELLE de chaque benne.
         """
         if qty <= 0: return []
         
+        # TRACTEUR: capacité fixe 9-11t
         if veh == "TRACTEUR":
-            mn_t, mx_t = FLEET_CAPACITY.get(veh, (9, 11))
-            return [{"vehicle": veh, "trips": 1, "tons_each": round(min(qty, mx_t), 2)}]
+            trac_cap = 10  # capacité standard tracteur
+            return [{"vehicle": "TRACTEUR", "trips": 1, 
+                     "tons_each": min(trac_cap, qty), "real_cap": True}]
         
+        # Récupérer les bennes réelles de cette usine
+        real_caps = []
+        if usine_name and usine_name in REAL_FLEET:
+            real_caps = REAL_FLEET[usine_name].get(veh, [])
+            # BOURAK = joker pour TUCAL
+            if not real_caps and usine_name == "TUCAL":
+                real_caps = REAL_FLEET.get("BOURAK", {}).get(veh, [])
+        
+        if real_caps:
+            # Utiliser les vraies bennes: remplir jusqu'à couvrir qty
+            result = []
+            remaining = qty
+            used_caps = []
+            
+            for cap in real_caps:  # déjà triées décroissant
+                if remaining <= 0: break
+                actual_load = min(cap, remaining)
+                if actual_load > 0:
+                    result.append({"vehicle": veh, "trips": 1, 
+                                   "tons_each": round(actual_load, 1),
+                                   "real_cap": cap})
+                    remaining -= actual_load
+            
+            # Si des tonnes restent (plus de bennes dispo), ajouter une benne générique
+            if remaining > 0.5:
+                mn, mx = FLEET_CAPACITY.get(veh, (7, 25))
+                result.append({"vehicle": veh, "trips": 1,
+                               "tons_each": round(remaining, 1),
+                               "real_cap": None})
+            
+            return result if result else _alloc_theory(veh, qty)
+        
+        # Fallback: capacités théoriques min/max
+        return _alloc_theory(veh, qty)
+    
+    def _alloc_theory(veh, qty):
+        """Fallback: répartition théorique si flotte réelle non disponible."""
+        if qty <= 0: return []
         mn, mx = FLEET_CAPACITY.get(veh, (7, 25))
-        
-        # 1 voyage suffit
         if qty <= mx:
             return [{"vehicle": veh, "trips": 1, "tons_each": round(qty, 2)}]
-        
-        # Plusieurs voyages nécessaires
         trips = math.ceil(qty / mx)
         each  = qty / trips
-        
-        # Si chaque voyage < mn → réduire le nombre de voyages
         while each < mn and trips > 1:
-            trips -= 1
-            each = qty / trips
-        
-        # Répartition équilibrée
+            trips -= 1; each = qty / trips
         base  = int(qty // trips)
-        extra = int(qty - base * trips)  # nb voyages avec 1t de plus
-        
+        extra = int(qty - base * trips)
         entries = []
-        n_heavy = extra        # voyages à (base+1)t
-        n_light = trips - extra  # voyages à base t
-        if n_heavy > 0:
-            entries.append({"vehicle": veh, "trips": n_heavy,
-                            "tons_each": round(base + 1, 2)})
-        if n_light > 0:
-            entries.append({"vehicle": veh, "trips": n_light,
-                            "tons_each": round(base, 2)})
+        if extra:     entries.append({"vehicle": veh, "trips": extra,   "tons_each": round(base+1, 2)})
+        if trips-extra: entries.append({"vehicle": veh, "trips": trips-extra, "tons_each": round(base, 2)})
         return entries
+    
+    def _alloc(veh, qty):
+        """Point d'entrée: utilise vraies bennes si disponibles."""
+        return _alloc_real(veh, qty, usine_name=usine)
 
     def _best_for_tons(qty, candidates):
         """
@@ -1014,7 +1105,8 @@ for (nom, usine, date), data in consolidated.items():
         continue
     
     vehicles = choose_vehicles(tons, farmer.allowed_veh, 
-                              usine=farmer.usine, region=farmer.region)
+                              usine=farmer.usine,
+                              region=farmer.geo_region or farmer.region)
     veh_parts = []
     for v in vehicles:
         if v.get('note') and v['tons_each'] == 0:
