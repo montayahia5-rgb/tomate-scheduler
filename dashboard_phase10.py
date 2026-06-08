@@ -987,6 +987,18 @@ else:
 # Commercial: voit Planning + Par Commercial + Transport + Gestion de ses agriculteurs
 # Directeur : voit tout
 
+if CURRENT_ROLE == "centre":
+    # ── Session CENTRE (BACCARA, KERKOUANE, 428) ──────────────
+    # Rend un dashboard dédié et stoppe l'exécution du dashboard global
+    try:
+        from centre_tab import render_centre_dashboard
+        render_centre_dashboard(get_supabase(), CURRENT_FILTER, CURRENT_NAME)
+    except ImportError:
+        st.error("Module centre_tab.py introuvable. Vérifier le déploiement.")
+    except Exception as e:
+        st.error(f"Erreur centre dashboard: {e}")
+    st.stop()
+
 if CURRENT_ROLE == "usine":
     tab3, tab4 = st.tabs([
         "🏭 Par Usine",
@@ -3188,7 +3200,7 @@ with tab9:
             )
 
 # ── TAB 11: UPLOAD PLANNING ──────────────────────────────────
-with tab10:
+with tab11:
     if not UPLOAD_AVAILABLE:
         st.error("❌ Fichier `upload_tab.py` introuvable dans le dossier.")
         st.info("Mets `upload_tab.py` dans le même dossier que `dashboard_phase10.py`.")
