@@ -833,23 +833,41 @@ def choose_vehicles(tons, allowed_raw, usine=None):
     def _best_for_tons(qty, candidates):
         """
         Parmi les candidats accessibles, choisit celui qui gère qty le plus proprement.
-        Score: 0=parfait, 1=léger sous-charge, 2=multi-voyages propre, 3=surcharge
+        Scores:
+          0 = 1 voyage parfait (mn ≤ qty ≤ mx)
+          1 = multi-voyages propres (chaque voyage dans [mn, mx])
+          2 = 1 voyage légèrement sous-chargé (proche du mn)
+          3 = sous-chargé significatif (< 80% du mn)
+          4 = surcharge
+        Priorité absolue: ne jamais mettre un SEMI pour < 27t si PPL ou PL peut faire mieux
         """
-        best, best_score = None, 999
+        best, best_score, best_ratio = None, 999, 0
         for veh in candidates:
             if veh not in allowed:
                 continue
             mn_v, mx_v = FLEET_CAPACITY.get(veh, (7, 25))
-            if qty <= mx_v and qty >= mn_v:
-                score = 0  # 1 voyage parfait
-            elif qty <= mx_v:
-                score = 1  # 1 voyage léger sous-charge
-            else:
+            ratio = min(qty / mn_v, 1.0)  # 1.0=parfait, <1=sous-chargé
+            if mn_v <= qty <= mx_v:
+                score = 0  # parfait
+            elif qty > mx_v:
                 trips = math.ceil(qty / mx_v)
                 each  = qty / trips
-                score = 2 if each >= mn_v else 3
-            if score < best_score:
-                best_score, best = score, veh
+                if each >= mn_v:
+                    score = 1  # multi-voyages propres
+                else:
+                    t2 = trips
+                    while each < mn_v and t2 > 1:
+                        t2 -= 1
+                        each = qty / t2
+                    score = 2 if each >= mn_v else 4
+            elif qty >= mn_v * 0.8:
+                score = 3  # légèrement sous min
+            else:
+                score = 5  # fortement sous min
+            # En cas d'égalité de score, préférer le ratio qty/mn le plus proche de 1
+            # (= véhicule le moins sous-chargé proportionnellement)
+            if score < best_score or (score == best_score and ratio > best_ratio):
+                best_score, best, best_ratio = score, veh, ratio
         return best
 
     # ── CAS SPÉCIAL : RM (Récolte Mécanique) ────────────────────────────
@@ -878,13 +896,18 @@ def choose_vehicles(tons, allowed_raw, usine=None):
     # ── CAS COMOCAP : TRACTEUR fixe (10t) + transport principal ─────────
     if usine == "COMOCAP" and "TRACTEUR" in allowed:
         result = []
-        # 1 voyage TRACTEUR ≈ 10t
-        trac_tons = min(10, tons * 0.14)
-        trac_tons = round(trac_tons)
-        if trac_tons > 0:
+        trac_mn, trac_mx = FLEET_CAPACITY.get("TRACTEUR", (9, 11))
+        # TRACTEUR seulement si tonnage assez grand pour un voyage plein
+        # Seuil: tons >= trac_mn / 0.14 ≈ 64t
+        if tons >= trac_mn / 0.14:
+            trac_tons = min(trac_mx, round(tons * 0.14))
+            trac_tons = max(trac_mn, trac_tons)  # minimum viable
             result.append({"vehicle": "TRACTEUR", "trips": 1,
                            "tons_each": round(trac_tons, 2)})
-        remaining = round(tons - trac_tons, 2)
+            remaining = round(tons - trac_tons, 2)
+        else:
+            remaining = tons  # pas assez pour TRACTEUR → tout en PL/PPL
+        
         if remaining > 0:
             main_veh = _best_for_tons(remaining, ["PL", "PPL", "SEMI"])
             if not main_veh:
@@ -894,12 +917,31 @@ def choose_vehicles(tons, allowed_raw, usine=None):
 
     # ── CAS GÉNÉRAL : 1 véhicule principal ──────────────────────────────
     # Choisir le meilleur véhicule accessible selon les préférences usine
+    # On essaie d'abord les préférences usine, puis tous les types disponibles
     primary = _best_for_tons(tons, prefs)
     if not primary:
-        # Aucun des préférés n'est accessible → prendre n'importe quel accessible
+        # Essayer dans l'ordre du plus grand au plus petit
         primary = _best_for_tons(tons, ["SEMI", "PL", "PPL", "TRACTEUR"])
     if not primary:
         primary = "PL"  # dernier recours absolu
+    
+    # ✅ Vérification: si le véhicule choisi est très sous-chargé,
+    # essayer un véhicule plus petit
+    if primary and primary in FLEET_CAPACITY:
+        mn_p, mx_p = FLEET_CAPACITY[primary]
+        if tons < mn_p * 0.8:
+            # Le véhicule est vraiment trop grand → chercher plus petit
+            smaller = {
+                "SEMI": ["PL", "PPL"],
+                "PL":   ["PPL"],
+                "PPL":  [],
+            }
+            for alt in smaller.get(primary, []):
+                if alt in allowed:
+                    alt_mn, alt_mx = FLEET_CAPACITY[alt]
+                    if tons >= alt_mn * 0.5:  # acceptable
+                        primary = alt
+                        break
 
     result = _alloc(primary, tons)
     
