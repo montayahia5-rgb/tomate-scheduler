@@ -59,8 +59,8 @@ FACTORY_CAPS = {
 # ✅ MARGE pour absorber l'arrondi à la dizaine
 # L'arrondi peut ajouter jusqu'à +5t/agriculteur en moyenne
 # On réduit les caps solveur pour qu'APRÈS arrondi le cap OFFICIEL soit respecté
-ROUNDING_MARGIN_PCT = 0.05  # 5% de marge sous le cap pour le solveur
-ROUNDING_MARGIN_MIN = 30    # minimum 30t de marge (pour caps petits comme ABIDA)
+ROUNDING_MARGIN_PCT = 0.10  # 10% de marge sous le cap pour le solveur (était 5%)
+ROUNDING_MARGIN_MIN = 50    # minimum 50t de marge (était 30t)
 FLEET_CAPACITY = {
     "TRACTEUR":         (9, 11),     # min/max tonnes par voyage (moyenne ~10t)
     "PPL":              (7,  12),    # Petit Poilour
@@ -932,39 +932,45 @@ for f_idx, farmer in enumerate(farmers):
             "Note":          "AI-optimise",
         })
 
-result_df = pd.DataFrame(all_days).sort_values(
-    ["Date","Commercial","Agriculteur"]).reset_index(drop=True)
-
 # ✅ POST-TRAITEMENT TRACTEUR COMOCAP : max 10 voyages/jour
-# Si plus de 10 voyages TRACTEUR à COMOCAP un jour donné,
-# convertir les surplus en PPL (équivalent capacité)
+# DOIT être fait AVANT result_df pour aussi corriger transport_rows
 print("  Post-traitement TRACTEUR COMOCAP (max 10 voyages/jour)...")
 TRACTEUR_DAILY_LIMIT = 10  # max 10 voyages × 10t = 100t/jour
+
+# Indexer all_days par date
+from collections import defaultdict as _dd
+by_date = _dd(list)
+for i, row in enumerate(all_days):
+    by_date[row["Date"]].append(i)
+
 nb_corrections = 0
-for date_val, group in result_df.groupby("Date"):
+for date_val, indices in by_date.items():
     # Filtrer COMOCAP avec TRACTEUR
-    comocap_trac = group[
-        (group["Usine"] == "COMOCAP") &
-        (group["Vehicules"].str.contains("TRACTEUR", na=False))
+    comocap_trac_idx = [
+        i for i in indices
+        if all_days[i]["Usine"] == "COMOCAP" 
+        and "TRACTEUR" in str(all_days[i].get("Vehicules", ""))
     ]
-    if len(comocap_trac) <= TRACTEUR_DAILY_LIMIT:
+    if len(comocap_trac_idx) <= TRACTEUR_DAILY_LIMIT:
         continue
-    # Trop de voyages TRACTEUR ce jour-là — convertir les excédents en PPL
-    # Garder les 10 premiers (ceux avec plus petit tonnage = vraiment courte distance)
-    sorted_idx = comocap_trac.sort_values("Tonnes/Jour").index.tolist()
-    to_convert = sorted_idx[TRACTEUR_DAILY_LIMIT:]  # au-delà du 10ème
+    # Trop de voyages TRACTEUR — convertir les surplus en PPL
+    # Garder les 10 PREMIERS par ordre d'index (déterministe)
+    # Convertir le reste
+    sorted_by_tons = sorted(comocap_trac_idx, key=lambda i: all_days[i].get("Tonnes/Jour", 0))
+    to_convert = sorted_by_tons[TRACTEUR_DAILY_LIMIT:]
     for idx in to_convert:
-        # Remplacer TRACTEUR par PPL dans Vehicules
-        veh_old = result_df.at[idx, "Vehicules"]
-        ton     = result_df.at[idx, "Tonnes/Jour"]
+        ton = all_days[idx].get("Tonnes/Jour", 0)
         # PPL capacité 7-12t → calculer voyages
         n_voyages = max(1, math.ceil(ton / 12))
         ton_each  = round(ton / n_voyages, 1)
-        result_df.at[idx, "Vehicules"]    = f"PPL x{n_voyages}({ton_each}t)"
-        result_df.at[idx, "Type Vehicule"] = "PPL"
-        result_df.at[idx, "Nb Voyages"]    = n_voyages
+        all_days[idx]["Vehicules"]    = f"PPL x{n_voyages}({ton_each}t)"
+        all_days[idx]["Type Vehicule"] = "PPL"
+        all_days[idx]["Nb Voyages"]    = n_voyages
         nb_corrections += 1
 print(f"    → {nb_corrections} agriculteur(s) TRACTEUR convertis en PPL pour respecter cap 10/jour")
+
+result_df = pd.DataFrame(all_days).sort_values(
+    ["Date","Commercial","Agriculteur"]).reset_index(drop=True)
 
 # Normalize Region column in result
 REGION_NORM_RESULT = {
