@@ -896,7 +896,10 @@ def choose_vehicles(tons, allowed_raw, usine=None):
     prefs = USINE_PREFS.get(usine, ["PL", "PPL", "SEMI"])
 
     # ── CAS COMOCAP : TRACTEUR fixe (10t) + transport principal ─────────
-    if usine == "COMOCAP" and "TRACTEUR" in allowed:
+    # Le TRACTEUR appartient à l'USINE COMOCAP (flotte propre),
+    # PAS à l'agriculteur. On l'ajoute toujours pour COMOCAP
+    # sans vérifier l'accessibilité du fermier.
+    if usine == "COMOCAP":
         result = []
         trac_mn, trac_mx = FLEET_CAPACITY.get("TRACTEUR", (9, 11))
         # TRACTEUR seulement si tonnage assez grand pour un voyage plein
