@@ -366,7 +366,7 @@ df = df.dropna(subset=["AGRICULTEUR","TONNAGE","USINE"])
 df = df[pd.to_numeric(df["TONNAGE"], errors="coerce") > 0]
 df["TONNAGE"]      = pd.to_numeric(df["TONNAGE"], errors="coerce")
 df["commercial"]   = df["commercial"].astype(str).str.strip()
-df["USINE"]        = df["USINE"].astype(str).str.strip()
+df["USINE"]        = df["USINE"].astype(str).str.strip().str.upper()   # ← .upper() obligatoire !
 df["accessbilite"] = df["accessbilite"].fillna("PL/PPL").astype(str).str.strip().str.upper()
 def normalize_acc(x):
     """Normalise l'accessibilité en gardant TOUS les types de véhicules."""
@@ -843,33 +843,37 @@ def choose_vehicles(tons, allowed_raw, usine=None):
           4 = surcharge
         Priorité absolue: ne jamais mettre un SEMI pour < 27t si PPL ou PL peut faire mieux
         """
-        best, best_score, best_ratio = None, 999, 0
+        best, best_score, best_ratio, best_trips = None, 999, 0, 999
         for veh in candidates:
-            if veh not in allowed:
-                continue
             mn_v, mx_v = FLEET_CAPACITY.get(veh, (7, 25))
-            ratio = min(qty / mn_v, 1.0)  # 1.0=parfait, <1=sous-chargé
+            ratio = min(qty / mn_v, 1.0)
             if mn_v <= qty <= mx_v:
-                score = 0  # parfait
+                score = 0
+                n_trips = 1
             elif qty > mx_v:
                 trips = math.ceil(qty / mx_v)
                 each  = qty / trips
                 if each >= mn_v:
-                    score = 1  # multi-voyages propres
+                    score = 1
+                    n_trips = trips
                 else:
                     t2 = trips
                     while each < mn_v and t2 > 1:
                         t2 -= 1
                         each = qty / t2
                     score = 2 if each >= mn_v else 4
+                    n_trips = t2
             elif qty >= mn_v * 0.8:
-                score = 3  # légèrement sous min
+                score = 3
+                n_trips = 1
             else:
-                score = 5  # fortement sous min
-            # En cas d'égalité de score, préférer le ratio qty/mn le plus proche de 1
-            # (= véhicule le moins sous-chargé proportionnellement)
-            if score < best_score or (score == best_score and ratio > best_ratio):
-                best_score, best, best_ratio = score, veh, ratio
+                score = 5
+                n_trips = 1
+            # Priorité: score bas > ratio élevé > moins de voyages
+            if (score < best_score or
+                (score == best_score and ratio > best_ratio) or
+                (score == best_score and ratio == best_ratio and n_trips < best_trips)):
+                best_score, best, best_ratio, best_trips = score, veh, ratio, n_trips
         return best
 
     # ── CAS SPÉCIAL : RM (Récolte Mécanique) ────────────────────────────
@@ -896,27 +900,27 @@ def choose_vehicles(tons, allowed_raw, usine=None):
     prefs = USINE_PREFS.get(usine, ["PL", "PPL", "SEMI"])
 
     # ── CAS COMOCAP : TRACTEUR fixe (10t) + transport principal ─────────
-    # Le TRACTEUR appartient à l'USINE COMOCAP (flotte propre),
-    # PAS à l'agriculteur. On l'ajoute toujours pour COMOCAP
-    # sans vérifier l'accessibilité du fermier.
+    # Le TRACTEUR appartient à l'USINE COMOCAP (flotte propre).
+    # 1 voyage TRACTEUR (10t) par livraison COMOCAP.
+    # Le post-traitement limite à max 10 voyages/jour au total.
     if usine == "COMOCAP":
         result = []
         trac_mn, trac_mx = FLEET_CAPACITY.get("TRACTEUR", (9, 11))
-        # TRACTEUR seulement si tonnage assez grand pour un voyage plein
-        # Seuil: tons >= trac_mn / 0.14 ≈ 64t
-        if tons >= trac_mn / 0.14:
-            trac_tons = min(trac_mx, round(tons * 0.14))
-            trac_tons = max(trac_mn, trac_tons)  # minimum viable
-            result.append({"vehicle": "TRACTEUR", "trips": 1,
-                           "tons_each": round(trac_tons, 2)})
-            remaining = round(tons - trac_tons, 2)
-        else:
-            remaining = tons  # pas assez pour TRACTEUR → tout en PL/PPL
-        
+        # Ajouter 1 voyage TRACTEUR (10t) pour chaque livraison COMOCAP
+        # (pas de seuil minimum — le TRACTEUR tourne tous les jours)
+        trac_tons = min(trac_mx, max(trac_mn, round(tons * 0.14)))
+        result.append({"vehicle": "TRACTEUR", "trips": 1,
+                       "tons_each": round(trac_tons, 2)})
+        remaining = round(tons - trac_tons, 2)
         if remaining > 0:
-            main_veh = _best_for_tons(remaining, ["PL", "PPL", "SEMI"])
+            # Choisir le meilleur véhicule pour le reste
+            # (PPL pour petits restes <15t, PL pour moyens, SEMI pour grands)
+            main_veh = _best_for_tons(remaining, ["PPL", "PL", "SEMI"])
             if not main_veh:
-                main_veh = "PL"
+                # Si aucun n'est dans allowed, prendre le moins mauvais
+                main_veh = _best_for_tons(remaining, ["PPL", "PL", "SEMI"])
+            if not main_veh:
+                main_veh = "PPL" if remaining <= 14 else "PL"
             result.extend(_alloc(main_veh, remaining))
         return result if result else _alloc("PL", tons)
 
