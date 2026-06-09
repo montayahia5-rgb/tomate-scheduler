@@ -76,8 +76,7 @@ TEMPLATE_COLUMNS = [
 
 USINES_VALIDES = {"SICAM", "COMOCAP", "TUCAL", "ABIDA", "ELFALLEH"}
 # Séparateur officiel = "/" uniquement. PL-PPL / PL-SEMI n'existent pas.
-ACCESS_VALIDES = {"PL/PPL", "PL/SEMI", "RM", "TRC/PPL", "TRC/PPL/PL", "PL/PPL/TRC",
-                  "PL", "PPL", "SEMI"}  # ✅ PL seul et PPL seul sont valides
+ACCESS_VALIDES = {"PL/PPL", "PL/SEMI", "RM", "TRC/PPL", "TRC/PPL/PL", "PL/PPL/TRC"}
 
 # ── Alias usines ─────────────────────────────────────────────
 # Toutes les abréviations/fautes rencontrées dans les fichiers commerciaux
@@ -135,12 +134,19 @@ def parse_usines(raw_value) -> list:
 def normalize_access(raw_value: str) -> str:
     """
     Normalise la colonne ACCESSIBILITE.
-    ✅ RÈGLE PRINCIPALE: respecter EXACTEMENT ce que le commercial a écrit.
-       PL seul → PL  |  PPL seul → PPL  |  PL/PPL → PL/PPL
+    
+    IMPORTANT: TRC = TRACTEUR est un véhicule de transport VALIDE.
+    On ne le supprime PAS. TRC/PPL → TRC/PPL (tracteur + petit poilour).
+    
+    Mapping:
+      TRC/PPL, pl/ppl/TRC, TRC/PPL/PL → TRC/PPL  (tracteur accessible)
+      pl/ppl, PL/PPL                   → PL/PPL
+      pl/semi, PL/SEMI, SEMI/PL        → PL/SEMI
+      SEMI/pl/ppl                      → PL/PPL   (SEMI non autorisé zone PPL)
+      RM                               → RM       (100% semi)
     """
     raw = str(raw_value).strip().upper().replace("-", "/")
     
-    # Déjà valide → retourner sans modifier
     if raw in ACCESS_VALIDES:
         return raw
     if raw == "RM":
@@ -153,33 +159,25 @@ def normalize_access(raw_value: str) -> str:
     has_semi = "SEMI" in parts
     has_ppl  = "PPL" in parts
     has_pl   = "PL" in parts
-    has_trc  = "TRC" in parts or "TRACTEUR" in parts or "TRAC" in parts
+    has_trc  = "TRC" in parts or "TRACTEUR" in parts
     
     # TRC présent → garder TRC/PPL
-    if has_trc and has_pl and has_ppl:
-        return "TRC/PPL/PL"
     if has_trc and (has_ppl or has_pl):
         return "TRC/PPL"
-    if has_trc:
+    if has_trc and not has_semi:
         return "TRC/PPL"
     
-    # SEMI combiné
-    if has_semi and has_pl:
-        return "PL/SEMI"
-    if has_semi and has_ppl:
-        return "PL/PPL/SEMI" if "PL/PPL/SEMI" in ACCESS_VALIDES else "PL/SEMI"
+    # SEMI + PPL → PL/PPL (zone PPL, pas de SEMI)
+    if has_semi and (has_ppl or has_pl):
+        return "PL/PPL"
+    
+    # PL/SEMI
     if has_semi:
         return "PL/SEMI"
     
-    # Combinaisons PL + PPL
-    if has_pl and has_ppl:
+    # PL/PPL
+    if has_pl or has_ppl:
         return "PL/PPL"
-    
-    # ✅ Types simples — RESPECTER EXACTEMENT
-    if has_pl:
-        return "PL"
-    if has_ppl:
-        return "PPL"
     
     return raw
 
@@ -401,64 +399,6 @@ def validate_upload(df_upload: pd.DataFrame, commercial_name: str) -> tuple:
 
 
 # ── TAB: UPLOAD PLANNING ─────────────────────────────────────
-
-# ── Division intelligente multi-usines ──────────────────────────────
-# Capacités journalières officielles (t/jour pendant PIC)
-USINE_CAPS = {
-    "SICAM": 1300, "COMOCAP": 700, "TUCAL": 750,
-    "ABIDA": 150,  "ELFALLEH": 100,
-}
-USINE_ALIASES = {
-    "FALL": "ELFALLEH", "FELLA": "ELFALLEH", "FELLEH": "ELFALLEH",
-    "FAL":  "ELFALLEH", "SI": "SICAM", "COM": "COMOCAP",
-    "TUC":  "TUCAL",    "ABI": "ABIDA",
-}
-
-def split_usines_intelligent(usine_str, tonnage, hectares=None):
-    """
-    Divise tonnage entre plusieurs usines proportionnellement à leurs capacités.
-    usine_str peut être: "SICAM", "SICAM/COMOCAP", "SI/COM/FAL", "SICAM TUCAL", etc.
-    Retourne: [(usine, tonnage, hectares), ...]
-    """
-    import re as _re
-    
-    # Parser les usines
-    parts = [p.strip().upper() for p in _re.split(r"[/,;\s]+", usine_str) if p.strip()]
-    usines = []
-    for p in parts:
-        u = USINE_ALIASES.get(p, p)
-        if u in USINE_CAPS and u not in usines:
-            usines.append(u)
-    
-    if len(usines) <= 1:
-        u = usines[0] if usines else usine_str.strip().upper()
-        return [(u, round(float(tonnage), 1), round(float(hectares), 2) if hectares else None)]
-    
-    # Division proportionnelle selon capacités
-    total_cap   = sum(USINE_CAPS[u] for u in usines)
-    result      = []
-    rem_ton     = float(tonnage)
-    rem_ha      = float(hectares) if hectares else None
-    
-    for i, u in enumerate(usines):
-        is_last = (i == len(usines) - 1)
-        ratio   = USINE_CAPS[u] / total_cap
-        
-        if is_last:
-            ton = round(rem_ton, 1)
-            ha  = round(rem_ha, 2) if rem_ha is not None else None
-        else:
-            ton = round(float(tonnage) * ratio, 1)
-            ha  = round(float(hectares) * ratio, 2) if hectares else None
-            rem_ton = round(rem_ton - ton, 1)
-            if rem_ha is not None:
-                rem_ha = round(rem_ha - ha, 2)
-        
-        result.append((u, ton, ha))
-    
-    return result
-
-
 def render_upload_tab(sb, CURRENT_ROLE, CURRENT_NAME, CURRENT_FILTER,
                       GLOBAL_COMMERCIAL_FARMERS, GLOBAL_COMMERCIAL_TONS,
                       df_to_csv):
