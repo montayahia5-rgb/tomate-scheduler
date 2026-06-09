@@ -2151,14 +2151,19 @@ with tab5:
     # ── Instead of empty charts: show constraint verification ──
     st.subheader("📊 Vérification des contraintes — résultat optimizer")
 
-    # Commercial caps verification
+    # Caps NORMAUX (1 livraison/jour)
     COMMERCIAL_CAPS = {
         "FEDI": 850, "MAKKI BEN SALAH": 800, "KHALIL": 800,
         "ACHREF AJLANI": 500, "JILANI OBAY": 50,
     }
+    # ✅ Caps DOUBLES (matin + après-midi) — autorisés pendant PIC
+    COMMERCIAL_CAPS_DOUBLE = {
+        "FEDI": 1300, "MAKKI BEN SALAH": 1200, "KHALIL": 1100,
+        "ACHREF AJLANI": 700, "JILANI OBAY": 150,
+    }
     FACTORY_CAPS = {
-        "SICAM": 1300, "TUCAL": 750, "COMOCAP": 700,
-        "ABIDA": 150, "ELFALLEH": 100,
+        "SICAM": 1500, "TUCAL": 800, "COMOCAP": 850,
+        "ABIDA": 170, "ELFALLEH": 150,
     }
     # Transport confirmé réel (source: transport_12_mai.xlsx — vérifié)
     # SICAM: 4 PPL(44t) + 43 PL(825t) + 11 SEMI(330t) = 1199t/j / 58 bennes
@@ -2214,14 +2219,24 @@ with tab5:
                     pd.DataFrame({"Commercial":_miss_c,"Tonnes/Jour":[0]*len(_miss_c)})],
                     ignore_index=True)
             comm_peak.columns = ["Commercial", "Max réel (t/j)"]
-            comm_peak["Limite (t/j)"] = comm_peak["Commercial"].map(COMMERCIAL_CAPS).fillna(800)
-            comm_peak["Marge (t/j)"]  = comm_peak["Limite (t/j)"] - comm_peak["Max réel (t/j)"]
-            comm_peak["Statut"]       = comm_peak["Marge (t/j)"].apply(
+            # ✅ Pendant PIC, utiliser CAP DOUBLE (jours doubles autorisés)
+            comm_peak["Cap normal"]    = comm_peak["Commercial"].map(COMMERCIAL_CAPS).fillna(800)
+            comm_peak["Limite (t/j)"]  = comm_peak["Commercial"].map(COMMERCIAL_CAPS_DOUBLE).fillna(1200)
+            comm_peak["Marge (t/j)"]   = comm_peak["Limite (t/j)"] - comm_peak["Max réel (t/j)"]
+            # Détecter si jours doubles (max > cap normal)
+            comm_peak["Jours doubles"] = comm_peak.apply(
+                lambda r: "🔁 OUI" if r["Max réel (t/j)"] > r["Cap normal"] else "—", axis=1)
+            comm_peak["Statut"] = comm_peak["Marge (t/j)"].apply(
                 lambda m: "✅ OK" if m >= 0 else "❌ DÉPASSÉ"
             )
             comm_peak["Max réel (t/j)"]  = comm_peak["Max réel (t/j)"].round(0).astype(int)
+            comm_peak["Cap normal"]      = comm_peak["Cap normal"].astype(int)
             comm_peak["Limite (t/j)"]    = comm_peak["Limite (t/j)"].astype(int)
             comm_peak["Marge (t/j)"]     = comm_peak["Marge (t/j)"].round(0).astype(int)
+            comm_peak = comm_peak[["Commercial","Max réel (t/j)","Cap normal",
+                                   "Limite (t/j)","Marge (t/j)","Jours doubles","Statut"]]
+            st.caption("💡 **Cap normal** = 1 livraison/jour | **Limite** = cap avec jours doubles "
+                       "(2 livraisons matin + après-midi)")
             st.dataframe(comm_peak, use_container_width=True, hide_index=True,
                 column_config={
                     "Statut": st.column_config.TextColumn(width="small"),
