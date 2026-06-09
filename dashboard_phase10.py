@@ -1932,6 +1932,149 @@ with tab4:
         fig14.update_layout(paper_bgcolor="#161b22", height=280)
         st.plotly_chart(fig14, use_container_width=True)
 
+# ── SECTION NÉCESSITÉ TRANSPORT (fin de tab4) ───────────────────
+    st.markdown("---")
+    st.subheader("📦 Disponibilité Transport & Besoin Restant par Usine")
+    st.caption("Comparaison flotte propre disponible vs tonnage max planifié pendant le PIC")
+
+    # ── Capacités flotte propre (depuis transport_disponible.xlsx) ──
+    # COMOCAP TRACTEUR = 10 voyages × 10t = 100t/jour
+    FLEET_DISPO = {
+        "SICAM":    {"SEMI": 150, "PL": 390, "PPL": 14,  "TRACTEUR": 0,   "total": 554},
+        "COMOCAP":  {"SEMI":  90, "PL":   0, "PPL": 195, "TRACTEUR": 100, "total": 385},
+        "TUCAL":    {"SEMI":   0, "PL":  95, "PPL":  70, "TRACTEUR": 0,   "total": 165},
+        "ABIDA":    {"SEMI":  30, "PL":   0, "PPL":   0, "TRACTEUR": 0,   "total":  30},
+        "ELFALLEH": {"SEMI":   0, "PL":   0, "PPL":  10, "TRACTEUR": 0,   "total":  10},
+    }
+    CAP_OFFICIEL = {"SICAM":1300,"COMOCAP":700,"TUCAL":750,"ABIDA":150,"ELFALLEH":100}
+    CAP_VEH      = {"SEMI":(27,33),"PL":(15,25),"PPL":(6,14),"TRACTEUR":(9,11)}
+
+    # Calculer le max planifié par usine depuis le planning chargé
+    if not p.empty and "Usine" in p.columns:
+        max_par_usine = (p.groupby(["Date","Usine"])["Tonnes/Jour"]
+                         .sum().reset_index()
+                         .groupby("Usine")["Tonnes/Jour"].max()
+                         .to_dict())
+    else:
+        max_par_usine = {u: CAP_OFFICIEL[u] for u in CAP_OFFICIEL}
+
+    # ── Tableau résumé ───────────────────────────────────────────────
+    import plotly.graph_objects as go
+
+    rows_nec = []
+    for usine, cap_off in CAP_OFFICIEL.items():
+        fleet    = FLEET_DISPO.get(usine, {})
+        f_total  = fleet.get("total", 0)
+        max_plan = max_par_usine.get(usine, cap_off)
+        besoin   = max(0, max_plan - f_total)
+        pct      = round(f_total / max_plan * 100, 1) if max_plan > 0 else 0
+
+        # Estimer le besoin par type de véhicule
+        rem = besoin
+        b_semi = max(0, round((rem * 0.5) / 30)) if usine in ("SICAM","TUCAL") else 0
+        rem -= b_semi * 30
+        b_pl   = max(0, round((rem * 0.6) / 20)) if usine in ("SICAM","TUCAL","COMOCAP","ABIDA") else 0
+        rem -= b_pl * 20
+        b_ppl  = max(0, round(rem / 10))
+
+        rows_nec.append({
+            "Usine":          usine,
+            "Cap. Officielle": cap_off,
+            "Flotte propre":  f_total,
+            "dont TRACTEUR":  fleet.get("TRACTEUR",0),
+            "dont SEMI":      fleet.get("SEMI",0),
+            "dont PL":        fleet.get("PL",0),
+            "dont PPL":       fleet.get("PPL",0),
+            "Max planifié":   int(max_plan),
+            "Besoin restant": int(besoin),
+            "Couverture %":   pct,
+            "→ SEMI louer":   b_semi,
+            "→ PL louer":     b_pl,
+            "→ PPL louer":    b_ppl,
+        })
+
+    df_nec = pd.DataFrame(rows_nec)
+
+    # ── 5 cartes KPI par usine ────────────────────────────────────
+    cols_usine = st.columns(5)
+    for i, row in df_nec.iterrows():
+        usine = row["Usine"]
+        besoin = row["Besoin restant"]
+        pct    = row["Couverture %"]
+        color  = "#1E8449" if pct >= 80 else ("#F39C12" if pct >= 50 else "#C0392B")
+        with cols_usine[i]:
+            st.markdown(f"""
+            <div style="background:#1a2332;border-radius:8px;padding:10px;text-align:center;
+                        border-left:4px solid {color};">
+              <div style="font-size:13px;font-weight:bold;color:#ccc">{usine}</div>
+              <div style="font-size:22px;font-weight:bold;color:{color}">{pct:.0f}%</div>
+              <div style="font-size:11px;color:#aaa">couvert</div>
+              <div style="font-size:12px;color:#e87;">{int(row['Flotte propre'])}t / {int(row['Max planifié'])}t</div>
+              <div style="font-size:11px;color:#f66;font-weight:bold">
+                {'⚠️ +' + str(besoin) + 't externe' if besoin > 0 else '✅ suffisant'}</div>
+            </div>""", unsafe_allow_html=True)
+
+    st.markdown(" ")
+
+    # ── Tableau détaillé ──────────────────────────────────────────
+    st.markdown("**Détail par usine**")
+    col_disp = ["Usine","Flotte propre","dont TRACTEUR","dont SEMI","dont PL","dont PPL",
+                "Max planifié","Besoin restant","Couverture %","→ SEMI louer","→ PL louer","→ PPL louer"]
+    st.dataframe(
+        df_nec[col_disp].style
+            .apply(lambda col: [
+                "background-color:#1a2a1a;color:#5dbb6a" if v == 0 and col.name == "Besoin restant"
+                else "background-color:#2a1a1a;color:#f66;font-weight:bold" if v > 0 and col.name == "Besoin restant"
+                else "background-color:#1e2a3a" if col.name.startswith("→")
+                else ""
+                for v in col], axis=0),
+        use_container_width=True,
+        hide_index=True,
+        height=220,
+    )
+
+    # ── Graphique barres groupées ──────────────────────────────────
+    fig_nec = go.Figure()
+    fig_nec.add_trace(go.Bar(
+        name="Flotte propre (disponible)",
+        x=df_nec["Usine"], y=df_nec["Flotte propre"],
+        marker_color="#2E86C1", text=df_nec["Flotte propre"].astype(str)+"t",
+        textposition="inside",
+    ))
+    fig_nec.add_trace(go.Bar(
+        name="Besoin restant (à louer)",
+        x=df_nec["Usine"], y=df_nec["Besoin restant"],
+        marker_color="#E74C3C", text=df_nec["Besoin restant"].apply(lambda x: f"+{x}t" if x>0 else "✅"),
+        textposition="inside",
+    ))
+    # Ligne cap officielle
+    fig_nec.add_trace(go.Scatter(
+        name="Capacité officielle (PIC)",
+        x=df_nec["Usine"], y=df_nec["Cap. Officielle"],
+        mode="markers+lines", marker_symbol="diamond",
+        marker_size=10, line_dash="dash",
+        marker_color="#F39C12", line_color="#F39C12",
+    ))
+    fig_nec.update_layout(
+        barmode="stack",
+        title="Transport disponible vs besoin par usine (PIC)",
+        template="plotly_dark",
+        paper_bgcolor="#161b22",
+        plot_bgcolor="#0d1117",
+        height=380,
+        legend=dict(orientation="h", y=-0.2),
+        yaxis_title="Tonnes/jour",
+    )
+    st.plotly_chart(fig_nec, use_container_width=True)
+
+    # ── Export ────────────────────────────────────────────────────
+    st.download_button(
+        "⬇️ Exporter rapport transport nécessaire (CSV)",
+        data=df_nec.to_csv(index=False).encode("utf-8-sig"),
+        file_name="transport_necessaire.csv",
+        mime="text/csv",
+    )
+
 # ── TAB 5: DÉCALAGE & OPTIMISATION ──────────────────────────
 with tab5:
 
