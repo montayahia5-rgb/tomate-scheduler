@@ -2119,11 +2119,11 @@ with tab4:
                      "nb_PL":5,"nb_PPL":10,"nb_SEMI":3,"nb_total":17,"total":261,
                      "luimeme_nb":7,"luimeme_t":101},
         "ABIDA":    {"PL":20,"PPL":0,"SEMI":60,"BOURAK":0,"LUIMEME":0,
-                     "nb_PL":1,"nb_PPL":0,"nb_SEMI":2,"nb_total":3,"total":80},
+                     "nb_PL":1,"nb_PPL":0,"nb_SEMI":2,"nb_total":3,"total":80},  # cap=200
         "ELFALLEH": {"PL":0,"PPL":24,"SEMI":0,"BOURAK":0,"LUIMEME":0,
                      "nb_PL":0,"nb_PPL":2,"nb_SEMI":0,"nb_total":2,"total":24},
     }
-    CAP_OFFICIEL = {"SICAM":1500,"COMOCAP":850,"TUCAL":800,"ABIDA":170,"ELFALLEH":150}
+    CAP_OFFICIEL = {"SICAM":1500,"COMOCAP":800,"TUCAL":800,"ABIDA":200,"ELFALLEH":150}
     CAP_VEH      = {"SEMI":(27,33),"PL":(15,25),"PPL":(6,14),"TRACTEUR":(9,11)}
 
     # Calculer le max planifié par usine depuis le planning chargé
@@ -2329,8 +2329,8 @@ with tab5:
         "ACHREF AJLANI": 700, "JILANI OBAY": 150,
     }
     FACTORY_CAPS = {
-        "SICAM": 1500, "TUCAL": 800, "COMOCAP": 850,
-        "ABIDA": 170, "ELFALLEH": 150,
+        "SICAM": 1500, "TUCAL": 800, "COMOCAP": 800,
+        "ABIDA": 200, "ELFALLEH": 150,
     }
     # Transport confirmé réel — Source: Etat_Transport_Final_2026.xlsx (juin 2026)
     # SICAM:    46 PL(891t) + 6 PPL(64t) + 13 SEMI(390t) = 1345t/j / 65 bennes

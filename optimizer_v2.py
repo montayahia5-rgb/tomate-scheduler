@@ -60,11 +60,11 @@ COMMERCIAL_CAPS_DOUBLE = {
     "JILANI OBAY":       150,
 }
 FACTORY_CAPS = {
-    "SICAM":    1500,   # t/jour (ajusté de 1300 - capacité PIC réelle vs besoin)
-    "TUCAL":     800,   # ajusté de 750 (marge sécurité)
-    "COMOCAP":   850,   # ajusté de 750 (besoin réel pendant PIC)
-    "ABIDA":     170,   # ajusté de 150 (besoin réel)
-    "ELFALLEH":  150,   # cap officiel 150 t/j (limite client)
+    "SICAM":    1500,   # cap officiel
+    "TUCAL":     800,   # cap officiel
+    "COMOCAP":   800,   # cap officiel (corrigé de 850)
+    "ABIDA":     200,   # cap officiel (corrigé de 170)
+    "ELFALLEH":  150,   # cap officiel
 }
 
 # ✅ MARGE pour absorber l'arrondi à la dizaine
@@ -616,12 +616,20 @@ class Farmer:
         self.distance_km = get_distance(self.zone, self.usine)
         
         # ✅ PRIORITÉ à la région DÉCLARÉE par le commercial dans Supabase
-        # Fallback sur déduction par zone uniquement si region est vide/inconnue
         declared_region = str(self.region or "").strip().upper()
         if declared_region and declared_region not in ("", "AUTRE", "NAN", "NONE"):
             self.geo_region = declared_region
         else:
             self.geo_region = get_region(self.zone)
+        
+        # ✅ CONTRAINTE SEMI LONGUE DISTANCE (Gafsa/Kassrine/Sidi Bouzid/Kairouan)
+        # Semi depuis Gafsa → max 0.7 voyage/jour = 21t/j PAR BENNE
+        # (1 voyage toutes les 30h = 2 voyages en 3 jours)
+        # Chaque benne Semi = capacité 30t × 0.7 = 21t/j effective
+        LONG_DISTANCE_REGIONS = {"GAFSA / KASSRINE", "SIDI BOUZID", "KAIROUAN"}
+        SEMI_COEFF_LOCAL = 1.0     # régions proches → capacité pleine
+        SEMI_COEFF_LONG  = 0.7     # longue distance → max 0.7 voyage/j
+        self.semi_coeff = SEMI_COEFF_LONG if self.geo_region in LONG_DISTANCE_REGIONS else SEMI_COEFF_LOCAL
 
         # ── Build maturity window ──────────────────────────
         # Case 1: date_cols present (Excel fallback path)
@@ -998,7 +1006,7 @@ else:
 # ============================================================
 print("\nBuilding output tables...")
 
-def choose_vehicles(tons, allowed_raw, usine=None, region=None):
+def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0):
     """
     VERSION V5 — Logique simplifiée et correcte.
     
@@ -1007,6 +1015,9 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None):
     - On choisit UN seul type de véhicule pour chaque livraison (le plus adapté au tonnage)
     - Exceptionnellement 2 types pour COMOCAP (TRACTEUR + transport principal)
     - Pas de découpage proportionnel artificiel en 4-5 types
+    
+    semi_coeff : 0.7 pour Gafsa/Kassrine/Sidi Bouzid/Kairouan (longue distance)
+                 1 voyage toutes les 30h = max 0.7 voyage/j = 21t/j par benne Semi
     
     Logique de sélection:
     1. Regarder la préférence usine (SICAM préfère SEMI, ELFALLEH préfère PPL...)
@@ -1024,7 +1035,8 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None):
         """
         Alloue qty tonnes en utilisant les vraies bennes disponibles.
         Chaque benne a sa capacité exacte du tableau transport_disponible.
-        ✅ Règle: si le reste < min du véhicule → PPL ou véhicule plus petit
+        ✅ Semi longue distance (Gafsa etc.): capacité effective = cap × semi_coeff
+           0.7 voyage/j × 30t = 21t/j par benne
         """
         if qty <= 0: return []
         
@@ -1035,12 +1047,21 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None):
         
         mn_veh, mx_veh = FLEET_CAPACITY.get(veh, (7, 25))
         
+        # ✅ SEMI longue distance: capacité effective réduite par semi_coeff
+        # ex: cap=30t × 0.7 = 21t/j par benne Semi depuis Gafsa
+        if veh == "SEMI" and semi_coeff < 1.0:
+            mx_veh = round(mx_veh * semi_coeff, 1)  # 21t/j par benne
+        
         # Récupérer les bennes réelles de cette usine
         real_caps = []
         if usine_name and usine_name in REAL_FLEET:
             real_caps = list(REAL_FLEET[usine_name].get(veh, []))
             if not real_caps and usine_name == "TUCAL":
                 real_caps = list(REAL_FLEET.get("BOURAK", {}).get(veh, []))
+        
+        # ✅ Si SEMI longue distance: ajuster les capacités réelles
+        if veh == "SEMI" and semi_coeff < 1.0 and real_caps:
+            real_caps = [round(c * semi_coeff, 1) for c in real_caps]
         
         if not real_caps:
             return _alloc_theory(veh, qty)
@@ -1174,15 +1195,20 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None):
         return best
 
     # ── CAS SPÉCIAL : RM (Récolte Mécanique) ────────────────────────────
+    # RM = 100% Semi, mais longue distance → capacité effective réduite par semi_coeff
+    # 0.7 voyage/j × 30t = 21t/j par benne Semi depuis Gafsa/Kassrine/Kairouan/Sidi Bouzid
     if allowed == ["SEMI"]:
         mn, mx = FLEET_CAPACITY["SEMI"]
+        # Appliquer semi_coeff: capacité effective par benne = mx × semi_coeff
+        mx_eff = round(mx * semi_coeff, 1)  # ex: 30 × 0.7 = 21t/j par benne
         if tons <= 0: return []
-        trips = max(1, math.ceil(tons / mx))
+        trips = max(1, math.ceil(tons / mx_eff))
         each  = round(tons / trips, 2)
         while each < mn and trips > 1:
             trips -= 1
             each  = round(tons / trips, 2)
-        return [{"vehicle": "SEMI", "trips": trips, "tons_each": each}]
+        return [{"vehicle": "SEMI", "trips": trips, "tons_each": each,
+                 "semi_coeff": semi_coeff, "note": f"Longue distance ×{semi_coeff}" if semi_coeff < 1 else ""}]
 
     # ── PRÉFÉRENCES PAR USINE ───────────────────────────────────────────
     # Ordre de préférence des véhicules selon l'usine
@@ -1316,7 +1342,8 @@ for (nom, usine, date), data in consolidated.items():
     vehicles = choose_vehicles(tons, farmer.allowed_veh,
                               usine=farmer.usine,
                               region=farmer.geo_region if farmer.geo_region not in ("", "AUTRE") 
-                                     else farmer.region)
+                                     else farmer.region,
+                              semi_coeff=getattr(farmer, "semi_coeff", 1.0))
     veh_parts = []
     for v in vehicles:
         if v.get('tons_each', 0) <= 0:
