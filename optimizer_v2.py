@@ -41,12 +41,23 @@ def clamp_date(d):
     if d > SEASON_END:   return SEASON_END
     return d
 
+# Caps NORMAUX (1 livraison/jour)
 COMMERCIAL_CAPS = {
-    "FEDI":             850,   # t/jour
+    "FEDI":             850,   # t/jour normal
     "MAKKI BEN SALAH":  800,
     "KHALIL":           800,
     "ACHREF AJLANI":    500,
-    "JILANI OBAY":       50,   # cap officiel 50t/j — ajusté automatiquement si tonnage dépasse 50×78j=3900t
+    "JILANI OBAY":       50,   # ajusté auto si besoin > 50t/j
+}
+
+# ✅ Caps MAXIMUM avec JOURS DOUBLES (2 livraisons matin + après-midi)
+# Permet d'absorber les pics de récolte pendant PIC (1-15 juillet)
+COMMERCIAL_CAPS_DOUBLE = {
+    "FEDI":             1300,  # 850 × 1.5 ≈ jour double partiel
+    "MAKKI BEN SALAH":  1200,
+    "KHALIL":           1100,
+    "ACHREF AJLANI":     700,
+    "JILANI OBAY":       150,
 }
 FACTORY_CAPS = {
     "SICAM":    1500,   # t/jour (ajusté de 1300 - capacité PIC réelle vs besoin)
@@ -694,8 +705,15 @@ for d_idx, date in enumerate(all_dates):
     for f_idx, f in enumerate(farmers):
         by_comm[f.commercial].append(x[(f_idx, d_idx)])
     for comm, vs in by_comm.items():
-        # Déterminer la période de cap pour ce commercial
+        # ✅ Pendant PIC: utiliser cap DOUBLE (jours doubles autorisés)
+        # Hors PIC: cap normal
         cap_start, cap_end = CAP_PERIOD_SPECIAL.get(comm, CAP_PERIOD_DEFAULT)
+        is_pic = (cap_start <= date <= cap_end)
+        if is_pic:
+            # Pendant PIC, autoriser jusqu'au cap DOUBLE
+            cap_pic_double = COMMERCIAL_CAPS_DOUBLE.get(comm, comm_effective_caps.get(comm, 1200))
+            model.Add(sum(vs) <= int(cap_pic_double * SCALE))
+            continue   # ne pas appliquer le cap normal
         if cap_start <= date <= cap_end:
             # Réduire le cap solveur pour absorber l'arrondi
             _cap_brut = comm_effective_caps.get(comm, 1200)
@@ -1259,6 +1277,40 @@ for row in consolidated.values():
     _agri_plan_total[_key]["planned"] += row["tons"]
 
 # ANCIEN code remplacé par la consolidation par envoi unique
+
+# ✅ MARQUER LES JOURS DOUBLES (livraison > cap normal du commercial)
+print("  Détection jours doubles (livraisons > cap normal du commercial)...")
+from collections import defaultdict as _dd_dbl
+
+# Cap NORMAL par commercial (sans jour double)
+CAPS_NORMAL = {
+    "FEDI":            850,
+    "MAKKI BEN SALAH": 800,
+    "KHALIL":          800,
+    "ACHREF AJLANI":   500,
+    "JILANI OBAY":      95,
+}
+
+# Calculer tonnage par (commercial, date) → si > cap normal = jour double
+day_tonnage = _dd_dbl(float)
+for row in all_days:
+    day_tonnage[(row["Commercial"], row["Date"])] += row["Tonnes/Jour"]
+
+nb_jours_doubles = 0
+for row in all_days:
+    key = (row["Commercial"], row["Date"])
+    cap_norm = CAPS_NORMAL.get(row["Commercial"], 1000)
+    if day_tonnage[key] > cap_norm * 1.05:   # +5% de tolérance
+        row["Note"] = "AI-optimise + JOUR DOUBLE"
+        nb_jours_doubles += 1
+    else:
+        row["Note"] = "AI-optimise"
+
+jours_doubles_uniques = set()
+for row in all_days:
+    if "JOUR DOUBLE" in row.get("Note",""):
+        jours_doubles_uniques.add((row["Commercial"], row["Date"]))
+print(f"    → {len(jours_doubles_uniques)} jours doubles identifiés ({nb_jours_doubles} livraisons concernées)")
 
 # ✅ POST-TRAITEMENT CORRECTION TONNAGE : total planifié = total déclaré
 # L'arrondi à la dizaine crée un excédent/déficit par rapport au tonnage déclaré
