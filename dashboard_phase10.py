@@ -1936,7 +1936,7 @@ with tab4:
     st.markdown("---")
     st.subheader("📦 Disponibilité Transport & Besoin Restant par Usine")
     st.caption("Comparaison flotte propre disponible vs tonnage max planifié pendant le PIC")
-    if _fleet_from_file:
+    if _fleet_from_file if '_fleet_from_file' in dir() else False:
         st.success("✅ Flotte chargée depuis transport_disponible.xlsx")
     else:
         st.warning("⚠️ transport_disponible.xlsx non trouvé — valeurs par défaut utilisées. "
