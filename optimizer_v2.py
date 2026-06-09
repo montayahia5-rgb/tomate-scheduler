@@ -1203,6 +1203,57 @@ for row in consolidated.values():
 
 # ANCIEN code remplacé par la consolidation par envoi unique
 
+# ✅ POST-TRAITEMENT CORRECTION TONNAGE : total planifié = total déclaré
+# L'arrondi à la dizaine peut ajouter ou retirer jusqu'à ±5t par livraison
+# → ajuster les jours de livraison pour que le total par agriculteur corresponde
+print("  Post-traitement correction tonnage (arrondi)...")
+from collections import defaultdict as _dd_ton
+
+# Calculer le total planifié et déclaré par agriculteur
+_planned_by_farmer = _dd_ton(float)
+_declared_by_farmer = {}
+for row in all_days:
+    nom   = row["Agriculteur"]
+    usine = row["Usine"]
+    key   = (nom, usine)
+    _planned_by_farmer[key]  = _planned_by_farmer.get(key, 0) + row["Tonnes/Jour"]
+    _declared_by_farmer[key] = row["Total Tonnes"]
+
+_corrections = 0
+for (nom, usine), planned in list(_planned_by_farmer.items()):
+    declared = _declared_by_farmer.get((nom, usine), planned)
+    diff = round(planned - declared, 1)
+    if abs(diff) < 5:  # écart acceptable (< 5t) → laisser tel quel
+        continue
+    
+    # Trouver les livraisons de cet agriculteur+usine et ajuster
+    farmer_days = [i for i, r in enumerate(all_days) 
+                   if r["Agriculteur"] == nom and r["Usine"] == usine]
+    if not farmer_days:
+        continue
+    
+    remaining_diff = diff  # positif = trop, négatif = pas assez
+    for idx in sorted(farmer_days, key=lambda i: all_days[i]["Tonnes/Jour"], reverse=True):
+        if abs(remaining_diff) < 1:
+            break
+        current = all_days[idx]["Tonnes/Jour"]
+        if remaining_diff > 0:
+            # Réduire de 10t si possible (ne pas descendre sous 10t)
+            reduction = min(10, remaining_diff, current - 10)
+            if reduction >= 1:
+                all_days[idx]["Tonnes/Jour"] = int(current - reduction)
+                remaining_diff = round(remaining_diff - reduction, 1)
+                _corrections += 1
+        else:
+            # Augmenter de 10t si possible
+            addition = min(10, -remaining_diff)
+            if addition >= 1:
+                all_days[idx]["Tonnes/Jour"] = int(current + addition)
+                remaining_diff = round(remaining_diff + addition, 1)
+                _corrections += 1
+
+print(f"    → {_corrections} ajustement(s) pour corriger l'arrondi")
+
 # ✅ POST-TRAITEMENT TRACTEUR COMOCAP : max 10 voyages/jour
 # DOIT être fait AVANT result_df pour aussi corriger transport_rows
 print("  Post-traitement TRACTEUR COMOCAP (max 10 voyages/jour)...")
