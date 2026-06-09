@@ -61,10 +61,10 @@ COMMERCIAL_CAPS_DOUBLE = {
 }
 FACTORY_CAPS = {
     "SICAM":    1500,   # t/jour (ajusté de 1300 - capacité PIC réelle vs besoin)
-    "TUCAL":     750,
-    "COMOCAP":   750,   # ajusté de 700 (besoin réel)
+    "TUCAL":     800,   # ajusté de 750 (marge sécurité)
+    "COMOCAP":   850,   # ajusté de 750 (besoin réel pendant PIC)
     "ABIDA":     170,   # ajusté de 150 (besoin réel)
-    "ELFALLEH":  100,
+    "ELFALLEH":  150,   # cap officiel 150 t/j (limite client)
 }
 
 # ✅ MARGE pour absorber l'arrondi à la dizaine
