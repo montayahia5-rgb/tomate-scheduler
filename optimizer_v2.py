@@ -1130,11 +1130,27 @@ for (nom, usine, date), data in consolidated.items():
                                      else farmer.region)
     veh_parts = []
     for v in vehicles:
-        if v.get('note') and v['tons_each'] == 0:
-            veh_parts.append("TRACTEUR x1 (caisses COMOCAP)")
-        elif v['tons_each'] > 0:
-            veh_parts.append(f"{v['vehicle']} x{v['trips']}({v['tons_each']}t)")
-    veh_str = " | ".join(veh_parts)
+        if v.get('tons_each', 0) <= 0:
+            continue
+        veh  = v['vehicle']
+        load = v.get('tons_each', 0)
+        cap  = v.get('real_cap', None)   # capacité réelle du camion dans le tableau
+        n    = v.get('trips', 1)
+        
+        if cap is not None and isinstance(cap, (int, float)):
+            # ✅ Afficher la capacité RÉELLE du tableau de transport
+            # ex: PPL(14t) même si le camion porte 8t — la valeur vient du tableau
+            disp_cap = int(cap) if cap == int(cap) else cap
+            for _ in range(n):
+                veh_parts.append(f"{veh}({disp_cap}t)")
+        else:
+            # Théorique (pas de tableau) → afficher la charge calculée
+            if n > 1:
+                veh_parts.append(f"{veh} x{n}({int(load)}t)")
+            else:
+                veh_parts.append(f"{veh}({int(load)}t)")
+    
+    veh_str = " | ".join(veh_parts) if veh_parts else "PL(20t)"
     veh_type = vehicles[0]["vehicle"] if vehicles else "POILOUR"
     trips    = sum(v["trips"] for v in vehicles)
     dist_km  = farmer.distance_km if farmer.distance_km < 999 else 0
