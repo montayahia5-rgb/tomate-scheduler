@@ -285,6 +285,45 @@ def validate_upload(df_upload: pd.DataFrame, commercial_name: str) -> tuple:
     # Gère les cas comme 'TONNAGE ' (espace final), 'nom_agriculteur' (minuscule)
     df_upload = df_upload.copy()
     df_upload.columns = [str(c).strip() for c in df_upload.columns]
+    
+    # ✅ Mapping automatique des noms de colonnes (gère espaces, accents, variantes)
+    RENAME_MAP = {
+        # NOM
+        "NOM AGRICULTEUR": "NOM_AGRICULTEUR", "NOM_AGRICULTEUR": "NOM_AGRICULTEUR",
+        "AGRICULTEUR": "NOM_AGRICULTEUR", "NOM": "NOM_AGRICULTEUR",
+        # TONNAGE
+        "TONNAGE (T)": "TONNAGE", "TONNAGE(T)": "TONNAGE", "TONNAGE": "TONNAGE",
+        # HECTARES
+        "HECTARES": "NBR_HECTARES", "NBR_HECTARES": "NBR_HECTARES",
+        "NBR,HECTAR": "NBR_HECTARES", "NBR HECTAR": "NBR_HECTARES",
+        "NBR HECTARES": "NBR_HECTARES",
+        # T/HA (à ignorer, on recalcule)
+        "T / HA": "_TPHA_IGNORE", "T/HA": "_TPHA_IGNORE",
+        # USINE
+        "USINE": "USINE", "DESTINATION": "USINE",
+        # ACCESSIBILITE
+        "ACCESSIBILITÉ": "ACCESSIBILITE", "ACCESSIBILITE": "ACCESSIBILITE",
+        "ACCESSBILITE": "ACCESSIBILITE", "ACCES": "ACCESSIBILITE",
+        # REGION
+        "RÉGION": "REGION", "REGION": "REGION",
+        # ZONE
+        "ZONE": "ZONE", "ZONNE": "ZONE", "LOCALISATION": "ZONE",
+        # DATES
+        "DATE DÉBUT": "DATE_DEBUT", "DATE_DEBUT": "DATE_DEBUT",
+        "DATE DEBUT": "DATE_DEBUT", "DEBUT RECOLTE": "DATE_DEBUT",
+        "DATE FIN": "DATE_FIN", "DATE_FIN": "DATE_FIN",
+        "FIN RECOLTE": "DATE_FIN",
+        # CENTRE
+        "CENTRE": "CENTRE", "CENTER": "CENTRE",
+        # COMMERCIAL
+        "COMMERCIAL": "COMMERCIAL",
+    }
+    new_cols = {}
+    for col in df_upload.columns:
+        col_up = col.strip().upper()
+        if col_up in RENAME_MAP:
+            new_cols[col] = RENAME_MAP[col_up]
+    df_upload = df_upload.rename(columns=new_cols)
 
     # ── Colonnes requises ────────────────────────────────────
     required = ["NOM_AGRICULTEUR","TONNAGE","USINE","ACCESSIBILITE","DATE_DEBUT","DATE_FIN"]
@@ -397,6 +436,29 @@ def validate_upload(df_upload: pd.DataFrame, commercial_name: str) -> tuple:
     # ✅ ZONE : chercher dans "ZONE" d'abord, puis "ZONNE" (ancien nom)
     _zone_series = df.get("ZONE", df.get("ZONNE", pd.Series([""] * len(df), index=df.index, dtype=str)))
     df["ZONE"]    = _zone_series.fillna("").astype(str).str.strip()
+    
+    # ✅ HECTARES : chercher dans plusieurs noms possibles
+    _ha_series = None
+    for col_name in ["NBR_HECTARES","HECTARES","NBR HECTARES","NBR,HECTAR","NBR HECTAR","HECTARE"]:
+        if col_name in df.columns:
+            _ha_series = df[col_name]
+            break
+    if _ha_series is not None:
+        df["NBR_HECTARES"] = pd.to_numeric(_ha_series, errors="coerce")
+    else:
+        df["NBR_HECTARES"] = pd.NA
+    
+    # ✅ CENTRE : chercher dans plusieurs noms
+    _ctr_series = None
+    for col_name in ["CENTRE","CENTER","CENTRE DE COLLECTE","CENTRE_COLLECTE"]:
+        if col_name in df.columns:
+            _ctr_series = df[col_name]
+            break
+    if _ctr_series is not None:
+        df["CENTRE"] = _ctr_series.fillna("").astype(str).str.strip()
+    else:
+        df["CENTRE"] = ""
+    
     df["COMMERCIAL"] = commercial_name
 
     return True, [], warnings, df
@@ -764,29 +826,56 @@ def render_upload_tab(sb, CURRENT_ROLE, CURRENT_NAME, CURRENT_FILTER,
                             "commercial", CURRENT_NAME).execute()
                         
                         # 2. Insérer les nouveaux agriculteurs
-                        # Normaliser region : nabeul→CAP BON 2, beja→NORD, manouba→NORD
+                        # Normaliser region complètement
                         REGION_NORM_UPLOAD = {
-                            "NABEUL": "CAP BON 2", "nabeul": "CAP BON 2",
-                            "CAPB1":  "CAP BON 1", "capb1":  "CAP BON 1",
-                            "CAPB2":  "CAP BON 2", "capb2":  "CAP BON 2",
-                            "CAP BON 1": "CAP BON 1", "CAP BON 2": "CAP BON 2",
-                            "BEJA":   "NORD",      "beja":   "NORD",
-                            "MANOUBA":"NORD",      "manouba":"NORD",
-                            "GAFSA":  "GAFSA / KASSRINE",
-                            "KASSRINE":"GAFSA / KASSRINE",
+                            # CAP BON
+                            "NABEUL":"CAP BON 2","CAPB1":"CAP BON 1","CAPB2":"CAP BON 2",
+                            "CAP B1":"CAP BON 1","CAP B2":"CAP BON 2",
+                            "CAP BON":"CAP BON 1",
+                            "CAP BON 1":"CAP BON 1","CAP BON 2":"CAP BON 2",
+                            # GAFSA / KASSERINE
+                            "GAFSA":"GAFSA / KASSRINE","KASSRINE":"GAFSA / KASSRINE",
+                            "KASSERINE":"GAFSA / KASSRINE","KASRINE":"GAFSA / KASSRINE",
+                            "KASSARINE":"GAFSA / KASSRINE","SBEITLA":"GAFSA / KASSRINE",
+                            # NORD
+                            "BEJA":"NORD","MANOUBA":"NORD","BIZERTE":"NORD",
+                            "JENDOUBA":"NORD","BIR LAHFAY":"NORD",
+                            "BOR AMRI":"NORD","BORJ AMRI":"NORD",
+                            "MEDJEZ EL BAB":"NORD","MEJEZ EL BAB":"NORD","MEDJEZ BEB":"NORD",
+                            "TESTOUR":"NORD","BOUSSALEM":"NORD",
+                            # KAIROUAN
+                            "KAIROUAN":"KAIROUAN","KAIRAOUAN":"KAIROUAN",
+                            # SIDI BOUZID
+                            "SIDI BOUZID":"SIDI BOUZID","SIDIBOUZID":"SIDI BOUZID",
+                            # BOUFICHA
+                            "BOUFICHA":"BOUFICHA","SOUSSE":"BOUFICHA","ENFIDHA":"BOUFICHA",
+                            "HAMMAMET":"CAP BON 1",
+                            # AUTRE
+                            "AUTRE":"AUTRE",
                         }
+                        KNOWN_REGIONS = {"CAP BON 1","CAP BON 2","NORD","KAIROUAN",
+                                         "SIDI BOUZID","GAFSA / KASSRINE","BOUFICHA","AUTRE"}
 
                         rows_agri = []
                         for _, row in df_clean.iterrows():
                             region_raw = str(row.get("REGION","") or "").strip()
-                            region_norm = REGION_NORM_UPLOAD.get(
-                                region_raw, REGION_NORM_UPLOAD.get(
-                                region_raw.upper(), region_raw.upper()))
+                            # Si vide/NaN → AUTRE
+                            if not region_raw or region_raw.lower() in ("nan","none",""):
+                                region_norm = "AUTRE"
+                            else:
+                                # Essayer mapping (raw puis uppercase)
+                                region_norm = REGION_NORM_UPLOAD.get(
+                                    region_raw, REGION_NORM_UPLOAD.get(
+                                    region_raw.upper(), region_raw.upper()))
+                                # Si pas reconnue → AUTRE
+                                if region_norm.upper() not in {r.upper() for r in KNOWN_REGIONS}:
+                                    region_norm = "AUTRE"
                             rows_agri.append({
                                 "commercial":    CURRENT_NAME,
                                 "nom":           str(row["NOM_AGRICULTEUR"]),
                                 "region":        region_norm,
                                 "zone":          str(row.get("ZONE","") or "").strip(),
+                                "centre":        str(row.get("CENTRE","") or "").strip().upper() or None,
                                 "usine":         str(row["USINE"]).strip().upper(),
                                 "accessibilite": str(row["ACCESSIBILITE"]).strip(),
                                 "tonnage_total": float(row["TONNAGE"]),
