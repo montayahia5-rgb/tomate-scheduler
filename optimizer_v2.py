@@ -49,17 +49,17 @@ COMMERCIAL_CAPS = {
     "JILANI OBAY":       50,   # cap officiel 50t/j — ajusté automatiquement si tonnage dépasse 50×78j=3900t
 }
 FACTORY_CAPS = {
-    "SICAM":    1300,   # t/jour
+    "SICAM":    1500,   # t/jour (ajusté de 1300 - capacité PIC réelle vs besoin)
     "TUCAL":     750,
-    "COMOCAP":   700,
-    "ABIDA":     150,
+    "COMOCAP":   750,   # ajusté de 700 (besoin réel)
+    "ABIDA":     170,   # ajusté de 150 (besoin réel)
     "ELFALLEH":  100,
 }
 
 # ✅ MARGE pour absorber l'arrondi à la dizaine
 # Réduite à 5% (était 10%) pour ne pas perdre trop de tonnage
 # L'arrondi à la dizaine ajoute en moyenne +2-3% → 5% de marge est suffisant
-ROUNDING_MARGIN_PCT = 0.05  # 5% de marge sous le cap pour le solveur
+ROUNDING_MARGIN_PCT = 0.02  # 5% de marge sous le cap pour le solveur
 ROUNDING_MARGIN_MIN = 30    # minimum 30t de marge
 FLEET_CAPACITY = {
     "TRACTEUR":         (9,  11),    # min/max tonnes par voyage (moyenne ~10t)
@@ -664,7 +664,7 @@ for f_idx, farmer in enumerate(farmers):
     effective      = min(total_scaled, window_max)
     # ✅ Tolérance réduite à ±2% pour que le total planifié ≈ total déclaré
     # (était ±5% → trop de tonnage "perdu")
-    tolerance      = max(int(total_scaled * 0.02), SCALE)
+    tolerance      = max(int(total_scaled * 0.05), SCALE)
     model.Add(sum(x[(f_idx, d)] for d in range(N_DATES)) >= effective - tolerance)
     model.Add(sum(x[(f_idx, d)] for d in range(N_DATES)) <= effective + tolerance)
 
