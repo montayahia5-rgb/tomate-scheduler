@@ -1945,58 +1945,67 @@ with tab4:
     # ── Flotte propre : lecture depuis transport_disponible.xlsx ──
     @st.cache_data(ttl=300)
     def _load_fleet():
-        """Charge la flotte depuis le fichier transport_disponible.xlsx."""
         import os
-        paths = [
-            "transport_disponible.xlsx",
-            os.path.join(os.path.dirname(__file__), "transport_disponible.xlsx"),
-        ]
+        FALLBACK = {
+            "SICAM":    {"SEMI":330,"PL":825,"PPL": 44,"TRACTEUR":  0,"BOURAK":  0,"total":1199,"nb_bennes": 58},
+            "COMOCAP":  {"SEMI": 90,"PL": 76,"PPL":132,"TRACTEUR":100,"BOURAK":  0,"total": 398,"nb_bennes": 21},
+            "TUCAL":    {"SEMI": 30,"PL":318,"PPL":  0,"TRACTEUR":  0,"BOURAK": 76,"total": 424,"nb_bennes": 19},
+            "ABIDA":    {"SEMI": 30,"PL": 20,"PPL":  0,"TRACTEUR":  0,"BOURAK":  0,"total":  50,"nb_bennes":  2},
+            "ELFALLEH": {"SEMI":  0,"PL":  0,"PPL": 24,"TRACTEUR":  0,"BOURAK":  0,"total":  24,"nb_bennes":  2},
+        }
+        paths = ["transport_disponible.xlsx",
+                 os.path.join(os.path.dirname(__file__), "transport_disponible.xlsx")]
         df_t = None
         for p in paths:
             if os.path.exists(p):
-                df_t = pd.read_excel(p)
-                break
-        
-        # Fallback si fichier non trouvé
+                try:
+                    df_t = pd.read_excel(p, sheet_name=0)
+                    break
+                except Exception:
+                    pass
         if df_t is None:
-            return {
-                "SICAM":    {"SEMI":150,"PL":390,"PPL":14, "TRACTEUR":0,  "BOURAK":0,  "total":554},
-                "COMOCAP":  {"SEMI":90, "PL":0,  "PPL":195,"TRACTEUR":100,"BOURAK":0,  "total":385},
-                "TUCAL":    {"SEMI":0,  "PL":0,  "PPL":70, "TRACTEUR":0,  "BOURAK":95, "total":165},
-                "ABIDA":    {"SEMI":30, "PL":0,  "PPL":0,  "TRACTEUR":0,  "BOURAK":0,  "total":30},
-                "ELFALLEH": {"SEMI":0,  "PL":0,  "PPL":10, "TRACTEUR":0,  "BOURAK":0,  "total":10},
-            }, False
-        
-        # Parser le fichier
-        ALIASES = {"FELLEH":"ELFALLEH","FELLA":"ELFALLEH","FALLEH":"ELFALLEH",
-                   "FALL":"ELFALLEH","SICAM ":"SICAM","TUCAL ":"TUCAL"}
-        df_t["usine"]  = df_t["usine"].astype(str).str.strip().str.upper().map(
-            lambda x: ALIASES.get(x, x))
-        df_t["vtype"]  = df_t["Type de vehicule"].astype(str).str.strip().str.upper()
-        df_t["tonnage"]= pd.to_numeric(df_t["tonnage"], errors="coerce")
-        df_t["actif"]  = df_t["actif"].astype(str).str.strip().str.lower()
-        df_ok = df_t[df_t["actif"].isin(["ok","oui","1"]) & 
-                     df_t["tonnage"].notna() & (df_t["tonnage"]>0)]
-        
-        bourak_t = df_ok[df_ok["usine"]=="BOURAK"]["tonnage"].sum()
-        fleet = {}
-        for usine in ["SICAM","COMOCAP","TUCAL","ABIDA","ELFALLEH"]:
-            sub  = df_ok[df_ok["usine"]==usine]
-            semi = sub[sub["vtype"]=="SEMI"]["tonnage"].sum()
-            pl   = sub[sub["vtype"]=="PL"]["tonnage"].sum()
-            ppl  = sub[sub["vtype"].str.contains("PPL|Ppl", na=False)]["tonnage"].sum()
-            trac = 100 if usine == "COMOCAP" else 0
-            bour = bourak_t if usine == "TUCAL" else 0
-            fleet[usine] = {
-                "SEMI":     int(semi),
-                "PL":       int(pl),
-                "PPL":      int(ppl),
-                "TRACTEUR": int(trac),
-                "BOURAK":   int(bour),
-                "total":    int(semi + pl + ppl + trac + bour),
-                "nb_bennes":len(sub),
-            }
-        return fleet, True
+            return FALLBACK, False
+        try:
+            # Auto-détecter colonnes (case-insensitive)
+            col_lower = {str(c).strip().lower(): str(c).strip() for c in df_t.columns}
+            usine_col = col_lower.get("usine")
+            ton_col   = col_lower.get("tonnage")
+            type_col  = next((col_lower[k] for k in col_lower
+                              if "type" in k and "vehicule" in k), None)
+            conf_col  = col_lower.get("confirmation", col_lower.get("actif"))
+            if not (usine_col and ton_col and type_col):
+                return FALLBACK, False
+            ALIASES = {"EL FALLEH":"ELFALLEH","FELLEH":"ELFALLEH","FELLA":"ELFALLEH",
+                       "LUI-MEME":"LUIMEME","LUI-MÊME":"LUIMEME","TOTAL":"SKIP"}
+            df_t["_u"] = df_t[usine_col].astype(str).str.strip().str.upper().map(
+                lambda x: ALIASES.get(x, x))
+            df_t["_t"] = pd.to_numeric(df_t[ton_col], errors="coerce")
+            def _vt(t):
+                t = str(t).strip().upper()
+                if "SEMI" in t or "DOUBLE" in t: return "SEMI"
+                if t.startswith("PPL"):           return "PPL"
+                if t.startswith("PL"):            return "PL"
+                return t
+            df_t["_v"] = df_t[type_col].apply(_vt)
+            df_t["_a"] = df_t[conf_col].astype(str).str.strip().str.lower() \
+                         if conf_col else pd.Series("ok", index=df_t.index)
+            df_ok = df_t[(df_t["_a"]=="ok") & df_t["_t"].notna() &
+                         (df_t["_t"]>0) & (df_t["_u"]!="SKIP")]
+            bour = int(df_ok[df_ok["_u"]=="BOURAK"]["_t"].sum())
+            fleet = {}
+            for usine in ["SICAM","COMOCAP","TUCAL","ABIDA","ELFALLEH"]:
+                sub  = df_ok[df_ok["_u"]==usine]
+                semi = int(sub[sub["_v"]=="SEMI"]["_t"].sum())
+                pl   = int(sub[sub["_v"]=="PL"]["_t"].sum())
+                ppl  = int(sub[sub["_v"]=="PPL"]["_t"].sum())
+                trac = 100 if usine=="COMOCAP" else 0
+                b    = bour if usine=="TUCAL" else 0
+                fleet[usine] = {"SEMI":semi,"PL":pl,"PPL":ppl,
+                                "TRACTEUR":trac,"BOURAK":b,
+                                "total":semi+pl+ppl+trac+b,"nb_bennes":len(sub)}
+            return fleet, True
+        except Exception as e:
+            return FALLBACK, False
     
     FLEET_DISPO, _fleet_from_file = _load_fleet()
     CAP_OFFICIEL = {"SICAM":1300,"COMOCAP":700,"TUCAL":750,"ABIDA":150,"ELFALLEH":100}
