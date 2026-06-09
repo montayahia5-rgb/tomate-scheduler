@@ -2301,6 +2301,198 @@ with tab4:
         mime="text/csv",
     )
 
+    # ════════════════════════════════════════════════════════════════
+    # SECTION : TRANSPORT À LOUER
+    # ════════════════════════════════════════════════════════════════
+    st.divider()
+    st.markdown("## 🔴 Transport à recruter / louer")
+    st.caption("Calcul automatique du manque par usine selon les règles de répartition par type de véhicule")
+
+    # ── Données de base ─────────────────────────────────────────────
+    _CONF = {
+        "SICAM":    {"total":1345,"PL":891, "PPL":64, "SEMI":390,"nb_PL":46,"nb_PPL":6, "nb_SEMI":13,"nb_total":65},
+        "TUCAL":    {"total":363, "PL":303, "PPL":0,  "SEMI":60, "nb_PL":17,"nb_PPL":0, "nb_SEMI":2, "nb_total":19},
+        "COMOCAP":  {"total":261, "PL":76,  "PPL":95, "SEMI":90, "nb_PL":5, "nb_PPL":10,"nb_SEMI":3, "nb_total":17},
+        "ABIDA":    {"total":80,  "PL":20,  "PPL":0,  "SEMI":60, "nb_PL":1, "nb_PPL":0, "nb_SEMI":2, "nb_total":3},
+        "ELFALLEH": {"total":24,  "PL":0,   "PPL":24, "SEMI":0,  "nb_PL":0, "nb_PPL":2, "nb_SEMI":0, "nb_total":2},
+    }
+    _JOKERS = {"TUCAL":114, "COMOCAP":101}
+    _JOKER_LBL = {"TUCAL":"BOURAK (6 PL)", "COMOCAP":"LUIMÈME (7 bn)"}
+    _CAPS  = {"SICAM":1500,"TUCAL":800,"COMOCAP":800,"ABIDA":200,"ELFALLEH":150}
+    # Règles de répartition du manque par type
+    _REGLES = {
+        "SICAM":    {"PPL":0.00,"PL":0.00,"SEMI":1.00},   # 100% Semi
+        "TUCAL":    {"PPL":0.00,"PL":0.30,"SEMI":0.70},   # 30% PL + 70% Semi
+        "COMOCAP":  {"PPL":0.50,"PL":0.30,"SEMI":0.20},   # 50% PPL + 30% PL + 20% Semi
+        "ABIDA":    {"PPL":0.00,"PL":0.50,"SEMI":0.50},   # 50% PL + 50% Semi
+        "ELFALLEH": {"PPL":0.70,"PL":0.30,"SEMI":0.00},   # 70% PPL + 30% PL
+    }
+    _CAP_BENNE = {"PPL":10,"PL":20,"SEMI":30}
+    _VEH_LBL   = {"PPL":"Petit PL","PL":"Grand PL","SEMI":"Semi"}
+    _VEH_COLOR = {"PPL":"#9C27B0","PL":"#2196F3","SEMI":"#4CAF50"}
+    _USINE_ORDER = ["SICAM","TUCAL","COMOCAP","ABIDA","ELFALLEH"]
+
+    # ── Calcul ──────────────────────────────────────────────────────
+    rows_louer = []
+    for u in _USINE_ORDER:
+        c     = _CONF[u]
+        cap   = _CAPS[u]
+        joker = _JOKERS.get(u,0)
+        dispo = c["total"] + joker
+        manque= max(0, cap - dispo)
+        for vt in ["PPL","PL","SEMI"]:
+            pct   = _REGLES[u][vt]
+            tonnes= int(round(manque * pct))
+            nb    = int(round(tonnes / _CAP_BENNE[vt])) if tonnes > 0 else 0
+            rows_louer.append({
+                "Usine":u,"vtype":vt,"cap":cap,"conf":c["total"],
+                "nb_conf":c["nb_total"],"nb_ppl":c["nb_PPL"],"nb_pl":c["nb_PL"],"nb_semi":c["nb_SEMI"],
+                "joker":joker,"joker_lbl":_JOKER_LBL.get(u,"—"),
+                "dispo":dispo,"manque":manque,"pct":pct,"tonnes":tonnes,"nb":nb,
+            })
+    df_louer = pd.DataFrame(rows_louer)
+
+    # ── KPI cards — résumé par usine ────────────────────────────────
+    st.markdown("**Résumé par usine**")
+    cols_k = st.columns(5)
+    _USINE_BG = {"SICAM":"#0d3b6e","TUCAL":"#1a4731","COMOCAP":"#5c3a00","ABIDA":"#4a1500","ELFALLEH":"#3b0a45"}
+    for i, u in enumerate(_USINE_ORDER):
+        sub    = df_louer[df_louer["Usine"]==u]
+        cap    = _CAPS[u]
+        dispo  = sub.iloc[0]["dispo"]
+        manque = sub.iloc[0]["manque"]
+        pct_ok = round(dispo/cap*100)
+        total_bn = int(sub["nb"].sum())
+        ppl_bn = int(sub[sub["vtype"]=="PPL"]["nb"].sum())
+        pl_bn  = int(sub[sub["vtype"]=="PL"]["nb"].sum())
+        semi_bn= int(sub[sub["vtype"]=="SEMI"]["nb"].sum())
+        joker  = sub.iloc[0]["joker"]
+        color  = "#E74C3C" if manque>300 else ("#F39C12" if manque>100 else "#27AE60")
+        bg     = _USINE_BG.get(u,"#1a2332")
+        parts  = []
+        if ppl_bn>0:  parts.append(f"<span style='color:#CE93D8'>{ppl_bn} PPL</span>")
+        if pl_bn>0:   parts.append(f"<span style='color:#90CAF9'>{pl_bn} PL</span>")
+        if semi_bn>0: parts.append(f"<span style='color:#A5D6A7'>{semi_bn} Semi</span>")
+        with cols_k[i]:
+            st.markdown(f"""
+            <div style="background:{bg};border-radius:10px;padding:12px;
+                        border:2px solid {color};text-align:center;">
+              <div style="font-size:15px;font-weight:900;color:#fff;letter-spacing:1px">{u}</div>
+              <div style="margin:4px 0;font-size:11px;color:#aaa">{dispo}t dispo / {cap}t cap</div>
+              <div style="font-size:26px;font-weight:900;color:{color}">{manque}t</div>
+              <div style="font-size:10px;color:#aaa">à louer/jour</div>
+              <div style="margin-top:6px;font-size:11px;color:#ffd">
+                {' + '.join(parts) if parts else '<span style="color:#4CAF50">✅ OK</span>'}
+              </div>
+              {'<div style="font-size:10px;color:#80CBC4;margin-top:4px">🔧 +'+str(joker)+'t joker</div>' if joker>0 else ''}
+            </div>""", unsafe_allow_html=True)
+
+    st.markdown(" ")
+
+    # ── Tableau détaillé ────────────────────────────────────────────
+    st.markdown("**📋 Détail par usine et type de véhicule**")
+
+    tbl_rows = []
+    for u in _USINE_ORDER:
+        sub   = df_louer[df_louer["Usine"]==u]
+        manque= sub.iloc[0]["manque"]
+        joker = sub.iloc[0]["joker"]
+        dispo = sub.iloc[0]["dispo"]
+        for _, r in sub.iterrows():
+            if r["pct"]==0: continue
+            tbl_rows.append({
+                "Usine":         r["Usine"],
+                "Type":          _VEH_LBL[r["vtype"]],
+                "Cap (t/j)":     r["cap"],
+                "Confirmé (t/j)":r["conf"],
+                "Nb bennes conf":r["nb_conf"],
+                "Joker (t/j)":   joker if joker>0 else "—",
+                "Disponible (t/j)":dispo,
+                "Manque (t/j)":  manque,
+                "% règle":       f"{int(r['pct']*100)}%",
+                "À louer (t/j)": r["tonnes"],
+                "Nb bennes":     r["nb"],
+                "t/benne":       _CAP_BENNE[r["vtype"]],
+            })
+    df_tbl = pd.DataFrame(tbl_rows)
+
+    # Coloration conditionnelle
+    def color_nb(v):
+        if not isinstance(v, (int,float)) or v==0: return ""
+        if v >= 15: return "background-color:#C0392B;color:white;font-weight:bold"
+        if v >= 8:  return "background-color:#E67E22;color:white;font-weight:bold"
+        if v >= 3:  return "background-color:#F9E79F;color:black"
+        return "background-color:#D5F5E3;color:black"
+
+    styled = df_tbl.style.applymap(color_nb, subset=["Nb bennes"])
+    st.dataframe(styled, use_container_width=True, hide_index=True, height=280)
+
+    # ── Graphique 2 : Transport à louer par usine et type ───────────
+    st.markdown("**📊 Visualisation — bennes à louer par usine**")
+    fig_louer = go.Figure()
+
+    for vt in ["PPL","PL","SEMI"]:
+        sub_vt = df_louer[df_louer["vtype"]==vt]
+        nb_vals= [int(sub_vt[sub_vt["Usine"]==u]["nb"].sum()) for u in _USINE_ORDER]
+        t_vals = [int(sub_vt[sub_vt["Usine"]==u]["tonnes"].sum()) for u in _USINE_ORDER]
+        texts  = [f"{nb}bn<br>{t}t" if nb>0 else "" for nb,t in zip(nb_vals,t_vals)]
+        fig_louer.add_trace(go.Bar(
+            name=_VEH_LBL[vt],
+            x=_USINE_ORDER, y=nb_vals,
+            marker_color=_VEH_COLOR[vt],
+            text=texts, textposition="inside", textfont_size=10,
+        ))
+
+    # Ligne total bennes à louer
+    total_by_usine = [int(df_louer[df_louer["Usine"]==u]["nb"].sum()) for u in _USINE_ORDER]
+    fig_louer.add_trace(go.Scatter(
+        name="Total bennes",
+        x=_USINE_ORDER, y=total_by_usine,
+        mode="markers+text",
+        text=[f"<b>{v}</b>" for v in total_by_usine],
+        textposition="top center",
+        marker=dict(symbol="diamond", size=12, color="#FFD700"),
+    ))
+    fig_louer.update_layout(
+        barmode="stack",
+        title="Bennes à recruter par usine et type de véhicule",
+        template="plotly_dark",
+        paper_bgcolor="#161b22",
+        plot_bgcolor="#0d1117",
+        height=380,
+        legend=dict(orientation="h", y=-0.2),
+        yaxis_title="Nombre de bennes",
+        yaxis=dict(dtick=5),
+    )
+    st.plotly_chart(fig_louer, use_container_width=True)
+
+    # ── Récapitulatif global ─────────────────────────────────────────
+    st.markdown("**📊 Récapitulatif global à louer**")
+    c1, c2, c3, c4 = st.columns(4)
+    tot_manque  = int(df_louer.groupby("Usine")["manque"].first().sum())
+    tot_bennes  = int(df_louer["nb"].sum())
+    tot_ppl_bn  = int(df_louer[df_louer["vtype"]=="PPL"]["nb"].sum())
+    tot_pl_bn   = int(df_louer[df_louer["vtype"]=="PL"]["nb"].sum())
+    tot_semi_bn = int(df_louer[df_louer["vtype"]=="SEMI"]["nb"].sum())
+    tot_tonnes  = int(df_louer["tonnes"].sum())
+    with c1:
+        st.metric("Manque total (t/j)",    f"{tot_manque}t")
+    with c2:
+        st.metric("Total bennes à louer",  f"{tot_bennes} bennes")
+    with c3:
+        st.metric("dont Semi",             f"{tot_semi_bn} Semi")
+    with c4:
+        st.metric("dont PL + PPL",         f"{tot_pl_bn+tot_ppl_bn} bennes")
+
+    # ── Export CSV ──────────────────────────────────────────────────
+    csv_louer = df_tbl.to_csv(index=False, sep=";").encode("utf-8-sig")
+    st.download_button(
+        "⬇️ Exporter transport à louer (CSV)",
+        data=csv_louer,
+        file_name="transport_a_louer_2026.csv",
+        mime="text/csv",
+    )
+
 # ── TAB 5: DÉCALAGE & OPTIMISATION ──────────────────────────
 with tab5:
 
