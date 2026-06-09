@@ -984,9 +984,29 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None):
             remaining = round(remaining - actual_load, 1)
         
         # ✅ Gérer le reste < mn_veh avec un véhicule plus petit
+        # IMPORTANT: respecter l'accessibilité — ne PAS passer en PPL si non autorisé
         if remaining > 0.1:
-            SMALLER = {"SEMI": "PL", "PL": "PPL", "PPL": "PPL"}
-            small_veh = SMALLER.get(veh, "PPL")
+            # Mapping véhicule plus petit
+            SMALLER_DEFAULT = {"SEMI": "PL", "PL": "PPL", "PPL": "PPL"}
+            small_veh = SMALLER_DEFAULT.get(veh, "PPL")
+            
+            # ✅ VÉRIFIER que small_veh est dans allowed (accessibilité)
+            if small_veh not in allowed:
+                # PL non autorisé → essayer SEMI (si dispo) ou rester sur véhicule courant
+                # PPL non autorisé → essayer PL puis SEMI
+                if veh == "PL" and "SEMI" in allowed:
+                    small_veh = "SEMI"
+                elif veh == "PPL" and "PL" in allowed:
+                    small_veh = "PL"
+                elif "PL" in allowed:
+                    small_veh = "PL"
+                elif "SEMI" in allowed:
+                    small_veh = "SEMI"
+                else:
+                    # Aucune alternative valide → rester sur le véhicule courant
+                    # même si la dernière benne n'est pas pleine
+                    small_veh = veh
+            
             small_caps = []
             if usine_name and usine_name in REAL_FLEET:
                 small_caps = list(REAL_FLEET[usine_name].get(small_veh, []))
@@ -999,7 +1019,7 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None):
                                    "real_cap": round(scap, 1)})
                     remaining = round(remaining - sload, 1)
             else:
-                # Fallback: forcer dans PPL
+                # Fallback: forcer dans small_veh (qui est maintenant dans allowed)
                 mn_s, mx_s = FLEET_CAPACITY.get(small_veh, (6, 14))
                 n = max(1, math.ceil(remaining / mx_s))
                 each = round(remaining / n, 1)
