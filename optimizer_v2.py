@@ -620,14 +620,23 @@ class Farmer:
         if self.end <= self.start:
             self.end = clamp_date(self.start + datetime.timedelta(days=30))
         
-        # ✅ EXTENSION SYSTÉMATIQUE: +3 jours sur date_fin pour TOUS les agriculteurs
-        # Permet d'étaler le tonnage et éviter au maximum les jours doubles
-        self.end = clamp_date(self.end + datetime.timedelta(days=3))
+        # ✅ EXTENSION GRADUÉE selon tonnage de l'agriculteur
+        # Plus le tonnage est gros, plus on étend la fenêtre pour étaler la charge
+        # Cela permet d'éviter les jours doubles
+        if self.tonnage < 200:
+            ext_days = 3       # Petit agriculteur → +3 jours
+        elif self.tonnage < 500:
+            ext_days = 5       # Moyen → +5 jours
+        elif self.tonnage < 800:
+            ext_days = 7       # Gros → +7 jours
+        else:
+            ext_days = 10      # Très gros (≥800t) → +10 jours
+        self.end = clamp_date(self.end + datetime.timedelta(days=ext_days))
 
         n_days = max(1, (self.end - self.start).days + 1)
         daily  = self.tonnage / n_days
         
-        # ✅ Auto-extension de fenêtre si tonnage/jour ENCORE trop élevé après +3j
+        # ✅ Auto-extension de sécurité si tonnage/jour ENCORE trop élevé
         MAX_DAILY_PER_FARMER = 80   # 80t/j max par agriculteur sur une usine
         if daily > MAX_DAILY_PER_FARMER:
             days_needed = math.ceil(self.tonnage / MAX_DAILY_PER_FARMER)
