@@ -589,6 +589,24 @@ class Farmer:
 
         n_days = max(1, (self.end - self.start).days + 1)
         daily  = self.tonnage / n_days
+        
+        # ✅ Auto-extension de fenêtre si tonnage/jour trop élevé
+        # Si > 80t/j requis → étendre la fenêtre pour respecter caps usine et commercial
+        MAX_DAILY_PER_FARMER = 80   # 80t/j max par agriculteur sur une usine
+        if daily > MAX_DAILY_PER_FARMER:
+            # Calculer combien de jours sont nécessaires
+            days_needed = math.ceil(self.tonnage / MAX_DAILY_PER_FARMER)
+            # Étendre symétriquement avant et après
+            extension = days_needed - n_days
+            ext_before = extension // 2
+            ext_after  = extension - ext_before
+            new_start = clamp_date(self.start - datetime.timedelta(days=ext_before))
+            new_end   = clamp_date(self.end   + datetime.timedelta(days=ext_after))
+            self.start = new_start
+            self.end   = new_end
+            n_days     = max(1, (self.end - self.start).days + 1)
+            daily      = self.tonnage / n_days
+        
         self.window = {
             self.start + datetime.timedelta(days=i): round(daily, 1)
             for i in range(n_days)
@@ -616,7 +634,7 @@ for region, dists in sorted(by_region.items()):
 print("\nBuilding OR-Tools model with distance optimization...")
 
 SCALE = 10
-MAX_SOLVE_SECONDS = 80  # 80s solver + ~20s Excel = 100s total
+MAX_SOLVE_SECONDS = 300  # 5 minutes solver pour trouver vraie solution optimale
 
 all_dates   = sorted({d for f in farmers for d in f.window.keys()})
 date_to_idx = {d: i for i, d in enumerate(all_dates)}
@@ -768,11 +786,14 @@ print(f"  Objective: minimize (plan deviation ×{DEVIATION_WEIGHT}) + (distance 
 # ============================================================
 # STEP 4: Solve
 # ============================================================
-print(f"\nSolving (max {MAX_SOLVE_SECONDS}s, 4 cores)...")
+print(f"\nSolving (max {MAX_SOLVE_SECONDS}s, 8 cores, parallel strategies)...")
 solver = cp_model.CpSolver()
-solver.parameters.max_time_in_seconds = MAX_SOLVE_SECONDS
-solver.parameters.num_search_workers  = 4
-solver.parameters.log_search_progress = False
+solver.parameters.max_time_in_seconds   = MAX_SOLVE_SECONDS
+solver.parameters.num_search_workers    = 8           # 4 → 8 workers parallèles
+solver.parameters.log_search_progress   = True        # voir progression
+solver.parameters.cp_model_presolve     = True        # simplification du modèle
+solver.parameters.linearization_level   = 2           # max linearization (meilleure qualité)
+solver.parameters.search_branching      = cp_model.PORTFOLIO_SEARCH  # multi-stratégies en parallèle
 
 status = solver.Solve(model)
 STATUS_NAMES = {
