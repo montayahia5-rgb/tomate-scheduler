@@ -1357,12 +1357,6 @@ with tab2:
             agri_totals.columns = ["Agriculteur", "Tonnage Total (t)"]
             agri_totals = agri_totals.sort_values("Tonnage Total (t)", ascending=True)
             agri_totals["Tonnage Total (t)"] = agri_totals["Tonnage Total (t)"].round(0).astype(int)
-            # ✅ Ajouter NBR_HECTARES et t/ha
-            if "nbr_hectares" in _sel_agri.columns:
-                ha_map = _sel_agri.groupby("nom")["nbr_hectares"].first()
-                agri_totals["Hectares"] = agri_totals["Agriculteur"].map(ha_map).round(2)
-                agri_totals["t/ha"] = (agri_totals["Tonnage Total (t)"] / 
-                                       agri_totals["Hectares"]).round(1)
         
         n_agri = len(agri_totals)
         bar_height = max(280, n_agri * 22)
