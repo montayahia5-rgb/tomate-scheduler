@@ -1936,16 +1936,69 @@ with tab4:
     st.markdown("---")
     st.subheader("📦 Disponibilité Transport & Besoin Restant par Usine")
     st.caption("Comparaison flotte propre disponible vs tonnage max planifié pendant le PIC")
+    if _fleet_from_file:
+        st.success("✅ Flotte chargée depuis transport_disponible.xlsx")
+    else:
+        st.warning("⚠️ transport_disponible.xlsx non trouvé — valeurs par défaut utilisées. "
+                   "Ajoutez le fichier dans le repo GitHub.")
 
-    # ── Capacités flotte propre (depuis transport_disponible.xlsx) ──
-    # COMOCAP TRACTEUR = 10 voyages × 10t = 100t/jour
-    FLEET_DISPO = {
-        "SICAM":    {"SEMI": 150, "PL": 390, "PPL": 14,  "TRACTEUR": 0,   "total": 554},
-        "COMOCAP":  {"SEMI":  90, "PL":   0, "PPL": 195, "TRACTEUR": 100, "total": 385},
-        "TUCAL":    {"SEMI":   0, "PL":  95, "PPL":  70, "TRACTEUR": 0,   "total": 165},
-        "ABIDA":    {"SEMI":  30, "PL":   0, "PPL":   0, "TRACTEUR": 0,   "total":  30},
-        "ELFALLEH": {"SEMI":   0, "PL":   0, "PPL":  10, "TRACTEUR": 0,   "total":  10},
-    }
+    # ── Flotte propre : lecture depuis transport_disponible.xlsx ──
+    @st.cache_data(ttl=300)
+    def _load_fleet():
+        """Charge la flotte depuis le fichier transport_disponible.xlsx."""
+        import os
+        paths = [
+            "transport_disponible.xlsx",
+            os.path.join(os.path.dirname(__file__), "transport_disponible.xlsx"),
+        ]
+        df_t = None
+        for p in paths:
+            if os.path.exists(p):
+                df_t = pd.read_excel(p)
+                break
+        
+        # Fallback si fichier non trouvé
+        if df_t is None:
+            return {
+                "SICAM":    {"SEMI":150,"PL":390,"PPL":14, "TRACTEUR":0,  "BOURAK":0,  "total":554},
+                "COMOCAP":  {"SEMI":90, "PL":0,  "PPL":195,"TRACTEUR":100,"BOURAK":0,  "total":385},
+                "TUCAL":    {"SEMI":0,  "PL":0,  "PPL":70, "TRACTEUR":0,  "BOURAK":95, "total":165},
+                "ABIDA":    {"SEMI":30, "PL":0,  "PPL":0,  "TRACTEUR":0,  "BOURAK":0,  "total":30},
+                "ELFALLEH": {"SEMI":0,  "PL":0,  "PPL":10, "TRACTEUR":0,  "BOURAK":0,  "total":10},
+            }, False
+        
+        # Parser le fichier
+        ALIASES = {"FELLEH":"ELFALLEH","FELLA":"ELFALLEH","FALLEH":"ELFALLEH",
+                   "FALL":"ELFALLEH","SICAM ":"SICAM","TUCAL ":"TUCAL"}
+        df_t["usine"]  = df_t["usine"].astype(str).str.strip().str.upper().map(
+            lambda x: ALIASES.get(x, x))
+        df_t["vtype"]  = df_t["Type de vehicule"].astype(str).str.strip().str.upper()
+        df_t["tonnage"]= pd.to_numeric(df_t["tonnage"], errors="coerce")
+        df_t["actif"]  = df_t["actif"].astype(str).str.strip().str.lower()
+        df_ok = df_t[df_t["actif"].isin(["ok","oui","1"]) & 
+                     df_t["tonnage"].notna() & (df_t["tonnage"]>0)]
+        
+        bourak_t = df_ok[df_ok["usine"]=="BOURAK"]["tonnage"].sum()
+        fleet = {}
+        for usine in ["SICAM","COMOCAP","TUCAL","ABIDA","ELFALLEH"]:
+            sub  = df_ok[df_ok["usine"]==usine]
+            semi = sub[sub["vtype"]=="SEMI"]["tonnage"].sum()
+            pl   = sub[sub["vtype"]=="PL"]["tonnage"].sum()
+            ppl  = sub[sub["vtype"].str.contains("PPL|Ppl", na=False)]["tonnage"].sum()
+            trac = 100 if usine == "COMOCAP" else 0
+            bour = bourak_t if usine == "TUCAL" else 0
+            fleet[usine] = {
+                "SEMI":     int(semi),
+                "PL":       int(pl),
+                "PPL":      int(ppl),
+                "TRACTEUR": int(trac),
+                "BOURAK":   int(bour),
+                "total":    int(semi + pl + ppl + trac + bour),
+                "nb_bennes":len(sub),
+            }
+        return fleet, True
+    
+    FLEET_DISPO, _fleet_from_file = _load_fleet()
     CAP_OFFICIEL = {"SICAM":1300,"COMOCAP":700,"TUCAL":750,"ABIDA":150,"ELFALLEH":100}
     CAP_VEH      = {"SEMI":(27,33),"PL":(15,25),"PPL":(6,14),"TRACTEUR":(9,11)}
 
@@ -1982,6 +2035,7 @@ with tab4:
             "Cap. Officielle": cap_off,
             "Flotte propre":  f_total,
             "dont TRACTEUR":  fleet.get("TRACTEUR",0),
+            "dont BOURAK":    fleet.get("BOURAK",0),
             "dont SEMI":      fleet.get("SEMI",0),
             "dont PL":        fleet.get("PL",0),
             "dont PPL":       fleet.get("PPL",0),
@@ -2018,7 +2072,7 @@ with tab4:
 
     # ── Tableau détaillé ──────────────────────────────────────────
     st.markdown("**Détail par usine**")
-    col_disp = ["Usine","Flotte propre","dont TRACTEUR","dont SEMI","dont PL","dont PPL",
+    col_disp = ["Usine","Flotte propre","dont TRACTEUR","dont BOURAK","dont SEMI","dont PL","dont PPL",
                 "Max planifié","Besoin restant","Couverture %","→ SEMI louer","→ PL louer","→ PPL louer"]
     
     # Affichage simple sans style (compatible toutes versions pandas)

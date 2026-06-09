@@ -75,11 +75,15 @@ FLEET_CAPACITY = {
 REAL_FLEET = {}
 
 def _load_real_fleet():
-    """Charge les capacités réelles depuis transport_disponible.xlsx"""
+    """
+    Charge les capacités réelles depuis transport_disponible.xlsx
+    Supporte 2 formats :
+      - Ancien : colonnes 'tonnage','usine','Type de vehicule','actif'
+      - Nouveau : colonnes 'Usine','Tonnage','Type de vehicule','Confirmation'
+    """
     import os, pandas as pd
     from collections import defaultdict
     
-    # Chercher le fichier dans le même dossier que le script
     script_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.path.join(script_dir, "transport_disponible.xlsx"),
@@ -87,34 +91,66 @@ def _load_real_fleet():
     ]
     fpath = next((p for p in candidates if os.path.exists(p)), None)
     if not fpath:
-        return {}  # Fallback vers FLEET_CAPACITY min/max
+        return {}
     
     try:
         df = pd.read_excel(fpath, sheet_name=0)
-        df["usine"]   = df["usine"].astype(str).str.strip().str.upper()
-        df["vtype"]   = df["Type de vehicule"].astype(str).str.strip().str.upper()
-        df["tonnage"] = pd.to_numeric(df["tonnage"], errors="coerce")
-        df["actif"]   = df["actif"].astype(str).str.strip().str.lower()
+        cols_upper = [str(c).strip().lower() for c in df.columns]
         
-        USINE_N = {"FELLEH":"ELFALLEH","FELLA":"ELFALLEH","FALLAH":"ELFALLEH",
-                   "FALLEH":"ELFALLEH"}
-        df["usine"] = df["usine"].map(lambda x: USINE_N.get(x, x))
+        # Détecter le format
+        if "usine" in cols_upper and "tonnage" in cols_upper:
+            # Nouveau format (transport_12_mai.xlsx)
+            df.columns = [str(c).strip() for c in df.columns]
+            usine_col = next(c for c in df.columns if c.lower()=="usine")
+            ton_col   = next(c for c in df.columns if c.lower()=="tonnage")
+            type_col  = next(c for c in df.columns if "type" in c.lower() and "vehicule" in c.lower())
+            conf_col  = next((c for c in df.columns 
+                              if c.lower() in ("confirmation","actif")), None)
+            
+            df["_usine"]  = df[usine_col].astype(str).str.strip().str.upper()
+            df["_tonnage"]= pd.to_numeric(df[ton_col], errors="coerce")
+            df["_type"]   = df[type_col].astype(str).str.strip().str.upper()
+            if conf_col:
+                df["_actif"] = df[conf_col].astype(str).str.strip().str.lower()
+            else:
+                df["_actif"] = "ok"
+        else:
+            # Ancien format
+            df["_usine"]  = df.iloc[:,1].astype(str).str.strip().str.upper()
+            df["_tonnage"]= pd.to_numeric(df.iloc[:,0], errors="coerce")
+            df["_type"]   = df.iloc[:,4].astype(str).str.strip().str.upper()
+            df["_actif"]  = df.iloc[:,11].astype(str).str.strip().str.lower() \
+                            if len(df.columns)>11 else pd.Series("ok", index=df.index)
         
-        df_ok = df[(df["actif"].isin(["ok","oui","1","oui"])) &
-                   df["tonnage"].notna() & (df["tonnage"] > 0)]
+        # Normaliser usine + type véhicule
+        USINE_N = {"EL FALLEH":"ELFALLEH","ELFALLEH":"ELFALLEH","FELLEH":"ELFALLEH",
+                   "FELLA":"ELFALLEH","LUI-MEME":"LUIMEME","LUI-MÊME":"LUIMEME",
+                   "TOTAL":"SKIP"}
+        df["_usine"] = df["_usine"].map(lambda x: USINE_N.get(x, x))
+        
+        def norm_vtype(t):
+            t = str(t).strip().upper()
+            if "SEMI" in t or "DOUBLE" in t or "REMORQUE" in t: return "SEMI"
+            if t.startswith("PPL"): return "PPL"
+            if t.startswith("PL"):  return "PL"
+            if "TRACTEUR" in t:     return "TRACTEUR"
+            return t
+        df["_type"] = df["_type"].apply(norm_vtype)
+        
+        df_ok = df[
+            (df["_actif"]=="ok") & 
+            df["_tonnage"].notna() & 
+            (df["_tonnage"]>0) &
+            (df["_usine"]!="SKIP")
+        ]
         
         fleet = defaultdict(lambda: defaultdict(list))
         for _, row in df_ok.iterrows():
-            usine = row["usine"]
-            vtype = row["vtype"]
-            tons  = float(row["tonnage"])
-            if usine and vtype and tons > 0:
-                fleet[usine][vtype].append(tons)
+            fleet[row["_usine"]][row["_type"]].append(float(row["_tonnage"]))
         
-        # Trier chaque liste décroissant (plus grandes bennes en premier)
         result = {}
         for usine, vtypes in fleet.items():
-            result[usine] = {vt: sorted(caps, reverse=True) 
+            result[usine] = {vt: sorted(caps, reverse=True)
                              for vt, caps in vtypes.items()}
         return result
     except Exception as e:
