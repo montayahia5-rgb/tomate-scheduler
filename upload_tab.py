@@ -684,11 +684,21 @@ def render_upload_tab(sb, CURRENT_ROLE, CURRENT_NAME, CURRENT_FILTER,
                     if st.button("✅ Confirmer et déposer",
                                  type="primary", use_container_width=True):
 
-                        # 1. Supprimer les anciens agriculteurs de ce commercial
-                        sb.table("agriculteurs").delete().eq(
-                            "commercial", CURRENT_NAME).execute()
+                        # ✅ VALIDATION EN PREMIER — avant toute suppression
+                        # Filtrer les lignes vides et les lignes TOTAL/résumé
+                        df_val = df_clean.copy()
+                        if "nom" in df_val.columns:
+                            _nom_up = df_val["nom"].astype(str).str.strip().str.upper()
+                            df_val = df_val[_nom_up.str.len() > 1]
+                            df_val = df_val[~_nom_up.str.startswith("TOTAL")]
+                            df_val = df_val[~_nom_up.str.startswith("SOUS-TOTAL")]
+                            df_val = df_val[~_nom_up.isin(["NAN","NONE",""])]
+                        if "tonnage_total" in df_val.columns:
+                            df_val = df_val[pd.to_numeric(df_val["tonnage_total"], errors="coerce").fillna(0) > 0]
+                        if "usine" in df_val.columns:
+                            df_val = df_val[df_val["usine"].astype(str).str.strip().str.len() > 0]
+                        df_clean = df_val
 
-                        # ✅ Validation des données avant insertion
                         validation_errors = []
                         for _, row in df_clean.iterrows():
                             nom = str(row.get("nom","") or "").strip()
@@ -701,10 +711,15 @@ def render_upload_tab(sb, CURRENT_ROLE, CURRENT_NAME, CURRENT_FILTER,
                             if usn not in ["SICAM","COMOCAP","TUCAL","ABIDA","ELFALLEH"]:
                                 validation_errors.append(f"Usine invalide: '{usn}' pour {nom}")
                         if validation_errors:
-                            st.error(f"❌ {len(validation_errors)} erreur(s) de validation:")
+                            st.error(f"❌ {len(validation_errors)} erreur(s) de validation (données NON modifiées) :")
                             for e in validation_errors[:10]:
                                 st.write(f"  • {e}")
                             st.stop()
+
+                        # ✅ Validation OK → maintenant supprimer et insérer
+                        # 1. Supprimer les anciens agriculteurs de ce commercial
+                        sb.table("agriculteurs").delete().eq(
+                            "commercial", CURRENT_NAME).execute()
                         
                         # 2. Insérer les nouveaux agriculteurs
                         # Normaliser region : nabeul→CAP BON 2, beja→NORD, manouba→NORD
