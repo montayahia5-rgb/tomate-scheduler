@@ -2038,11 +2038,8 @@ with tab4:
     st.markdown("---")
     st.subheader("📦 Disponibilité Transport & Besoin Restant par Usine")
     st.caption("Comparaison flotte propre disponible vs tonnage max planifié pendant le PIC")
-    if _fleet_from_file if '_fleet_from_file' in dir() else False:
-        st.success("✅ Flotte chargée depuis transport_disponible.xlsx")
-    else:
-        st.warning("⚠️ transport_disponible.xlsx non trouvé — valeurs par défaut utilisées. "
-                   "Ajoutez le fichier dans le repo GitHub.")
+    # Le dashboard utilise toujours FLEET_EXACT (valeurs hardcodées depuis Etat_Transport_Final_2026.xlsx)
+    # transport_disponible.xlsx est utilisé comme source de vérification uniquement
 
     # ── Flotte propre : lecture depuis transport_disponible.xlsx ──
     @st.cache_data(ttl=300)
@@ -2110,7 +2107,23 @@ with tab4:
             return FALLBACK, False
     
     FLEET_DISPO, _fleet_from_file = _load_fleet()
-    CAP_OFFICIEL = {"SICAM":1300,"COMOCAP":700,"TUCAL":750,"ABIDA":150,"ELFALLEH":100}
+    # ✅ Valeurs réelles depuis Etat_Transport_Final_2026.xlsx
+    # Logique: Confirmation=ok/OK ET Contrat ≠ "En attente"
+    FLEET_EXACT = {
+        "SICAM":    {"PL":891,"PPL":64,"SEMI":390,"BOURAK":0,"LUIMEME":0,
+                     "nb_PL":46,"nb_PPL":6,"nb_SEMI":13,"nb_total":65,"total":1345},
+        "TUCAL":    {"PL":303,"PPL":0,"SEMI":60,"BOURAK":114,"LUIMEME":0,
+                     "nb_PL":17,"nb_PPL":0,"nb_SEMI":2,"nb_total":19,"total":363,
+                     "bourak_nb":6,"bourak_t":114},
+        "COMOCAP":  {"PL":76,"PPL":95,"SEMI":90,"BOURAK":0,"LUIMEME":101,
+                     "nb_PL":5,"nb_PPL":10,"nb_SEMI":3,"nb_total":17,"total":261,
+                     "luimeme_nb":7,"luimeme_t":101},
+        "ABIDA":    {"PL":20,"PPL":0,"SEMI":60,"BOURAK":0,"LUIMEME":0,
+                     "nb_PL":1,"nb_PPL":0,"nb_SEMI":2,"nb_total":3,"total":80},
+        "ELFALLEH": {"PL":0,"PPL":24,"SEMI":0,"BOURAK":0,"LUIMEME":0,
+                     "nb_PL":0,"nb_PPL":2,"nb_SEMI":0,"nb_total":2,"total":24},
+    }
+    CAP_OFFICIEL = {"SICAM":1500,"COMOCAP":850,"TUCAL":800,"ABIDA":170,"ELFALLEH":150}
     CAP_VEH      = {"SEMI":(27,33),"PL":(15,25),"PPL":(6,14),"TRACTEUR":(9,11)}
 
     # Calculer le max planifié par usine depuis le planning chargé
@@ -2126,36 +2139,33 @@ with tab4:
     import plotly.graph_objects as go
 
     rows_nec = []
-    for usine, cap_off in CAP_OFFICIEL.items():
-        fleet    = FLEET_DISPO.get(usine, {})
-        f_total  = fleet.get("total", 0)
+    for usine in ["SICAM","TUCAL","COMOCAP","ABIDA","ELFALLEH"]:
+        cap_off  = CAP_OFFICIEL[usine]
+        fl       = FLEET_EXACT[usine]
+        joker_t  = fl.get("bourak_t",0) + fl.get("luimeme_t",0)
+        joker_nb = fl.get("bourak_nb",0) + fl.get("luimeme_nb",0)
+        f_total  = fl["total"]
+        f_total_avec_jokers = f_total + joker_t
         max_plan = max_par_usine.get(usine, cap_off)
-        besoin   = max(0, max_plan - f_total)
-        pct      = round(f_total / max_plan * 100, 1) if max_plan > 0 else 0
-
-        # Estimer le besoin par type de véhicule
-        rem = besoin
-        b_semi = max(0, round((rem * 0.5) / 30)) if usine in ("SICAM","TUCAL") else 0
-        rem -= b_semi * 30
-        b_pl   = max(0, round((rem * 0.6) / 20)) if usine in ("SICAM","TUCAL","COMOCAP","ABIDA") else 0
-        rem -= b_pl * 20
-        b_ppl  = max(0, round(rem / 10))
+        besoin   = max(0, cap_off - f_total_avec_jokers)
+        pct      = round(f_total_avec_jokers / cap_off * 100, 1)
 
         rows_nec.append({
-            "Usine":          usine,
-            "Cap. Officielle": cap_off,
-            "Flotte propre":  f_total,
-            "dont TRACTEUR":  fleet.get("TRACTEUR",0),
-            "dont BOURAK":    fleet.get("BOURAK",0),
-            "dont SEMI":      fleet.get("SEMI",0),
-            "dont PL":        fleet.get("PL",0),
-            "dont PPL":       fleet.get("PPL",0),
-            "Max planifié":   int(max_plan),
-            "Besoin restant": int(besoin),
-            "Couverture %":   pct,
-            "→ SEMI louer":   b_semi,
-            "→ PL louer":     b_pl,
-            "→ PPL louer":    b_ppl,
+            "Usine":             usine,
+            "Cap. Officielle":   cap_off,
+            "Nb bennes propres": fl["nb_total"],
+            "Nb PL":             fl["nb_PL"],
+            "Nb PPL":            fl["nb_PPL"],
+            "Nb Semi":           fl["nb_SEMI"],
+            "t/j PL":            fl["PL"],
+            "t/j PPL":           fl["PPL"],
+            "t/j Semi":          fl["SEMI"],
+            "Propres (t/j)":     f_total,
+            "Jokers (t/j)":      joker_t,
+            "Jokers (bennes)":   joker_nb,
+            "TOTAL (t/j)":       f_total_avec_jokers,
+            "Manque (t/j)":      besoin,
+            "Couverture %":      pct,
         })
 
     df_nec = pd.DataFrame(rows_nec)
@@ -2163,75 +2173,131 @@ with tab4:
     # ── 5 cartes KPI par usine ────────────────────────────────────
     cols_usine = st.columns(5)
     for i, row in df_nec.iterrows():
-        usine = row["Usine"]
-        besoin = row["Besoin restant"]
+        usine  = row["Usine"]
+        besoin = row["Manque (t/j)"]
         pct    = row["Couverture %"]
-        color  = "#1E8449" if pct >= 80 else ("#F39C12" if pct >= 50 else "#C0392B")
+        total  = row["TOTAL (t/j)"]
+        cap    = row["Cap. Officielle"]
+        fl     = FLEET_EXACT[usine]
+        color  = "#1E8449" if pct >= 90 else ("#F39C12" if pct >= 60 else "#C0392B")
+        joker_str = ""
+        if fl.get("bourak_t",0) > 0:
+            joker_str += f"🚛 BOURAK +{fl['bourak_t']}t<br>"
+        if fl.get("luimeme_t",0) > 0:
+            joker_str += f"🚛 LUIMÈME +{fl['luimeme_t']}t<br>"
         with cols_usine[i]:
             st.markdown(f"""
             <div style="background:#1a2332;border-radius:8px;padding:10px;text-align:center;
                         border-left:4px solid {color};">
-              <div style="font-size:13px;font-weight:bold;color:#ccc">{usine}</div>
+              <div style="font-size:14px;font-weight:bold;color:#ccc">{usine}</div>
               <div style="font-size:22px;font-weight:bold;color:{color}">{pct:.0f}%</div>
-              <div style="font-size:11px;color:#aaa">couvert</div>
-              <div style="font-size:12px;color:#e87;">{int(row['Flotte propre'])}t / {int(row['Max planifié'])}t</div>
-              <div style="font-size:11px;color:#f66;font-weight:bold">
-                {'⚠️ +' + str(besoin) + 't externe' if besoin > 0 else '✅ suffisant'}</div>
+              <div style="font-size:11px;color:#aaa">couvert ({total:.0f}t / {cap}t)</div>
+              <div style="font-size:11px;color:#8cf">
+                🔵 PL: {fl['nb_PL']}×≈{fl['PL']//fl['nb_PL'] if fl['nb_PL']>0 else 0}t 
+                &nbsp; {'🟢 PPL: '+str(fl['nb_PPL'])+'×≈'+str(fl['PPL']//fl['nb_PPL'] if fl['nb_PPL']>0 else 0)+'t' if fl['nb_PPL']>0 else ''}
+                &nbsp; {'🟡 Semi: '+str(fl['nb_SEMI'])+'×≈'+str(fl['SEMI']//fl['nb_SEMI'] if fl['nb_SEMI']>0 else 0)+'t' if fl['nb_SEMI']>0 else ''}
+              </div>
+              <div style="font-size:11px;color:#fa8">{joker_str}</div>
+              <div style="font-size:12px;font-weight:bold;color:{'#C0392B' if besoin>0 else '#1E8449'}">
+                {'⚠️ Manque: +'+str(int(besoin))+'t' if besoin > 0 else '✅ Suffisant'}</div>
             </div>""", unsafe_allow_html=True)
 
     st.markdown(" ")
 
-    # ── Tableau détaillé ──────────────────────────────────────────
-    st.markdown("**Détail par usine**")
-    col_disp = ["Usine","Flotte propre","dont TRACTEUR","dont BOURAK","dont SEMI","dont PL","dont PPL",
-                "Max planifié","Besoin restant","Couverture %","→ SEMI louer","→ PL louer","→ PPL louer"]
+    # ── Tableau détaillé bennes ──────────────────────────────────
+    st.markdown("**📋 Détail flotte par usine (Etat_Transport_Final_2026)**")
     
-    # Affichage simple sans style (compatible toutes versions pandas)
+    col_disp = ["Usine","Nb bennes propres","Nb PL","Nb PPL","Nb Semi",
+                "t/j PL","t/j PPL","t/j Semi","Propres (t/j)",
+                "Jokers (bennes)","Jokers (t/j)","TOTAL (t/j)",
+                "Cap. Officielle","Manque (t/j)","Couverture %"]
     df_show = df_nec[col_disp].copy()
     df_show["Couverture %"] = df_show["Couverture %"].apply(lambda x: f"{x:.0f}%")
-    df_show["Besoin restant"] = df_show["Besoin restant"].apply(
-        lambda x: f"✅ 0t" if x == 0 else f"⚠️ +{x}t")
-    st.dataframe(df_show, use_container_width=True, hide_index=True, height=220)
+    df_show["Manque (t/j)"] = df_show["Manque (t/j)"].apply(
+        lambda x: f"✅ 0t" if x == 0 else f"❌ -{int(x)}t")
+    
+    st.dataframe(df_show, use_container_width=True, hide_index=True, height=220,
+        column_config={
+            "Nb bennes propres": st.column_config.NumberColumn("🚛 Bennes", format="%d"),
+            "TOTAL (t/j)": st.column_config.ProgressColumn(
+                "TOTAL (t/j)", min_value=0, max_value=1600, format="%d t"),
+        })
+
+    # ── Détail BOURAK et LUI-MÊME ─────────────────────────────────
+    st.markdown("**🔧 Jokers disponibles (renforts toutes usines)**")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.info("🚛 **BOURAK** — 6 bennes PL | **114 t/j** → renforce TUCAL principalement")
+    with c2:
+        st.info("🔧 **LUI-MÊME** — 7 bennes (3 PL + 4 PPL) | **101 t/j** → renforce COMOCAP principalement")
 
     # ── Graphique barres groupées ──────────────────────────────────
     fig_nec = go.Figure()
     fig_nec.add_trace(go.Bar(
-        name="Flotte propre (disponible)",
-        x=df_nec["Usine"], y=df_nec["Flotte propre"],
-        marker_color="#2E86C1", text=df_nec["Flotte propre"].astype(str)+"t",
-        textposition="inside",
+        name="PL propres",
+        x=df_nec["Usine"], y=df_nec["t/j PL"],
+        marker_color="#2196F3",
+        text=df_nec.apply(lambda r: f"{r['Nb PL']}×PL<br>{r['t/j PL']:.0f}t" if r['Nb PL']>0 else "", axis=1),
+        textposition="inside", textfont_size=9,
     ))
     fig_nec.add_trace(go.Bar(
-        name="Besoin restant (à louer)",
-        x=df_nec["Usine"], y=df_nec["Besoin restant"],
-        marker_color="#E74C3C", text=df_nec["Besoin restant"].apply(lambda x: f"+{x}t" if x>0 else "✅"),
-        textposition="inside",
+        name="PPL propres",
+        x=df_nec["Usine"], y=df_nec["t/j PPL"],
+        marker_color="#9C27B0",
+        text=df_nec.apply(lambda r: f"{r['Nb PPL']}×PPL<br>{r['t/j PPL']:.0f}t" if r['Nb PPL']>0 else "", axis=1),
+        textposition="inside", textfont_size=9,
     ))
-    # Ligne cap officielle
+    fig_nec.add_trace(go.Bar(
+        name="Semi propres",
+        x=df_nec["Usine"], y=df_nec["t/j Semi"],
+        marker_color="#4CAF50",
+        text=df_nec.apply(lambda r: f"{r['Nb Semi']}×Semi<br>{r['t/j Semi']:.0f}t" if r['Nb Semi']>0 else "", axis=1),
+        textposition="inside", textfont_size=9,
+    ))
+    fig_nec.add_trace(go.Bar(
+        name="Jokers (BOURAK/LUI-MÊME)",
+        x=df_nec["Usine"], y=df_nec["Jokers (t/j)"],
+        marker_color="#FF9800",
+        text=df_nec.apply(lambda r: f"+{r['Jokers (bennes)']:.0f}bn<br>+{r['Jokers (t/j)']:.0f}t" if r['Jokers (t/j)']>0 else "", axis=1),
+        textposition="inside", textfont_size=9,
+    ))
+    fig_nec.add_trace(go.Bar(
+        name="Manque (à recruter)",
+        x=df_nec["Usine"], y=df_nec["Manque (t/j)"],
+        marker_color="#F44336",
+        text=df_nec["Manque (t/j)"].apply(lambda x: f"❌ -{int(x)}t" if x>0 else "✅"),
+        textposition="inside", textfont_size=9,
+    ))
+    for i, row in df_nec.iterrows():
+        fig_nec.add_annotation(
+            x=row["Usine"], y=row["Cap. Officielle"],
+            text=f"Cap: {row['Cap. Officielle']}t",
+            showarrow=False, font=dict(color="#FFD700", size=10),
+            yshift=10,
+        )
     fig_nec.add_trace(go.Scatter(
-        name="Capacité officielle (PIC)",
+        name="Cap. officielle (PIC)",
         x=df_nec["Usine"], y=df_nec["Cap. Officielle"],
-        mode="markers+lines", marker_symbol="diamond",
-        marker_size=10, line_dash="dash",
-        marker_color="#F39C12", line_color="#F39C12",
+        mode="markers", marker_symbol="diamond",
+        marker_size=12, marker_color="#FFD700",
     ))
     fig_nec.update_layout(
         barmode="stack",
-        title="Transport disponible vs besoin par usine (PIC)",
+        title="Flotte disponible par usine — Détail PL / PPL / Semi / Jokers",
         template="plotly_dark",
         paper_bgcolor="#161b22",
         plot_bgcolor="#0d1117",
-        height=380,
-        legend=dict(orientation="h", y=-0.2),
+        height=420,
+        legend=dict(orientation="h", y=-0.25),
         yaxis_title="Tonnes/jour",
     )
     st.plotly_chart(fig_nec, use_container_width=True)
 
     # ── Export ────────────────────────────────────────────────────
     st.download_button(
-        "⬇️ Exporter rapport transport nécessaire (CSV)",
+        "⬇️ Exporter détail transport (CSV)",
         data=df_nec.to_csv(index=False).encode("utf-8-sig"),
-        file_name="transport_necessaire.csv",
+        file_name="transport_detail_2026.csv",
         mime="text/csv",
     )
 
