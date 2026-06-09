@@ -605,7 +605,7 @@ def load_global_stats(_version: int = 0):
 
         # Toutes les données agriculteurs
         data = sb.table("agriculteurs").select(
-            "commercial,nom,tonnage_total,usine,region,date_debut").execute().data
+            "commercial,nom,tonnage_total,usine,region,date_debut,nbr_hectares").execute().data
         df = pd.DataFrame(data) if data else pd.DataFrame()
         if df.empty:
             raise ValueError("empty")
@@ -1345,12 +1345,24 @@ with tab2:
             agri_totals.columns = ["Agriculteur", "Tonnage Total (t)"]
             agri_totals = agri_totals.sort_values("Tonnage Total (t)", ascending=True)
             agri_totals["Tonnage Total (t)"] = agri_totals["Tonnage Total (t)"].round(0).astype(int)
+            # ✅ Ajouter NBR_HECTARES et t/ha
+            if "nbr_hectares" in _sel_agri.columns:
+                ha_map = _sel_agri.groupby("nom")["nbr_hectares"].first()
+                agri_totals["Hectares"] = agri_totals["Agriculteur"].map(ha_map).round(2)
+                agri_totals["t/ha"] = (agri_totals["Tonnage Total (t)"] / 
+                                       agri_totals["Hectares"]).round(1)
         else:
             # Fallback uniquement si AGRI_DF vide (connexion échouée au démarrage)
             agri_totals = one.groupby("Agriculteur")["Tonnes/Jour"].sum().reset_index()
             agri_totals.columns = ["Agriculteur", "Tonnage Total (t)"]
             agri_totals = agri_totals.sort_values("Tonnage Total (t)", ascending=True)
             agri_totals["Tonnage Total (t)"] = agri_totals["Tonnage Total (t)"].round(0).astype(int)
+            # ✅ Ajouter NBR_HECTARES et t/ha
+            if "nbr_hectares" in _sel_agri.columns:
+                ha_map = _sel_agri.groupby("nom")["nbr_hectares"].first()
+                agri_totals["Hectares"] = agri_totals["Agriculteur"].map(ha_map).round(2)
+                agri_totals["t/ha"] = (agri_totals["Tonnage Total (t)"] / 
+                                       agri_totals["Hectares"]).round(1)
         
         n_agri = len(agri_totals)
         bar_height = max(280, n_agri * 22)
@@ -1376,11 +1388,14 @@ with tab2:
             st.plotly_chart(fig_bar, use_container_width=True)
         
         with col_b:
-            st.metric("Nb agriculteurs", n_agri)
-            st.metric("Tonnage total",   f"{int(agri_totals['Tonnage Total (t)'].sum()):,}t")
-            st.metric("Moyenne / agri",  f"{int(agri_totals['Tonnage Total (t)'].mean()):,}t")
-            st.metric("Plus gros",       f"{int(agri_totals['Tonnage Total (t)'].max()):,}t")
-            st.caption(f"Top: **{agri_totals.iloc[-1]['Agriculteur']}**")
+            if agri_totals.empty or agri_totals['Tonnage Total (t)'].sum() == 0:
+                st.info("Aucune donnée")
+            else:
+                st.metric("Nb agriculteurs", n_agri)
+                st.metric("Tonnage total",   f"{int(agri_totals['Tonnage Total (t)'].sum()):,}t")
+                st.metric("Moyenne / agri",  f"{int(agri_totals['Tonnage Total (t)'].mean()):,}t")
+                st.metric("Plus gros",       f"{int(agri_totals['Tonnage Total (t)'].max()):,}t")
+                st.caption(f"Top: **{agri_totals.iloc[-1]['Agriculteur']}**")
         
         # 2. Évolution temporelle TOP 8 agriculteurs (courbes superposées)
         st.markdown(f"#### 📉 Courbes journalières — TOP 8 agriculteurs de {selected}")
