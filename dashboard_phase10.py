@@ -614,7 +614,7 @@ def load_global_stats(_version: int = 0):
 
         # Toutes les données agriculteurs
         data = sb.table("agriculteurs").select(
-            "commercial,nom,tonnage_total,usine,region,date_debut,nbr_hectares").execute().data
+            "commercial,nom,tonnage_total,usine,region,zone,date_debut,nbr_hectares,centre").execute().data
         df = pd.DataFrame(data) if data else pd.DataFrame()
         if df.empty:
             raise ValueError("empty")
@@ -1361,9 +1361,10 @@ with tab2:
             # ✅ Ajouter NBR_HECTARES et t/ha
             if "nbr_hectares" in _sel_agri.columns:
                 ha_map = _sel_agri.groupby("nom")["nbr_hectares"].first()
-                agri_totals["Hectares"] = agri_totals["Agriculteur"].map(ha_map).round(2)
-                agri_totals["t/ha"] = (agri_totals["Tonnage Total (t)"] / 
-                                       agri_totals["Hectares"]).round(1)
+                _ha = pd.to_numeric(agri_totals["Agriculteur"].map(ha_map), errors="coerce")
+                agri_totals["Hectares"] = _ha.round(2)
+                # t/ha calculé seulement si hectares > 0
+                agri_totals["t/ha"] = (agri_totals["Tonnage Total (t)"] / _ha.replace(0, pd.NA)).round(1)
         else:
             # Fallback uniquement si AGRI_DF vide (connexion échouée au démarrage)
             agri_totals = one.groupby("Agriculteur")["Tonnes/Jour"].sum().reset_index()
