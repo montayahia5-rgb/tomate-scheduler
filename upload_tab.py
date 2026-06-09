@@ -394,7 +394,9 @@ def validate_upload(df_upload: pd.DataFrame, commercial_name: str) -> tuple:
     # ── Finalisation ─────────────────────────────────────────
     df["NOM_AGRICULTEUR"] = df["NOM_AGRICULTEUR"].astype(str).str.strip()
     df["REGION"]   = df.get("REGION", pd.Series(dtype=str)).fillna("").astype(str).str.strip()
-    df["ZONE"]     = df.get("ZONNE",  pd.Series(dtype=str)).fillna("").astype(str).str.strip()
+    # ✅ ZONE : chercher dans "ZONE" d'abord, puis "ZONNE" (ancien nom)
+    _zone_series = df.get("ZONE", df.get("ZONNE", pd.Series([""] * len(df), index=df.index, dtype=str)))
+    df["ZONE"]    = _zone_series.fillna("").astype(str).str.strip()
     df["COMMERCIAL"] = commercial_name
 
     return True, [], warnings, df
