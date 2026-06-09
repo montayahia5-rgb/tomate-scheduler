@@ -472,6 +472,34 @@ def render_upload_tab(sb, CURRENT_ROLE, CURRENT_NAME, CURRENT_FILTER,
     # ── ADMIN VIEW ──────────────────────────────────────────
     if CURRENT_ROLE == "directeur":
         st.subheader("📊 Tableau de bord — Dépôts des commerciaux")
+        
+        # ✅ Bouton de réinitialisation complète
+        with st.expander("⚙️ Actions administrateur", expanded=False):
+            col_r1, col_r2 = st.columns(2)
+            with col_r1:
+                if st.button("🗑️ Vider TOUS les commerciaux", type="secondary",
+                             help="Supprime toutes les données de tous les commerciaux"):
+                    try:
+                        sb.table("agriculteurs").delete().neq("commercial","__NONE__").execute()
+                        sb.table("depot_status").delete().neq("commercial","__NONE__").execute()
+                        st.cache_data.clear()
+                        st.success("✅ Toutes les données supprimées. Les commerciaux peuvent re-uploader.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erreur: {e}")
+            with col_r2:
+                comm_to_del = st.selectbox("Vider un seul commercial",
+                    ["--","FEDI","MAKKI BEN SALAH","KHALIL","ACHREF AJLANI","JILANI OBAY"])
+                if comm_to_del != "--":
+                    if st.button(f"🗑️ Vider {comm_to_del}"):
+                        try:
+                            sb.table("agriculteurs").delete().eq("commercial", comm_to_del).execute()
+                            sb.table("depot_status").delete().eq("commercial", comm_to_del).execute()
+                            st.cache_data.clear()
+                            st.success(f"✅ {comm_to_del} supprimé.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erreur: {e}")
 
         commercials = ["FEDI","MAKKI BEN SALAH","KHALIL","ACHREF AJLANI","JILANI OBAY"]
 
@@ -483,9 +511,11 @@ def render_upload_tab(sb, CURRENT_ROLE, CURRENT_NAME, CURRENT_FILTER,
             status_map = {}
         
         # ✅ Charger TONNAGE RÉEL depuis agriculteurs (source de vérité)
-        # depot_status peut contenir des anciens uploads obsolètes
+        # Seuls les commerciaux ayant des données ACTUELLES sont "déposé"
         try:
             agri_data = sb.table("agriculteurs").select("commercial,nom,tonnage_total").execute().data or []
+            # Commerciaux avec données réelles = ceux dans agriculteurs
+            active_commercials = {r.get("commercial","") for r in agri_data if r.get("commercial")}
             real_tonnage = {}
             real_nb_agri = {}
             for r in agri_data:
