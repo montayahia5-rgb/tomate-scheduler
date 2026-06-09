@@ -262,7 +262,8 @@ TRANSPORT_NEEDS = calc_transport_needs()
 def alloc_jokers():
     """Alloue les jokers aux usines qui en ont besoin, par priorité de manque."""
     jpl  = TRANSPORT_JOKERS["BOURAK"]["PL"]
-    jppl = TRANSPORT_JOKERS["LUI-MEME"]["PPL"]
+    jppl = TRANSPORT_JOKERS["LUIMEME"]["PPL"]
+    jpl_luimeme = TRANSPORT_JOKERS["LUIMEME"]["PL"]
     alloc = {}
     for usine in FACTORY_CAPS:
         needs = TRANSPORT_NEEDS.get(usine, {})
@@ -271,6 +272,11 @@ def alloc_jokers():
             a = min(needs["PL"], jpl)
             alloc[usine]["PL_joker"] = a
             jpl -= a
+        if "PL" in needs and jpl_luimeme > 0:
+            a = min(needs.get("PL",0) - alloc[usine].get("PL_joker",0), jpl_luimeme)
+            if a > 0:
+                alloc[usine]["PL_joker"] = alloc[usine].get("PL_joker",0) + a
+                jpl_luimeme -= a
         if "PPL" in needs and jppl > 0:
             a = min(needs["PPL"], jppl)
             alloc[usine]["PPL_joker"] = a
