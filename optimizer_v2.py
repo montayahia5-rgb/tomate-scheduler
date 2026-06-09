@@ -207,16 +207,17 @@ ACCESS_VEHICLES = {
 # Mise à jour: 12 mai 2026 — liste confirmée uniquement
 # ── Données exactes depuis transport_12_mai.xlsx (liste confirmée) ──────────
 TRANSPORT_CONFIRMED = {
-    "SICAM":    {"total": 1199, "PL": 825, "PPL": 44,  "SEMI": 330, "nb_bennes": 58},
-    "TUCAL":    {"total": 348,  "PL": 318, "PPL": 0,   "SEMI": 30,  "nb_bennes": 19},
-    "COMOCAP":  {"total": 298,  "PL": 76,  "PPL": 132, "SEMI": 90,  "nb_bennes": 21},
-    "ABIDA":    {"total": 50,   "PL": 20,  "PPL": 0,   "SEMI": 30,  "nb_bennes": 2},
+    # Source: Etat_Transport_Final_2026.xlsx — liste confirmée (juin 2026)
+    "SICAM":    {"total": 1345, "PL": 891, "PPL": 64,  "SEMI": 390, "nb_bennes": 65},
+    "TUCAL":    {"total": 411,  "PL": 321, "PPL": 0,   "SEMI": 90,  "nb_bennes": 21},
+    "COMOCAP":  {"total": 268,  "PL": 76,  "PPL": 102, "SEMI": 90,  "nb_bennes": 18},
+    "ABIDA":    {"total": 80,   "PL": 20,  "PPL": 0,   "SEMI": 60,  "nb_bennes": 3},
     "ELFALLEH": {"total": 24,   "PL": 0,   "PPL": 24,  "SEMI": 0,   "nb_bennes": 2},
 }
-# Jokers = BOURAK et LUI-MÊME (toutes usines)
+# Jokers = BOURAK et LUI-MÊME (renforts toutes usines)
 TRANSPORT_JOKERS = {
-    "BOURAK":   {"total": 76,  "PL": 76, "PPL": 0,  "SEMI": 0, "nb_bennes": 4},
-    "LUI-MEME": {"total": 84,  "PL": 38, "PPL": 46, "SEMI": 0, "nb_bennes": 6},
+    "BOURAK":   {"total": 114, "PL": 114, "PPL": 0,  "SEMI": 0, "nb_bennes": 6},
+    "LUIMEME":  {"total": 101, "PL": 55,  "PPL": 46, "SEMI": 0, "nb_bennes": 7},
 }
 
 # ── Règles de complétion transport par usine ──────────────────────────
@@ -357,37 +358,66 @@ DISTANCE_KM = {
 
 # Region mapping
 ZONE_REGION = {
-    # CAP BON 1
-    "DAR ALLOUCH":"CAP BON 1","KORBA":"CAP BON 1","KORBA/SOMAA":"CAP BON 1",
-    "SOMAA":"CAP BON 1","LEBNA":"CAP BON 1","LEBNA/TAMEZRRAT":"CAP BON 1",
-    "DIAR HOJJEJ":"CAP BON 1","DIAR HOJJEJ/KHARREZ":"CAP BON 1",
-    "TEFELOUN/DIAR HOJJEJ":"CAP BON 1","ATHLETH":"CAP BON 1",
-    "ATHLETH/HTOUBA":"CAP BON 1","HTOUBA":"CAP BON 1","KHADHRA":"CAP BON 1",
-    "SIDI KHELIFA":"CAP BON 1","MENZEL HORR":"CAP BON 1","BIR LAHFAY":"CAP BON 1",
-    "OUED CHIBA":"CAP BON 1","GOURCHIN":"CAP BON 1",
-    # CAP BON 2
-    "MENZEL TAMIM":"CAP BON 2","MENZEL MHIRI":"CAP BON 2","GROMBELIA":"CAP BON 2",
-    "SIDI AICH":"CAP BON 2","SIDI OTHMAN":"CAP BON 2",
-    # NORD
-    "FARTOUNA":"NORD","GAR DIMAOU":"NORD","JANDOUBA":"NORD","BOU SALEM":"NORD",
-    "WED MLIZ":"NORD","SIDI HASSOUN":"NORD","AMAYMIA":"NORD",
-    "ZAAFRANA-ELKHADHRA":"NORD","ZAAFRIA":"NORD","BOUJRIDA":"NORD",
-    "OUED KHATEF":"NORD","MEDJEZ BEB":"NORD","BOR AMRI":"NORD",
-    "AWAMRIYA":"NORD","FRININ":"NORD","GOMBAR":"NORD","BENI AYECH":"NORD",
-    "BIR MASOUDA":"NORD",
-    # KAIROUAN
-    "SBIKHA-CHRARDA":"KAIROUAN","MAJEL BELABESS":"KAIROUAN",
-    "CHEBIKA-ELHAWEREB":"KAIROUAN","ELHAWEREB-AIN BIDHA-HAFOUZ":"KAIROUAN",
-    "OULED ZID":"KAIROUAN","BATTEN":"KAIROUAN","GARAT SASSI":"KAIROUAN","BELYES":"KAIROUAN",
-    # SIDI BOUZID
-    "SIDI BOUZID":"SIDI BOUZID","OM ADHAM":"SIDI BOUZID","TBAG":"SIDI BOUZID",
-    # GAFSA / KASSRINE (fusionnées)
-    "FERIANA":"GAFSA / KASSRINE","CENTRE -OUEST":"GAFSA / KASSRINE","GAFSA":"GAFSA / KASSRINE",
-    # BOUFICHA
-    "BOUFICHA":"BOUFICHA",
-    # BEJA et MANOUBA → intégrés dans NORD
-    "BENI AYECH":"NORD","BIR MASOUDA":"NORD",
-    "BELARIGIA":"NORD","BIR LAHFAY":"NORD",
+    # ── CAP BON 1 (SUD du Cap Bon: Korba, Lebna, Diar Hojjej, etc.) ──
+    "KORBA":"CAP BON 1","KORBA/SOMAA":"CAP BON 1","SOMAA":"CAP BON 1",
+    "LEBNA":"CAP BON 1","LEBNA/TAMEZRRAT":"CAP BON 1",
+    "MENZEL HORR":"CAP BON 1","DIAR HOJJEJ":"CAP BON 1",
+    "DIAR HOJJEJ/KHARREZ":"CAP BON 1","TEFELOUN":"CAP BON 1",
+    "TEFELOUN/DIAR HOJJEJ":"CAP BON 1","OUED CHIBA":"CAP BON 1",
+    "GOURCHIN":"CAP BON 1","GARAT SASSI":"CAP BON 1",
+    "MANZEL GAMOUDI":"CAP BON 1","SIDI HASSOUN":"CAP BON 1",
+    "BENI AYECH":"CAP BON 1","FARTOUNA":"CAP BON 1",
+    "ATHLETH":"CAP BON 1","ATHLETH/HTOUBA":"CAP BON 1","HTOUBA":"CAP BON 1",
+    "FRININ":"CAP BON 1","GOMBAR":"CAP BON 1","TBAG":"CAP BON 1",
+    "GROMBELIA":"CAP BON 1","GROMBALIA":"CAP BON 1",
+    "BOU ARGOUB":"CAP BON 1","SLIMEN":"CAP BON 1","TEKELSA":"CAP BON 1",
+    "JAMMEL":"CAP BON 1","JBENYANA":"CAP BON 1","MOKNINE":"CAP BON 1",
+    "MENZEL HAYET":"CAP BON 1","OUED KHATEF":"CAP BON 1",
+    "BIR MASOUDA":"CAP BON 1","BELYES":"CAP BON 1","BOUJRIDA":"CAP BON 1",
+    
+    # ── CAP BON 2 (NORD du Cap Bon + Bouficha: Dar Allouch, Menzel Tamim) ──
+    "DAR ALLOUCH":"CAP BON 2","D.AL":"CAP BON 2",
+    "MENZEL TAMIM":"CAP BON 2","MENZEL TMIME":"CAP BON 2",
+    "BENI KHIAR":"CAP BON 2","BENI KALLED":"CAP BON 2",
+    "MENZEL BOUZELFA":"CAP BON 2","MENZEL NOUR":"CAP BON 2",
+    "MZAWGHA":"CAP BON 2","ALIA":"CAP BON 2","TUNIS":"CAP BON 2",
+    "NABEUL":"CAP BON 2",
+    # BOUFICHA intégrée dans CAP BON 2
+    "SIDI SAIID":"CAP BON 2","SIDI KHELIFA":"CAP BON 2",
+    "SIDI SAID":"CAP BON 2","SIDI KHLIFA":"CAP BON 2",
+    "BOUFICHA":"CAP BON 2","ENFIDHA":"CAP BON 2","SOUSSE":"CAP BON 2",
+    
+    # ── NORD (Jendouba, Beja, Manouba, Bizerte) ──
+    "JANDOUBA":"NORD","JENDOUBA":"NORD",
+    "GAR DIMAOU":"NORD","MEDJEZ BEB":"NORD",
+    "BOR AMRI":"NORD","BORJ AMRI":"NORD",
+    "WED MLIZ":"NORD","SIDI ISMAIL":"NORD",
+    "BELLARIGIA":"NORD","BELARIGIA":"NORD",
+    "BOU SALEM":"NORD","BOUSSALEM":"NORD",
+    "BIR LAHFAY":"NORD","BIR DRASSEN":"NORD",
+    "ZARMDINE":"NORD","BOU KRIM":"NORD",
+    "MEDJEZ EL BAB":"NORD","MEJEZ EL BAB":"NORD",
+    "BEJA":"NORD","MANOUBA":"NORD","BIZERTE":"NORD",
+    "TESTOUR":"NORD",
+    
+    # ── KAIROUAN ──
+    "BATTEN":"KAIROUAN","SBIKHA-CHRARDA":"KAIROUAN",
+    "AWAMRIYA":"KAIROUAN","ZAAFRANA-ELKHADHRA":"KAIROUAN",
+    "ELHAWEREB-AIN BIDHA-HAFOUZ":"KAIROUAN","CHEBIKA-ELHAWEREB":"KAIROUAN",
+    "KHADHRA":"KAIROUAN","ZAAFRIA":"KAIROUAN",
+    "MENZEL MHIRI":"KAIROUAN","KAIROUAN":"KAIROUAN","KAIRAOUAN":"KAIROUAN",
+    
+    # ── SIDI BOUZID (incluant OM ADHAM) ──
+    "SIDI BOUZID":"SIDI BOUZID","SIDI OTHMAN":"SIDI BOUZID",
+    "SIDIBOUZID":"SIDI BOUZID","OM ADHAM":"SIDI BOUZID",
+    
+    # ── GAFSA / KASSRINE (incluant MAJEL BELABESS, AMAYMIA, SIDI AICH) ──
+    "OULED OMRAN":"GAFSA / KASSRINE","OULED ZID":"GAFSA / KASSRINE",
+    "SIDI AICH":"GAFSA / KASSRINE","AMAYMIA":"GAFSA / KASSRINE",
+    "FERIANA":"GAFSA / KASSRINE","KASSERINE":"GAFSA / KASSRINE",
+    "GAFSA":"GAFSA / KASSRINE","SBEITLA":"GAFSA / KASSRINE",
+    "KASSRINE":"GAFSA / KASSRINE","MAJEL BELABESS":"GAFSA / KASSRINE",
+    "CENTRE -OUEST":"GAFSA / KASSRINE",
 }
 
 def get_distance(zone: str, usine: str) -> int:
@@ -525,12 +555,15 @@ REGION_NORM_OPT = {
     "NABEUL":"CAP BON 2","CAPB1":"CAP BON 1","CAP B1":"CAP BON 1",
     "CAPB2":"CAP BON 2","CAP B2":"CAP BON 2",
     "CAP BON":"CAP BON 1",
-    # GAFSA / KASSERINE (toutes orthographes)
+    # GAFSA / KASSERINE (fusionnées)
     "GAFSA":"GAFSA / KASSRINE","KASSRINE":"GAFSA / KASSRINE",
     "KASSERINE":"GAFSA / KASSRINE","KASRINE":"GAFSA / KASSRINE",
     "KASSARINE":"GAFSA / KASSRINE","SBEITLA":"GAFSA / KASSRINE",
+    "GAFSA / KASSERINE":"GAFSA / KASSRINE",
+    "GAFSA/KASSRINE":"GAFSA / KASSRINE",
     # NORD
-    "BEJA":"NORD","MANOUBA":"NORD","BIZERTE":"NORD","JENDOUBA":"NORD",
+    "BEJA":"NORD","MANOUBA":"NORD","BIZERTE":"NORD",
+    "JENDOUBA":"NORD","JANDOUBA":"NORD",
     "BIR LAHFAY":"NORD","BOR AMRI":"NORD","BORJ AMRI":"NORD",
     "MEDJEZ EL BAB":"NORD","MEJEZ EL BAB":"NORD","MEDJEZ BEB":"NORD",
     "TESTOUR":"NORD","BOUSSALEM":"NORD",
@@ -538,7 +571,7 @@ REGION_NORM_OPT = {
     "KAIRAOUAN":"KAIROUAN",
     # SIDI BOUZID
     "SIDIBOUZID":"SIDI BOUZID","SIDI BOU ZID":"SIDI BOUZID",
-    # BOUFICHA / SOUSSE
+    # BOUFICHA = région séparée
     "BOUFICHA":"BOUFICHA",
     "SOUSSE":"BOUFICHA","ENFIDHA":"BOUFICHA","HAMMAMET":"CAP BON 1",
 }
@@ -573,7 +606,14 @@ class Farmer:
         self.tonnage     = float(row["TONNAGE"])
         self.allowed_veh = ACCESS_VEHICLES.get(self.access, ACCESS_VEHICLES["NAN"])
         self.distance_km = get_distance(self.zone, self.usine)
-        self.geo_region  = get_region(self.zone)
+        
+        # ✅ PRIORITÉ à la région DÉCLARÉE par le commercial dans Supabase
+        # Fallback sur déduction par zone uniquement si region est vide/inconnue
+        declared_region = str(self.region or "").strip().upper()
+        if declared_region and declared_region not in ("", "AUTRE", "NAN", "NONE"):
+            self.geo_region = declared_region
+        else:
+            self.geo_region = get_region(self.zone)
 
         # ── Build maturity window ──────────────────────────
         # Case 1: date_cols present (Excel fallback path)

@@ -1635,6 +1635,107 @@ with tab2:
             st.info("Colonnes véhicules non disponibles dans le planning.")
     else:
         st.info("Aucune donnée disponible pour ce commercial.")
+    
+    # ═══════════════════════════════════════════════════════════════
+    # 🔁 SECTION JOURS DOUBLES
+    # ═══════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.subheader("🔁 Jours doubles — détails par commercial")
+    st.caption("Un **jour double** = 2 livraisons dans la même journée (matin + après-midi). "
+               "Le système les utilise quand le tonnage à livrer dépasse le cap normal.")
+    
+    if not p.empty and "Note" in p.columns:
+        # Filtrer livraisons marquées JOUR DOUBLE
+        dbl_mask = p["Note"].astype(str).str.contains("JOUR DOUBLE", case=False, na=False)
+        df_dbl = p[dbl_mask].copy()
+        
+        if df_dbl.empty:
+            st.success("✅ Aucun jour double dans ce planning ! Tous les commerciaux respectent leur cap normal.")
+        else:
+            # KPIs en haut
+            nb_lignes = len(df_dbl)
+            nb_jours_unique = df_dbl.groupby(["Commercial","Date"]).ngroups
+            tonnage_total = df_dbl["Tonnes/Jour"].sum()
+            nb_commerciaux = df_dbl["Commercial"].nunique()
+            
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("🔁 Jours doubles", f"{nb_jours_unique}")
+            k2.metric("📦 Livraisons concernées", f"{nb_lignes:,}")
+            k3.metric("⚖️ Tonnage en double", f"{tonnage_total:,.0f}t")
+            k4.metric("👥 Commerciaux concernés", f"{nb_commerciaux}")
+            
+            # ── Récapitulatif par commercial ──
+            st.markdown("##### Récapitulatif par commercial")
+            recap = df_dbl.groupby("Commercial").agg(
+                jours_doubles=("Date", "nunique"),
+                livraisons=("Date", "count"),
+                tonnage=("Tonnes/Jour", "sum")
+            ).reset_index()
+            recap.columns = ["Commercial", "Nb jours doubles", "Livraisons", "Tonnage (t)"]
+            recap["Tonnage (t)"] = recap["Tonnage (t)"].round(0).astype(int)
+            recap = recap.sort_values("Nb jours doubles", ascending=False)
+            st.dataframe(recap, hide_index=True, use_container_width=True)
+            
+            # ── Liste détaillée des jours doubles par commercial ──
+            st.markdown("##### 📅 Liste détaillée des jours doubles")
+            
+            # Sélecteur de commercial
+            comm_list = sorted(df_dbl["Commercial"].unique().tolist())
+            if CURRENT_ROLE == "commercial":
+                # Si commercial connecté, n'afficher que le sien
+                if CURRENT_NAME in comm_list:
+                    sel_comm = CURRENT_NAME
+                else:
+                    st.info(f"✅ {CURRENT_NAME} n'a pas de jour double dans ce plan.")
+                    sel_comm = None
+            else:
+                sel_comm = st.selectbox("Choisir un commercial", ["Tous"] + comm_list,
+                                        key="sel_comm_dbl")
+            
+            if sel_comm:
+                if sel_comm == "Tous":
+                    df_show = df_dbl.copy()
+                else:
+                    df_show = df_dbl[df_dbl["Commercial"]==sel_comm].copy()
+                
+                # Agrégation par (Commercial, Date) : total tonnage + nb agriculteurs + usines
+                jour_summary = df_show.groupby(["Commercial","Date"]).agg(
+                    tonnage_jour=("Tonnes/Jour", "sum"),
+                    nb_agris=("Agriculteur", "nunique"),
+                    nb_livraisons=("Agriculteur", "count"),
+                    usines=("Usine", lambda x: ", ".join(sorted(set(x))))
+                ).reset_index()
+                jour_summary["Date"] = pd.to_datetime(jour_summary["Date"]).dt.strftime("%Y-%m-%d")
+                jour_summary["tonnage_jour"] = jour_summary["tonnage_jour"].round(0).astype(int)
+                jour_summary.columns = ["Commercial", "Date", "Tonnage (t)",
+                                       "Nb agriculteurs", "Livraisons", "Usines"]
+                jour_summary = jour_summary.sort_values(["Commercial","Date"])
+                
+                st.dataframe(jour_summary, hide_index=True, use_container_width=True,
+                    column_config={
+                        "Tonnage (t)": st.column_config.ProgressColumn(
+                            "Tonnage (t)", min_value=0, max_value=1400, format="%d t"),
+                    })
+                
+                # Détail livraisons d'un jour précis
+                st.markdown("##### 🔍 Détail des livraisons d'un jour double")
+                jours_uniques = jour_summary["Date"].unique().tolist()
+                if jours_uniques:
+                    sel_date = st.selectbox("Choisir un jour", jours_uniques, 
+                                            key="sel_date_dbl")
+                    
+                    detail = df_show[df_show["Date"].astype(str).str[:10] == sel_date][
+                        ["Agriculteur","Usine","Tonnes/Jour","Type Véhicule","Véhicules Requis"]
+                    ].copy()
+                    detail["Tonnes/Jour"] = detail["Tonnes/Jour"].astype(int)
+                    detail = detail.sort_values("Tonnes/Jour", ascending=False)
+                    
+                    if sel_comm != "Tous":
+                        st.caption(f"**{sel_comm}** — {sel_date} — Total : "
+                                  f"**{detail['Tonnes/Jour'].sum()}t** sur **{len(detail)} livraisons**")
+                    st.dataframe(detail, hide_index=True, use_container_width=True)
+    else:
+        st.info("Pas d'information sur les jours doubles dans ce planning.")
 
 # ── TAB 3: PAR USINE ─────────────────────────────────────────
 with tab3:
@@ -2165,22 +2266,22 @@ with tab5:
         "SICAM": 1500, "TUCAL": 800, "COMOCAP": 850,
         "ABIDA": 170, "ELFALLEH": 150,
     }
-    # Transport confirmé réel (source: transport_12_mai.xlsx — vérifié)
-    # SICAM: 4 PPL(44t) + 43 PL(825t) + 11 SEMI(330t) = 1199t/j / 58 bennes
-    # TUCAL: 18 PL(318t) + 1 SEMI(30t) = 348t/j / 19 bennes
-    # COMOCAP: 13 PPL(132t) + 5 PL(76t) + 3 SEMI(90t) = 298t/j / 21 bennes
-    # ABIDA: 1 PL(20t) + 1 SEMI(30t) = 50t/j / 2 bennes
+    # Transport confirmé réel — Source: Etat_Transport_Final_2026.xlsx (juin 2026)
+    # SICAM:    46 PL(891t) + 6 PPL(64t) + 13 SEMI(390t) = 1345t/j / 65 bennes
+    # TUCAL:    18 PL(321t) + 3 SEMI(90t) = 411t/j / 21 bennes
+    # COMOCAP:  5 PL(76t) + 10 PPL(102t) + 3 SEMI(90t) = 268t/j / 18 bennes
+    # ABIDA:    1 PL(20t) + 2 SEMI(60t) = 80t/j / 3 bennes
     # ELFALLEH: 2 PPL(24t) = 24t/j / 2 bennes
     TRANSPORT_CONF = {
-        "SICAM": 1199, "TUCAL": 348, "COMOCAP": 298,
-        "ABIDA": 50,   "ELFALLEH": 24,
+        "SICAM": 1345, "TUCAL": 411, "COMOCAP": 268,
+        "ABIDA": 80,   "ELFALLEH": 24,
     }
-    # Jokers: BOURAK=76t(PL) + LUI-MEME=84t(PPL+PL) = 160t total
-    # BOURAK (PL, 4 bennes) → utilisable pour TUCAL principalement (zone CAP BON/NORD)
-    # LUI-MEME (PPL+PL, 6 bennes) → utilisable pour COMOCAP principalement
+    # Jokers: BOURAK=114t (6 PL) + LUIMEME=101t (3 PL + 4 PPL)
+    # BOURAK  → renforce TUCAL principalement
+    # LUIMEME → renforce COMOCAP principalement
     JOKER_ALLOC_DASH = {
-        "TUCAL":    76,   # BOURAK 76t → renforce TUCAL
-        "COMOCAP":  84,   # LUI-MEME 84t → renforce COMOCAP
+        "TUCAL":    114,   # BOURAK 114t → renforce TUCAL
+        "COMOCAP":  101,   # LUIMEME 101t → renforce COMOCAP
         "ELFALLEH": 0,
         "SICAM":    0,
         "ABIDA":    0,
