@@ -450,6 +450,15 @@ def load_data(_sb_version: int = 0):
     if not planning.empty:
         planning["Date"]       = pd.to_datetime(planning["date"],       errors="coerce")
         planning["Commercial"] = planning["commercial"]
+        # ✅ Ne garder que les commerciaux qui ont des données dans agriculteurs
+        # Évite d'afficher de vieilles données d'anciens commerciaux
+        try:
+            _active_comms = sb.table("agriculteurs").select("commercial").execute().data
+            _active_comms = list({r["commercial"] for r in _active_comms if r.get("commercial")})
+            if _active_comms:
+                planning = planning[planning["commercial"].isin(_active_comms)]
+        except Exception:
+            pass  # si erreur → garder tout
         planning["Agriculteur"]= planning["agriculteur"]
         planning["Usine"]      = planning["usine"]
         planning["Région"]     = planning["region"]
@@ -631,9 +640,13 @@ def load_global_stats(_version: int = 0):
         df["region"] = df["region"].fillna("").astype(str).str.strip()
         df["region"] = df["region"].replace(REGION_NORM)
 
-        # Filtre dates invalides (avant 2026 = données corrompues)
+        # Filtre dates invalides — permissif pour ne pas perdre des données valides
+        # (On garde tout, les dates invalides ne suppriement pas les tonnages)
         df["date_debut"] = pd.to_datetime(df["date_debut"], errors="coerce")
-        df = df[df["date_debut"].isna() | (df["date_debut"].dt.year >= 2026)]
+        # Supprimer SEULEMENT les lignes avec des dates vraiment absurdes (avant 2000)
+        _bad_dates = df["date_debut"].notna() & (df["date_debut"].dt.year < 2000)
+        if _bad_dates.sum() < len(df):   # ne pas tout supprimer
+            df = df[~_bad_dates]
 
         # Priorité upload récent : si un commercial a uploadé,
         # ses données Supabase sont les plus récentes — garder toutes

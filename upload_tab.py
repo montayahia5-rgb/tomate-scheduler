@@ -757,11 +757,12 @@ def render_upload_tab(sb, CURRENT_ROLE, CURRENT_NAME, CURRENT_FILTER,
                                 "nom":           str(row["NOM_AGRICULTEUR"]),
                                 "region":        region_norm,
                                 "zone":          str(row.get("ZONE","") or "").strip(),
-                                "usine":         str(row["USINE"]),
-                                "accessibilite": str(row["ACCESSIBILITE"]),
+                                "usine":         str(row["USINE"]).strip().upper(),
+                                "accessbilite":  str(row["ACCESSIBILITE"]).strip(),
                                 "tonnage_total": float(row["TONNAGE"]),
-                                "date_debut":    str(row["DATE_DEBUT"].date()),
-                                "date_fin":      str(row["DATE_FIN"].date()),
+                                "date_debut":    str(row["DATE_DEBUT"])[:10] if pd.notna(row["DATE_DEBUT"]) else "2026-07-01",
+                                "date_fin":      str(row["DATE_FIN"])[:10] if pd.notna(row["DATE_FIN"]) else "2026-08-17",
+                                "nbr_hectares":  float(row["NBR_HECTARES"]) if "NBR_HECTARES" in row.index and pd.notna(row.get("NBR_HECTARES")) else None,
                             })
 
                         # Batch insert par 100
