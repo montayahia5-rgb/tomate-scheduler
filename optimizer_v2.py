@@ -207,10 +207,12 @@ ACCESS_VEHICLES = {
 # Mise à jour: 12 mai 2026 — liste confirmée uniquement
 # ── Données exactes depuis transport_12_mai.xlsx (liste confirmée) ──────────
 TRANSPORT_CONFIRMED = {
-    # Source: Etat_Transport_Final_2026.xlsx — liste confirmée (juin 2026)
+    # Source: Etat_Transport_Final_2026.xlsx
+    # Logique: Confirmation=ok/OK ET Contrat ≠ "En attente"
+    # (1 ligne exclue: CHOKRI ZIADIA COMOCAP 7t PPL — contrat En attente)
     "SICAM":    {"total": 1345, "PL": 891, "PPL": 64,  "SEMI": 390, "nb_bennes": 65},
-    "TUCAL":    {"total": 411,  "PL": 321, "PPL": 0,   "SEMI": 90,  "nb_bennes": 21},
-    "COMOCAP":  {"total": 268,  "PL": 76,  "PPL": 102, "SEMI": 90,  "nb_bennes": 18},
+    "TUCAL":    {"total": 363,  "PL": 303, "PPL": 0,   "SEMI": 60,  "nb_bennes": 19},
+    "COMOCAP":  {"total": 261,  "PL": 76,  "PPL": 95,  "SEMI": 90,  "nb_bennes": 17},
     "ABIDA":    {"total": 80,   "PL": 20,  "PPL": 0,   "SEMI": 60,  "nb_bennes": 3},
     "ELFALLEH": {"total": 24,   "PL": 0,   "PPL": 24,  "SEMI": 0,   "nb_bennes": 2},
 }
