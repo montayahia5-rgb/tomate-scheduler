@@ -685,25 +685,35 @@ def render_upload_tab(sb, CURRENT_ROLE, CURRENT_NAME, CURRENT_FILTER,
                                  type="primary", use_container_width=True):
 
                         # ✅ VALIDATION EN PREMIER — avant toute suppression
-                        # Filtrer les lignes vides et les lignes TOTAL/résumé
+                        # validate_upload retourne colonnes NOM_AGRICULTEUR/TONNAGE/USINE (majuscules)
                         df_val = df_clean.copy()
-                        if "nom" in df_val.columns:
-                            _nom_up = df_val["nom"].astype(str).str.strip().str.upper()
-                            df_val = df_val[_nom_up.str.len() > 1]
-                            df_val = df_val[~_nom_up.str.startswith("TOTAL")]
-                            df_val = df_val[~_nom_up.str.startswith("SOUS-TOTAL")]
-                            df_val = df_val[~_nom_up.isin(["NAN","NONE",""])]
-                        if "tonnage_total" in df_val.columns:
-                            df_val = df_val[pd.to_numeric(df_val["tonnage_total"], errors="coerce").fillna(0) > 0]
-                        if "usine" in df_val.columns:
-                            df_val = df_val[df_val["usine"].astype(str).str.strip().str.len() > 0]
+                        
+                        # Détecter les noms de colonnes (majuscules ou minuscules)
+                        _nom_col = next((c for c in df_val.columns 
+                                        if c.upper() in ("NOM_AGRICULTEUR","NOM")), None)
+                        _ton_col = next((c for c in df_val.columns 
+                                        if c.upper() in ("TONNAGE","TONNAGE_TOTAL")), None)
+                        _usi_col = next((c for c in df_val.columns 
+                                        if c.upper() == "USINE"), None)
+                        
+                        # Filtrer les lignes vides et TOTAL
+                        if _nom_col:
+                            _n = df_val[_nom_col].astype(str).str.strip().str.upper()
+                            df_val = df_val[_n.str.len() > 1]
+                            df_val = df_val[~_n.str.startswith("TOTAL")]
+                            df_val = df_val[~_n.str.startswith("SOUS-TOTAL")]
+                            df_val = df_val[~_n.isin(["NAN","NONE",""])]
+                        if _ton_col:
+                            df_val = df_val[pd.to_numeric(df_val[_ton_col], errors="coerce").fillna(0) > 0]
+                        if _usi_col:
+                            df_val = df_val[df_val[_usi_col].astype(str).str.strip().str.len() > 0]
                         df_clean = df_val
 
                         validation_errors = []
                         for _, row in df_clean.iterrows():
-                            nom = str(row.get("nom","") or "").strip()
-                            ton = float(row.get("tonnage_total", 0) or 0)
-                            usn = str(row.get("usine","") or "").strip().upper()
+                            nom = str(row.get(_nom_col or "NOM_AGRICULTEUR","") or "").strip()
+                            ton = float(row.get(_ton_col or "TONNAGE", 0) or 0)
+                            usn = str(row.get(_usi_col or "USINE","") or "").strip().upper()
                             if not nom or len(nom) < 2:
                                 validation_errors.append(f"Nom invalide: '{nom}'")
                             if ton <= 0 or ton > 50000:
