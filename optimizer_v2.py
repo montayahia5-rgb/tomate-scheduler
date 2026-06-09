@@ -521,12 +521,34 @@ df["accessbilite"] = df["accessbilite"].apply(normalize_acc)
 df["ZONNE"]  = df["ZONNE"].fillna("").astype(str).str.strip().str.upper()
 df["REGION"] = df["REGION"].fillna("").astype(str).str.strip().str.upper()
 REGION_NORM_OPT = {
-    "NABEUL":"CAP BON 2","BEJA":"NORD","MANOUBA":"NORD",
-    "GAFSA":"GAFSA / KASSRINE","KASSRINE":"GAFSA / KASSRINE",
-    "CAPB1":"CAP BON 1","CAP B1":"CAP BON 1",
+    # CAP BON
+    "NABEUL":"CAP BON 2","CAPB1":"CAP BON 1","CAP B1":"CAP BON 1",
     "CAPB2":"CAP BON 2","CAP B2":"CAP BON 2",
+    "CAP BON":"CAP BON 1",
+    # GAFSA / KASSERINE (toutes orthographes)
+    "GAFSA":"GAFSA / KASSRINE","KASSRINE":"GAFSA / KASSRINE",
+    "KASSERINE":"GAFSA / KASSRINE","KASRINE":"GAFSA / KASSRINE",
+    "KASSARINE":"GAFSA / KASSRINE","SBEITLA":"GAFSA / KASSRINE",
+    # NORD
+    "BEJA":"NORD","MANOUBA":"NORD","BIZERTE":"NORD","JENDOUBA":"NORD",
+    "BIR LAHFAY":"NORD","BOR AMRI":"NORD","BORJ AMRI":"NORD",
+    "MEDJEZ EL BAB":"NORD","MEJEZ EL BAB":"NORD","MEDJEZ BEB":"NORD",
+    "TESTOUR":"NORD","BOUSSALEM":"NORD",
+    # KAIROUAN
+    "KAIRAOUAN":"KAIROUAN",
+    # SIDI BOUZID
+    "SIDIBOUZID":"SIDI BOUZID","SIDI BOU ZID":"SIDI BOUZID",
+    # BOUFICHA / SOUSSE
+    "BOUFICHA":"BOUFICHA",
+    "SOUSSE":"BOUFICHA","ENFIDHA":"BOUFICHA","HAMMAMET":"CAP BON 1",
 }
+# Normaliser AVANT le replace
+df["REGION"] = df["REGION"].astype(str).str.strip().str.upper()
 df["REGION"] = df["REGION"].replace(REGION_NORM_OPT)
+# Si toujours non reconnue, mettre AUTRE
+KNOWN_REGIONS = {"CAP BON 1","CAP BON 2","NORD","KAIROUAN","SIDI BOUZID",
+                 "GAFSA / KASSRINE","BOUFICHA","AUTRE"}
+df["REGION"] = df["REGION"].where(df["REGION"].isin(KNOWN_REGIONS), "AUTRE")
 df["date_debut"] = pd.to_datetime(df["date_debut"], errors="coerce")
 df["date_fin"]   = pd.to_datetime(df["date_fin"],   errors="coerce")
 
@@ -1116,6 +1138,10 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None):
         "ELFALLEH": ["PPL",  "PL",  "SEMI"],  # préfère PPL
     }
     prefs = USINE_PREFS.get(usine, ["PL", "PPL", "SEMI"])
+    # ✅ Filtrer prefs par allowed (accessibilité de l'agriculteur)
+    prefs_allowed = [v for v in prefs if v in allowed]
+    if not prefs_allowed:
+        prefs_allowed = allowed  # fallback sur allowed seul
 
     # ── CAS COMOCAP : TRACTEUR fixe (10t) + transport principal ─────────
     # TRACTEUR = flotte propre COMOCAP — UNIQUEMENT pour CAP BON 1
@@ -1124,7 +1150,7 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None):
     # Région effective: geo_region si valide, sinon fallback sur region Supabase
     _r = str(region or "").strip().upper()
     _region_effective = _r if _r not in ("", "AUTRE") else ""
-    use_tracteur = (_region_effective in TRACTEUR_REGIONS)
+    use_tracteur = (_region_effective in TRACTEUR_REGIONS) and ("TRACTEUR" in allowed or "TRC" in str(allowed_raw).upper())
     
     if usine == "COMOCAP":
         result = []
@@ -1137,45 +1163,43 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None):
                            "tons_each": round(trac_tons, 2)})
             remaining = round(tons - trac_tons, 2)
         else:
-            # Autres régions → pas de TRACTEUR, tout en PL/PPL
+            # Autres régions → pas de TRACTEUR, tout en PL/PPL/SEMI selon allowed
             remaining = tons
         if remaining > 0:
-            # Choisir le meilleur véhicule pour le reste
-            # (PPL pour petits restes <15t, PL pour moyens, SEMI pour grands)
-            main_veh = _best_for_tons(remaining, ["PPL", "PL", "SEMI"])
+            # ✅ Choisir le meilleur véhicule PARMI ceux autorisés (allowed)
+            # Ordre de préférence pour COMOCAP: PL > PPL > SEMI
+            candidates = [v for v in ["PL", "PPL", "SEMI"] if v in allowed]
+            if not candidates:
+                candidates = allowed  # fallback
+            main_veh = _best_for_tons(remaining, candidates)
             if not main_veh:
-                # Si aucun n'est dans allowed, prendre le moins mauvais
-                main_veh = _best_for_tons(remaining, ["PPL", "PL", "SEMI"])
-            if not main_veh:
-                main_veh = "PPL" if remaining <= 14 else "PL"
+                main_veh = candidates[0] if candidates else "PL"
             result.extend(_alloc(main_veh, remaining))
-        return result if result else _alloc("PL", tons)
+        return result if result else _alloc(allowed[0] if allowed else "PL", tons)
 
     # ── CAS GÉNÉRAL : 1 véhicule principal ──────────────────────────────
-    # Choisir le meilleur véhicule accessible selon les préférences usine
-    # On essaie d'abord les préférences usine, puis tous les types disponibles
-    primary = _best_for_tons(tons, prefs)
+    # ✅ Choisir le meilleur véhicule PARMI ceux autorisés (allowed)
+    primary = _best_for_tons(tons, prefs_allowed)
     if not primary:
-        # Essayer dans l'ordre du plus grand au plus petit
-        primary = _best_for_tons(tons, ["SEMI", "PL", "PPL", "TRACTEUR"])
+        # Essayer tous les véhicules autorisés
+        primary = _best_for_tons(tons, allowed)
     if not primary:
-        primary = "PL"  # dernier recours absolu
+        primary = allowed[0] if allowed else "PL"  # dernier recours
     
     # ✅ Vérification: si le véhicule choisi est très sous-chargé,
-    # essayer un véhicule plus petit
+    # essayer un véhicule plus petit (mais TOUJOURS dans allowed)
     if primary and primary in FLEET_CAPACITY:
         mn_p, mx_p = FLEET_CAPACITY[primary]
         if tons < mn_p * 0.8:
-            # Le véhicule est vraiment trop grand → chercher plus petit
             smaller = {
                 "SEMI": ["PL", "PPL"],
                 "PL":   ["PPL"],
                 "PPL":  [],
             }
             for alt in smaller.get(primary, []):
-                if alt in allowed:
+                if alt in allowed:   # ✅ TOUJOURS vérifier allowed
                     alt_mn, alt_mx = FLEET_CAPACITY[alt]
-                    if tons >= alt_mn * 0.5:  # acceptable
+                    if tons >= alt_mn * 0.5:
                         primary = alt
                         break
 

@@ -70,21 +70,53 @@ def insert_batch(table_name: str, rows: list, label: str = ""):
 
 # ── Normalisation régions officielles ──────────────────────────────────────
 REGION_NORM = {
+    # CAP BON
     "NABEUL":   "CAP BON 2",  "nabeul":   "CAP BON 2",
-    "BEJA":     "NORD",       "beja":     "NORD",
-    "MANOUBA":  "NORD",       "manouba":  "NORD",
-    "GAFSA":    "GAFSA / KASSRINE",
-    "KASSRINE": "GAFSA / KASSRINE",
     "CAPB1":    "CAP BON 1",  "CAP B1":   "CAP BON 1",
     "CAPB2":    "CAP BON 2",  "CAP B2":   "CAP BON 2",
+    "CAP BON":  "CAP BON 1",
+    # GAFSA / KASSERINE
+    "GAFSA":    "GAFSA / KASSRINE",
+    "KASSRINE": "GAFSA / KASSRINE",
+    "KASSERINE":"GAFSA / KASSRINE",
+    "KASRINE":  "GAFSA / KASSRINE",
+    "KASSARINE":"GAFSA / KASSRINE",
+    "SBEITLA":  "GAFSA / KASSRINE",
+    # NORD
+    "BEJA":     "NORD",       "beja":     "NORD",
+    "MANOUBA":  "NORD",       "manouba":  "NORD",
+    "BIZERTE":  "NORD",
+    "JENDOUBA": "NORD",
+    "BIR LAHFAY":"NORD",
+    "BOR AMRI": "NORD",       "BORJ AMRI":"NORD",
+    "MEDJEZ EL BAB":"NORD",   "MEJEZ EL BAB":"NORD",   "MEDJEZ BEB":"NORD",
+    "TESTOUR":  "NORD",
+    "BOUSSALEM":"NORD",
+    # KAIROUAN
+    "KAIRAOUAN":"KAIROUAN",
+    # SIDI BOUZID
+    "SIDIBOUZID":"SIDI BOUZID",
+    "SIDI BOU ZID":"SIDI BOUZID",
+    # BOUFICHA
+    "BOUFICHA": "BOUFICHA",
+    "SOUSSE":   "BOUFICHA",
+    "ENFIDHA":  "BOUFICHA",
+    "HAMMAMET": "CAP BON 1",
 }
 
+KNOWN_REGIONS = {"CAP BON 1","CAP BON 2","NORD","KAIROUAN","SIDI BOUZID",
+                 "GAFSA / KASSRINE","BOUFICHA","AUTRE"}
+
 def norm_region(r):
-    """Normalise la région vers les 7 régions officielles."""
-    if not r or r in ("None", "nan", ""):
-        return r
+    """Normalise la région vers les 7 régions officielles. NAN → AUTRE."""
+    if not r or r in ("None", "nan", "", None):
+        return "AUTRE"
     r = str(r).strip()
-    return REGION_NORM.get(r, REGION_NORM.get(r.upper(), r))
+    r_norm = REGION_NORM.get(r, REGION_NORM.get(r.upper(), r))
+    # Si toujours pas reconnue, mettre AUTRE
+    if r_norm.upper() not in {x.upper() for x in KNOWN_REGIONS}:
+        return "AUTRE"
+    return r_norm
 
 def safe_str(val):
     if val is None or (isinstance(val, float) and str(val) == "nan"):
