@@ -152,6 +152,8 @@ ACCESS_VEHICLES = {
     "SEMI/PL/PPL": ["SEMI", "PL", "PPL"],
     # ── Fallback ───────────────────────────────────────────────────
     "NAN":         ["TRACTEUR", "PPL", "PL", "SEMI"],
+    "PL":          ["PL"],           # PL seul → uniquement poilourds
+    "PPL":         ["PPL"],          # PPL seul → uniquement petits poilourds
 }
 
 # ── Capacités confirmées par usine (source: transport_12_mai.xlsx) ──────
@@ -431,13 +433,20 @@ df["commercial"]   = df["commercial"].astype(str).str.strip()
 df["USINE"]        = df["USINE"].astype(str).str.strip().str.upper()   # ← .upper() obligatoire !
 df["accessbilite"] = df["accessbilite"].fillna("PL/PPL").astype(str).str.strip().str.upper()
 def normalize_acc(x):
-    """Normalise l'accessibilité en gardant TOUS les types de véhicules."""
+    """
+    Normalise l'accessibilité en RESPECTANT EXACTEMENT ce que le commercial a écrit.
+    PL → PL  |  PPL → PPL  |  PL/PPL → PL/PPL  |  PL/SEMI → PL/SEMI
+    Aucune conversion automatique entre types simples.
+    """
     x = str(x).strip().upper().replace("-", "/")
-    if x in ("NAN","NONE","","NAT"): return "PL/PPL"
-    if x == "RM":                   return "RM"
-    if x == "PL":                   return "PL"
-    # Déjà valide tel quel
-    if x in ACCESS_VEHICLES:        return x
+    if x in ("NAN","NONE","","NAT"): return "PL/PPL"  # défaut si vide
+    if x == "RM":                    return "RM"
+    # ✅ Déjà valide tel quel → retourner sans modifier
+    if x in ACCESS_VEHICLES:         return x
+    # PL seul ou PPL seul → respecter exactement
+    if x == "PL":                    return "PL"
+    if x == "PPL":                   return "PPL"
+    # Parser les combinaisons
     import re as _re
     parts = set(_re.split(r"[/,;\s]+", x))
     parts = {p.strip() for p in parts if p.strip()}
@@ -445,18 +454,21 @@ def normalize_acc(x):
     has_pl   = "PL" in parts
     has_ppl  = "PPL" in parts
     has_semi = "SEMI" in parts
-    # 3 types
+    # Combinaisons avec TRACTEUR
     if has_trc and has_pl and has_ppl:  return "TRC/PPL/PL"
-    if has_trc and (has_ppl or has_pl): return "TRC/PPL"
+    if has_trc and has_pl:              return "TRC/PPL/PL"
+    if has_trc and has_ppl:             return "TRC/PPL"
+    # Combinaisons avec SEMI
     if has_semi and has_pl and has_ppl: return "PL/PPL/SEMI"
     if has_semi and has_ppl:            return "PL/PPL/SEMI"
-    # 2 types
     if has_semi and has_pl:             return "PL/SEMI"
-    if has_pl and has_ppl:              return "PL/PPL"
-    if has_pl:                          return "PL"
-    if has_ppl:                         return "PL/PPL"
     if has_semi:                        return "PL/SEMI"
-    return "PL/PPL"
+    # PL + PPL ensemble
+    if has_pl and has_ppl:              return "PL/PPL"
+    # ✅ Respecter les types simples exactement
+    if has_pl:                          return "PL"
+    if has_ppl:                         return "PPL"
+    return "PL/PPL"  # défaut absolu
 
 df["accessbilite"] = df["accessbilite"].apply(normalize_acc)
 df["ZONNE"]  = df["ZONNE"].fillna("").astype(str).str.strip().str.upper()
