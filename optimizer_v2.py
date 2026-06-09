@@ -1204,55 +1204,77 @@ for row in consolidated.values():
 # ANCIEN code remplacé par la consolidation par envoi unique
 
 # ✅ POST-TRAITEMENT CORRECTION TONNAGE : total planifié = total déclaré
-# L'arrondi à la dizaine peut ajouter ou retirer jusqu'à ±5t par livraison
-# → ajuster les jours de livraison pour que le total par agriculteur corresponde
+# L'arrondi à la dizaine crée un excédent/déficit par rapport au tonnage déclaré
+# → ajuster par commercial pour que total planifié ≈ total déclaré
 print("  Post-traitement correction tonnage (arrondi)...")
 from collections import defaultdict as _dd_ton
 
-# Calculer le total planifié et déclaré par agriculteur
-_planned_by_farmer = _dd_ton(float)
-_declared_by_farmer = {}
+# 1. Calculer total planifié et déclaré par COMMERCIAL
+_plan_by_comm  = _dd_ton(float)   # total planifié
+_decl_by_comm  = {}               # total déclaré (depuis Supabase = farmer.tonnage × n_jours)
+
+# Calculer tonnage déclaré par commercial depuis les farmers
+for f in farmers:
+    comm = f.commercial
+    if comm not in _decl_by_comm:
+        _decl_by_comm[comm] = 0.0
+    _decl_by_comm[comm] += f.tonnage
+
+# Calculer tonnage planifié (après arrondi) par commercial
 for row in all_days:
-    nom   = row["Agriculteur"]
-    usine = row["Usine"]
-    key   = (nom, usine)
-    _planned_by_farmer[key]  = _planned_by_farmer.get(key, 0) + row["Tonnes/Jour"]
-    _declared_by_farmer[key] = row["Total Tonnes"]
+    comm = row["Commercial"]
+    _plan_by_comm[comm] += row["Tonnes/Jour"]
 
+print("    Vérification avant correction:")
+for comm, decl in _decl_by_comm.items():
+    plan = _plan_by_comm.get(comm, 0)
+    diff = plan - decl
+    print(f"      {comm:<20}: déclaré={decl:>8.0f}t | planifié={plan:>8.0f}t | diff={diff:+.0f}t")
+
+# 2. Corriger par commercial : si excédent → réduire certains jours de 10t
 _corrections = 0
-for (nom, usine), planned in list(_planned_by_farmer.items()):
-    declared = _declared_by_farmer.get((nom, usine), planned)
-    diff = round(planned - declared, 1)
-    if abs(diff) < 5:  # écart acceptable (< 5t) → laisser tel quel
+for comm, decl in _decl_by_comm.items():
+    plan = _plan_by_comm.get(comm, 0)
+    diff = round(plan - decl, 1)   # positif = trop planifié
+    
+    if abs(diff) < 1:   # déjà correct
         continue
     
-    # Trouver les livraisons de cet agriculteur+usine et ajuster
-    farmer_days = [i for i, r in enumerate(all_days) 
-                   if r["Agriculteur"] == nom and r["Usine"] == usine]
-    if not farmer_days:
-        continue
+    # Trouver toutes les livraisons de ce commercial, triées par tonnage décroissant
+    comm_indices = [i for i, r in enumerate(all_days) if r["Commercial"] == comm]
     
-    remaining_diff = diff  # positif = trop, négatif = pas assez
-    for idx in sorted(farmer_days, key=lambda i: all_days[i]["Tonnes/Jour"], reverse=True):
-        if abs(remaining_diff) < 1:
-            break
-        current = all_days[idx]["Tonnes/Jour"]
-        if remaining_diff > 0:
-            # Réduire de 10t si possible (ne pas descendre sous 10t)
-            reduction = min(10, remaining_diff, current - 10)
-            if reduction >= 1:
-                all_days[idx]["Tonnes/Jour"] = int(current - reduction)
-                remaining_diff = round(remaining_diff - reduction, 1)
+    remaining = diff
+    if diff > 0:
+        # Trop planifié → réduire les plus grandes livraisons
+        comm_indices.sort(key=lambda i: all_days[i]["Tonnes/Jour"], reverse=True)
+        for idx in comm_indices:
+            if remaining < 1: break
+            current = all_days[idx]["Tonnes/Jour"]
+            reduce  = min(10, int(remaining), current - 10)
+            if reduce >= 1:
+                all_days[idx]["Tonnes/Jour"] = current - reduce
+                remaining -= reduce
                 _corrections += 1
-        else:
-            # Augmenter de 10t si possible
-            addition = min(10, -remaining_diff)
-            if addition >= 1:
-                all_days[idx]["Tonnes/Jour"] = int(current + addition)
-                remaining_diff = round(remaining_diff + addition, 1)
+    else:
+        # Trop peu planifié → augmenter les petites livraisons
+        comm_indices.sort(key=lambda i: all_days[i]["Tonnes/Jour"])
+        for idx in comm_indices:
+            if remaining > -1: break
+            current = all_days[idx]["Tonnes/Jour"]
+            add = min(10, int(-remaining))
+            if add >= 1:
+                all_days[idx]["Tonnes/Jour"] = current + add
+                remaining += add
                 _corrections += 1
 
-print(f"    → {_corrections} ajustement(s) pour corriger l'arrondi")
+print(f"    → {_corrections} ajustement(s) appliqués")
+# Recalculer pour vérifier
+_plan_after = _dd_ton(float)
+for row in all_days:
+    _plan_after[row["Commercial"]] += row["Tonnes/Jour"]
+for comm, decl in _decl_by_comm.items():
+    plan = _plan_after.get(comm, 0)
+    print(f"      {comm:<20}: déclaré={decl:>8.0f}t | planifié après={plan:>8.0f}t | diff={plan-decl:+.0f}t")
 
 # ✅ POST-TRAITEMENT TRACTEUR COMOCAP : max 10 voyages/jour
 # DOIT être fait AVANT result_df pour aussi corriger transport_rows
