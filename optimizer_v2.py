@@ -43,11 +43,13 @@ def clamp_date(d):
 
 # Caps NORMAUX (1 livraison/jour)
 COMMERCIAL_CAPS = {
-    "FEDI":             850,   # t/jour normal
+    "FEDI":             850,
     "MAKKI BEN SALAH":  800,
     "KHALIL":           800,
     "ACHREF AJLANI":    500,
-    "JILANI OBAY":       50,   # ajusté auto si besoin > 50t/j
+    # JILANI : 6965t / 73j = 95t/j → cap réel ajusté à 100t/j
+    # Pas de jours doubles pour Jilani — il livre à son rythme normal
+    "JILANI OBAY":      100,
 }
 
 # ✅ Caps MAXIMUM avec JOURS DOUBLES (2 livraisons matin + après-midi)
@@ -1412,12 +1414,13 @@ print("  Détection jours doubles (livraisons > cap normal du commercial)...")
 from collections import defaultdict as _dd_dbl
 
 # Cap NORMAL par commercial (sans jour double)
+# JILANI = 100t/j (6965t / 73j) — pas de jours doubles
 CAPS_NORMAL = {
     "FEDI":            850,
     "MAKKI BEN SALAH": 800,
     "KHALIL":          800,
     "ACHREF AJLANI":   500,
-    "JILANI OBAY":      95,
+    "JILANI OBAY":     100,
 }
 
 # Calculer tonnage par (commercial, date) → si > cap normal = jour double

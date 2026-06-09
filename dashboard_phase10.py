@@ -2424,7 +2424,7 @@ with tab4:
         if v >= 3:  return "background-color:#F9E79F;color:black"
         return "background-color:#D5F5E3;color:black"
 
-    styled = df_tbl.style.applymap(color_nb, subset=["Nb bennes"])
+    styled = df_tbl.style.map(color_nb, subset=["Nb bennes"])
     st.dataframe(styled, use_container_width=True, hide_index=True, height=280)
 
     # ── Graphique 2 : Transport à louer par usine et type ───────────
