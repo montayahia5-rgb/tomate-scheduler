@@ -2020,18 +2020,13 @@ with tab4:
     st.markdown("**Détail par usine**")
     col_disp = ["Usine","Flotte propre","dont TRACTEUR","dont SEMI","dont PL","dont PPL",
                 "Max planifié","Besoin restant","Couverture %","→ SEMI louer","→ PL louer","→ PPL louer"]
-    st.dataframe(
-        df_nec[col_disp].style
-            .apply(lambda col: [
-                "background-color:#1a2a1a;color:#5dbb6a" if v == 0 and col.name == "Besoin restant"
-                else "background-color:#2a1a1a;color:#f66;font-weight:bold" if v > 0 and col.name == "Besoin restant"
-                else "background-color:#1e2a3a" if col.name.startswith("→")
-                else ""
-                for v in col], axis=0),
-        use_container_width=True,
-        hide_index=True,
-        height=220,
-    )
+    
+    # Affichage simple sans style (compatible toutes versions pandas)
+    df_show = df_nec[col_disp].copy()
+    df_show["Couverture %"] = df_show["Couverture %"].apply(lambda x: f"{x:.0f}%")
+    df_show["Besoin restant"] = df_show["Besoin restant"].apply(
+        lambda x: f"✅ 0t" if x == 0 else f"⚠️ +{x}t")
+    st.dataframe(df_show, use_container_width=True, hide_index=True, height=220)
 
     # ── Graphique barres groupées ──────────────────────────────────
     fig_nec = go.Figure()
