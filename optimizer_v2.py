@@ -41,15 +41,14 @@ def clamp_date(d):
     if d > SEASON_END:   return SEASON_END
     return d
 
-# Caps NORMAUX (1 livraison/jour)
+# Caps NORMAUX (1 livraison/jour) = LIMITE PENDANT LE PIC
 COMMERCIAL_CAPS = {
-    "FEDI":             850,
-    "MAKKI BEN SALAH":  800,
-    "KHALIL":           800,
-    "ACHREF AJLANI":    500,
+    "FEDI":             850,   # inchangé
+    "MAKKI BEN SALAH":  850,   # ajusté de 800
+    "KHALIL":           900,   # ajusté de 800
+    "ACHREF AJLANI":    450,   # ajusté de 500
     # JILANI : 6965t / 73j = 95t/j → cap réel ajusté à 100t/j
-    # Pas de jours doubles pour Jilani — il livre à son rythme normal
-    "JILANI OBAY":      100,
+    "JILANI OBAY":      100,   # inchangé
 }
 
 # ✅ Caps MAXIMUM avec JOURS DOUBLES (2 livraisons matin + après-midi)
@@ -678,35 +677,22 @@ class Farmer:
         if self.end <= self.start:
             self.end = clamp_date(self.start + datetime.timedelta(days=30))
         
-        # ✅ EXTENSION GRADUÉE selon tonnage de l'agriculteur
-        # Plus le tonnage est gros, plus on étend la fenêtre pour étaler la charge
-        # Cela permet d'éviter les jours doubles
-        if self.tonnage < 200:
-            ext_days = 3       # Petit agriculteur → +3 jours
-        elif self.tonnage < 500:
-            ext_days = 5       # Moyen → +5 jours
-        elif self.tonnage < 800:
-            ext_days = 7       # Gros → +7 jours
+        # ✅ EXTENSION SIMPLE — max 1 à 3 jours seulement
+        # On respecte au mieux la fenêtre déclarée par le commercial.
+        # Un petit écart (1-3j) suffit pour lisser légèrement la charge,
+        # sans décaler artificiellement la date de fin de récolte.
+        if self.tonnage < 300:
+            ext_days = 1       # Petit agriculteur → +1 jour
+        elif self.tonnage < 700:
+            ext_days = 2       # Moyen → +2 jours
         else:
-            ext_days = 10      # Très gros (≥800t) → +10 jours
+            ext_days = 3       # Gros (≥700t) → +3 jours max
         self.end = clamp_date(self.end + datetime.timedelta(days=ext_days))
 
         n_days = max(1, (self.end - self.start).days + 1)
         daily  = self.tonnage / n_days
-        
-        # ✅ Auto-extension de sécurité si tonnage/jour ENCORE trop élevé
-        MAX_DAILY_PER_FARMER = 80   # 80t/j max par agriculteur sur une usine
-        if daily > MAX_DAILY_PER_FARMER:
-            days_needed = math.ceil(self.tonnage / MAX_DAILY_PER_FARMER)
-            extension = days_needed - n_days
-            ext_before = extension // 2
-            ext_after  = extension - ext_before
-            new_start = clamp_date(self.start - datetime.timedelta(days=ext_before))
-            new_end   = clamp_date(self.end   + datetime.timedelta(days=ext_after))
-            self.start = new_start
-            self.end   = new_end
-            n_days     = max(1, (self.end - self.start).days + 1)
-            daily      = self.tonnage / n_days
+        # Pas d'auto-extension agressive : on garde la fenêtre déclarée
+        # (le lissage de la charge se fait par les véhicules, pas en décalant la récolte)
         
         self.window = {
             self.start + datetime.timedelta(days=i): round(daily, 1)
@@ -1417,9 +1403,9 @@ from collections import defaultdict as _dd_dbl
 # JILANI = 100t/j (6965t / 73j) — pas de jours doubles
 CAPS_NORMAL = {
     "FEDI":            850,
-    "MAKKI BEN SALAH": 800,
-    "KHALIL":          800,
-    "ACHREF AJLANI":   500,
+    "MAKKI BEN SALAH": 850,
+    "KHALIL":          900,
+    "ACHREF AJLANI":   450,
     "JILANI OBAY":     100,
 }
 
