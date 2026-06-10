@@ -136,11 +136,13 @@ def normalize_access(raw_value: str) -> str:
     """
     Normalise la colonne ACCESSIBILITE.
     ✅ RÈGLE PRINCIPALE: respecter EXACTEMENT ce que le commercial a écrit.
-       PL seul → PL  |  PPL seul → PPL  |  PL/PPL → PL/PPL
+       PL seul → PL  |  PPL seul → PPL  |  SEMI seul → SEMI  |  PL/PPL → PL/PPL
+    ✅ SEMI seul = terrain accessible uniquement en Semi (ex: ACHREF Gafsa)
+       → NE PAS transformer en PL/SEMI (ce serait autoriser des PL sur un terrain Semi-only)
     """
     raw = str(raw_value).strip().upper().replace("-", "/")
     
-    # Déjà valide → retourner sans modifier
+    # Déjà valide → retourner sans modifier (inclut "SEMI" seul)
     if raw in ACCESS_VALIDES:
         return raw
     if raw == "RM":
@@ -163,13 +165,17 @@ def normalize_access(raw_value: str) -> str:
     if has_trc:
         return "TRC/PPL"
     
-    # SEMI combiné
+    # ✅ SEMI combiné avec d'autres types
+    if has_semi and has_pl and has_ppl:
+        return "PL/PPL/SEMI" if "PL/PPL/SEMI" in ACCESS_VALIDES else "PL/SEMI"
     if has_semi and has_pl:
         return "PL/SEMI"
     if has_semi and has_ppl:
-        return "PL/PPL/SEMI" if "PL/PPL/SEMI" in ACCESS_VALIDES else "PL/SEMI"
-    if has_semi:
         return "PL/SEMI"
+    # ✅ SEMI seul → SEMI (terrain accessible uniquement en Semi-remorque)
+    #    NE PAS transformer en PL/SEMI — ce serait faux !
+    if has_semi:
+        return "SEMI"
     
     # Combinaisons PL + PPL
     if has_pl and has_ppl:
@@ -827,27 +833,33 @@ def render_upload_tab(sb, CURRENT_ROLE, CURRENT_NAME, CURRENT_FILTER,
                         
                         # 2. Insérer les nouveaux agriculteurs
                         # Normaliser region complètement
+                        # ✅ MAPPING DÉFINITIF des régions
+                        # Les commerciaux écrivent: GAFSA, KASSERINE, BOUFICHA, etc.
+                        # Le système normalise vers les 6 régions officielles
                         REGION_NORM_UPLOAD = {
                             # CAP BON
                             "NABEUL":"CAP BON 2","CAPB1":"CAP BON 1","CAPB2":"CAP BON 2",
                             "CAP B1":"CAP BON 1","CAP B2":"CAP BON 2",
                             "CAP BON":"CAP BON 1",
                             "CAP BON 1":"CAP BON 1","CAP BON 2":"CAP BON 2",
-                            # GAFSA / KASSERINE
+                            # GAFSA / KASSERINE → fusionnées en une seule région
                             "GAFSA":"GAFSA / KASSRINE","KASSRINE":"GAFSA / KASSRINE",
                             "KASSERINE":"GAFSA / KASSRINE","KASRINE":"GAFSA / KASSRINE",
                             "KASSARINE":"GAFSA / KASSRINE","SBEITLA":"GAFSA / KASSRINE",
+                            "GAFSA / KASSRINE":"GAFSA / KASSRINE",
+                            "GAFSA/KASSRINE":"GAFSA / KASSRINE",
+                            "GAFSA / KASSERINE":"GAFSA / KASSRINE",
                             # NORD
                             "BEJA":"NORD","MANOUBA":"NORD","BIZERTE":"NORD",
-                            "JENDOUBA":"NORD","BIR LAHFAY":"NORD",
-                            "BOR AMRI":"NORD","BORJ AMRI":"NORD",
+                            "JENDOUBA":"NORD","JANDOUBA":"NORD",
+                            "BIR LAHFAY":"NORD","BOR AMRI":"NORD","BORJ AMRI":"NORD",
                             "MEDJEZ EL BAB":"NORD","MEJEZ EL BAB":"NORD","MEDJEZ BEB":"NORD",
-                            "TESTOUR":"NORD","BOUSSALEM":"NORD",
+                            "TESTOUR":"NORD","BOUSSALEM":"NORD","NORD":"NORD",
                             # KAIROUAN
                             "KAIROUAN":"KAIROUAN","KAIRAOUAN":"KAIROUAN",
                             # SIDI BOUZID
                             "SIDI BOUZID":"SIDI BOUZID","SIDIBOUZID":"SIDI BOUZID",
-                            # BOUFICHA
+                            # BOUFICHA = région séparée (Sidi Saiid, Sidi Khelifa)
                             "BOUFICHA":"BOUFICHA","SOUSSE":"BOUFICHA","ENFIDHA":"BOUFICHA",
                             "HAMMAMET":"CAP BON 1",
                             # AUTRE
@@ -855,21 +867,90 @@ def render_upload_tab(sb, CURRENT_ROLE, CURRENT_NAME, CURRENT_FILTER,
                         }
                         KNOWN_REGIONS = {"CAP BON 1","CAP BON 2","NORD","KAIROUAN",
                                          "SIDI BOUZID","GAFSA / KASSRINE","BOUFICHA","AUTRE"}
+                        
+                        # ✅ MAPPING ZONE → RÉGION (déduction automatique si REGION manquante)
+                        # ✅ MAPPING ZONE → RÉGION DÉFINITIF (basé sur cible 2026)
+                        # CAP BON 1 = zones SUD (Korba, Lebna, Diar Hojjej, Tefeloun...)
+                        # CAP BON 2 = zones NORD (Dar Allouch, Menzel Tamim) + BOUFICHA (Sidi Saiid, Sidi Khelifa)
+                        ZONE_TO_REGION = {
+                            # ── CAP BON 1 (SUD Cap Bon) ──
+                            "korba":"CAP BON 1","lebna":"CAP BON 1","menzel horr":"CAP BON 1",
+                            "diar hojjej":"CAP BON 1","oued chiba":"CAP BON 1","tefeloun":"CAP BON 1",
+                            "gourchin":"CAP BON 1","garat sassi":"CAP BON 1",
+                            "tefeloun/diar hojjej":"CAP BON 1","lebna/tamezrrat":"CAP BON 1",
+                            "diar hojjej/kharrez":"CAP BON 1","manzel gamoudi":"CAP BON 1",
+                            "somaa":"CAP BON 1","sidi hassoun":"CAP BON 1",
+                            "beni ayech":"CAP BON 1","fartouna":"CAP BON 1","om adham":"CAP BON 1",
+                            "athleth":"CAP BON 1","athleth/htouba":"CAP BON 1","htouba":"CAP BON 1",
+                            "korba/somaa":"CAP BON 1","majel belabess":"CAP BON 1",
+                            "frinin":"CAP BON 1","gombar":"CAP BON 1","tbag":"CAP BON 1",
+                            "grombelia":"CAP BON 1","grombalia":"CAP BON 1","bou argoub":"CAP BON 1",
+                            "slimen":"CAP BON 1","tekelsa":"CAP BON 1","jammel":"CAP BON 1",
+                            "jbenyana":"CAP BON 1","moknine":"CAP BON 1","menzel hayet":"CAP BON 1",
+                            "oued khatef":"CAP BON 1","bir masouda":"CAP BON 1",
+                            "belyes":"CAP BON 1","boujrida":"CAP BON 1",
+                            
+                            # ── CAP BON 2 (NORD Cap Bon + Bouficha) ──
+                            "dar allouch":"CAP BON 2","d.al":"CAP BON 2",
+                            "menzel tamim":"CAP BON 2","menzel tmime":"CAP BON 2",
+                            "beni khiar":"CAP BON 2","beni kalled":"CAP BON 2",
+                            "menzel bouzelfa":"CAP BON 2","menzel nour":"CAP BON 2",
+                            "mzawgha":"CAP BON 2","alia":"CAP BON 2","tunis":"CAP BON 2",
+                            "nabeul":"CAP BON 2",
+                            # Bouficha → CAP BON 2 (selon cible 2026)
+                            "sidi saiid":"CAP BON 2","sidi khelifa":"CAP BON 2",
+                            "sidi said":"CAP BON 2","sidi khlifa":"CAP BON 2",
+                            "bouficha":"CAP BON 2","enfidha":"CAP BON 2","sousse":"CAP BON 2",
+                            
+                            # ── NORD ──
+                            "jandouba":"NORD","gar dimaou":"NORD","medjez beb":"NORD",
+                            "bor amri":"NORD","borj amri":"NORD","wed mliz":"NORD",
+                            "sidi ismail":"NORD","bellarigia":"NORD","bou salem":"NORD",
+                            "boussalem":"NORD","bir lahfay":"NORD","bir drassen":"NORD",
+                            "zarmdine":"NORD","bou krim":"NORD","medjez el bab":"NORD",
+                            "mejez el bab":"NORD","testour":"NORD",
+                            "beja":"NORD","manouba":"NORD","bizerte":"NORD","jendouba":"NORD",
+                            
+                            # ── KAIROUAN ──
+                            "batten":"KAIROUAN","sbikha-chrarda":"KAIROUAN","awamriya":"KAIROUAN",
+                            "zaafrana-elkhadhra":"KAIROUAN","elhawereb-ain bidha-hafouz":"KAIROUAN",
+                            "chebika-elhawereb":"KAIROUAN","khadhra":"KAIROUAN","zaafria":"KAIROUAN",
+                            "menzel mhiri":"KAIROUAN","kairouan":"KAIROUAN","kairaouan":"KAIROUAN",
+                            
+                            # ── SIDI BOUZID (incluant OM ADHAM) ──
+                            "sidi bouzid":"SIDI BOUZID","sidi othman":"SIDI BOUZID",
+                            "sidibouzid":"SIDI BOUZID","om adham":"SIDI BOUZID",
+                            
+                            # ── GAFSA / KASSRINE (incluant MAJEL BELABESS) ──
+                            "ouled omran":"GAFSA / KASSRINE","ouled zid":"GAFSA / KASSRINE",
+                            "sidi aich":"GAFSA / KASSRINE","amaymia":"GAFSA / KASSRINE",
+                            "feriana":"GAFSA / KASSRINE",
+                            "kasserine":"GAFSA / KASSRINE","gafsa":"GAFSA / KASSRINE",
+                            "sbeitla":"GAFSA / KASSRINE","kassrine":"GAFSA / KASSRINE",
+                            "majel belabess":"GAFSA / KASSRINE",
+                        }
+                        
+                        def deduce_region(region_raw, zone_raw):
+                            """Déduit la région: d'abord REGION, sinon depuis ZONE."""
+                            # 1. Essayer REGION
+                            if region_raw and region_raw.lower() not in ("nan","none",""):
+                                r = REGION_NORM_UPLOAD.get(
+                                    region_raw, REGION_NORM_UPLOAD.get(
+                                    region_raw.upper(), region_raw.upper()))
+                                if r.upper() in {k.upper() for k in KNOWN_REGIONS}:
+                                    return r
+                            # 2. Fallback : déduire depuis ZONE
+                            if zone_raw:
+                                zone_lower = zone_raw.strip().lower()
+                                if zone_lower in ZONE_TO_REGION:
+                                    return ZONE_TO_REGION[zone_lower]
+                            return "AUTRE"
 
                         rows_agri = []
                         for _, row in df_clean.iterrows():
                             region_raw = str(row.get("REGION","") or "").strip()
-                            # Si vide/NaN → AUTRE
-                            if not region_raw or region_raw.lower() in ("nan","none",""):
-                                region_norm = "AUTRE"
-                            else:
-                                # Essayer mapping (raw puis uppercase)
-                                region_norm = REGION_NORM_UPLOAD.get(
-                                    region_raw, REGION_NORM_UPLOAD.get(
-                                    region_raw.upper(), region_raw.upper()))
-                                # Si pas reconnue → AUTRE
-                                if region_norm.upper() not in {r.upper() for r in KNOWN_REGIONS}:
-                                    region_norm = "AUTRE"
+                            zone_raw   = str(row.get("ZONE","") or "").strip()
+                            region_norm = deduce_region(region_raw, zone_raw)
                             rows_agri.append({
                                 "commercial":    CURRENT_NAME,
                                 "nom":           str(row["NOM_AGRICULTEUR"]),
