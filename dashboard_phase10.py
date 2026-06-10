@@ -591,6 +591,16 @@ result = load_data(_sb_version=st.session_state["sb_refresh"])
 planning, transport, dispo, double_j, resume = result
 orig = None  # not needed for dashboard display
 
+# ✅ CORRECTION POST-CHARGEMENT : ACHREF = 100% SEMI
+# Ses agriculteurs sont à Gafsa/Kasserine (accessibilité SEMI uniquement)
+# Si Supabase contient encore des lignes PL (vieux runs), on les corrige ici
+if not planning.empty and "Type Véhicule" in planning.columns and "Commercial" in planning.columns:
+    _ach_mask = planning["Commercial"].astype(str).str.upper().str.contains("ACHREF", na=False)
+    if _ach_mask.any():
+        planning.loc[_ach_mask, "Type Véhicule"] = planning.loc[_ach_mask, "Type Véhicule"].apply(
+            lambda v: "SEMI" if str(v).strip().upper() in ("PL","PPL","TRACTEUR","PL/PPL") else v
+        )
+
 # ── GLOBAL CONSTANTS — read from Supabase agriculteurs ──────
 @st.cache_data(ttl=30)
 def load_global_stats(_version: int = 0):
