@@ -1127,15 +1127,16 @@ if CURRENT_ROLE == "usine":
     tab7 = tab8 = tab4
 
 elif CURRENT_ROLE == "commercial":
-    tab1, tab2, tab4, tab9, tab10 = st.tabs([
+    tab1, tab2, tab6, tab4, tab9, tab10 = st.tabs([
         "📅 Planning Journalier",
         "👤 Par Commercial",
+        "📈 Mes Prévisions 25/26",
         "🚛 Transport & Alertes",
         "🌾 Mes Agriculteurs",
         "📤 Upload Planning",
     ])
     tab3 = tab1
-    tab5 = tab6 = tab7 = tab8 = tab4
+    tab5 = tab7 = tab8 = tab4
 
 else:
     # Directeur : all tabs
@@ -2927,6 +2928,162 @@ with tab6:
         file_name="comparatif_2025_2026.csv",
         mime="text/csv",
     )
+
+    # ════════════════════════════════════════════════════════════════
+    # COMPARAISON PAR COMMERCIAL : Mai 25 / Mai 26 / Juin 26
+    # ════════════════════════════════════════════════════════════════
+    st.divider()
+    st.markdown("## 👤 Prévisions par commercial — Mai 25 / Mai 26 / Juin 26")
+
+    PREV_COMPARE = [
+        {'commercial':'FEDI','mai25':30241,'mai26':33712,'juin26':32312,'n25':64,'n26':75,'delta_25_juin':2071,'delta_26_juin':-1400},
+        {'commercial':'MAKKI BEN SALAH','mai25':19135,'mai26':21265,'juin26':22525,'n25':59,'n26':81,'delta_25_juin':3390,'delta_26_juin':1260},
+        {'commercial':'KHALIL','mai25':23312,'mai26':15120,'juin26':16510,'n25':27,'n26':22,'delta_25_juin':-6802,'delta_26_juin':1390},
+        {'commercial':'ACHREF AJLANI','mai25':8850,'mai26':16625,'juin26':16373,'n25':40,'n26':13,'delta_25_juin':7523,'delta_26_juin':-252},
+        {'commercial':'JILANI OBAY','mai25':8350,'mai26':6965,'juin26':6965,'n25':16,'n26':11,'delta_25_juin':-1385,'delta_26_juin':0},
+    ]
+    LOST_FARMERS = {
+        "FEDI":[
+            {"nom":"MOUHAMED BEN MAOUIA","tonnage":4200,"zone":"MENZEL HOR"},
+            {"nom":"STE COMPTOIR M S","tonnage":4200,"zone":"MENZELTAMIM"},
+            {"nom":"MED WESLATI","tonnage":4000,"zone":"MEDJEZ BEB"},
+            {"nom":"ROMDHAN ELMEHEDEBI","tonnage":1560,"zone":"BOUFICHA"},
+            {"nom":"STE COMPTOIR M S","tonnage":1245,"zone":"MENZELTAMIM"},
+            {"nom":"SOPPA","tonnage":1050,"zone":"MEDJEZ BEB"},
+            {"nom":"HASSEN BEN ALAYA","tonnage":1000,"zone":"LEBNA"},
+            {"nom":"STE AGROBESTE","tonnage":900,"zone":"KORBA"},
+            {"nom":"NOMEN CHAKRAOUI","tonnage":770,"zone":"DAR ALOUCH"},
+            {"nom":"FATHI HABIBI","tonnage":350,"zone":"MORJ AMRI"},
+        ],
+        "MAKKI BEN SALAH":[
+            {"nom":"OMAR HAMAMI","tonnage":1360,"zone":"KORBA"},
+            {"nom":"MONIR BEY","tonnage":800,"zone":"TEFELOUN"},
+            {"nom":"MOHAMED MANOUBI","tonnage":560,"zone":"BOUJRIDA"},
+            {"nom":"ZOUHEIR BAICH (MED KHARBESH)","tonnage":520,"zone":"LEBNA"},
+            {"nom":"AYMEN CHAABEN","tonnage":400,"zone":"DIAR HOJEJ"},
+            {"nom":"HOUSSEM MBAREK","tonnage":350,"zone":"AYEYDA"},
+            {"nom":"ABDERAZZEK BEY","tonnage":300,"zone":"TEFELOUN"},
+            {"nom":"LOTFI GARES","tonnage":300,"zone":"MENZEL TMIM"},
+            {"nom":"SLAH ROUIES","tonnage":280,"zone":"KNAIES"},
+        ],
+        "KHALIL":[
+            {"nom":"STE CHOKRI-SICAM","tonnage":1680,"zone":"SBIKHA-CHRARDA"},
+            {"nom":"EZZEDINE GUESMI-KR","tonnage":1500,"zone":"RAGADA-ELKHADHRA"},
+            {"nom":"STE CHOKRI-COMOCAP","tonnage":1440,"zone":"SBIKHA-CHRARDA"},
+            {"nom":"STE SEMAG-KR","tonnage":1400,"zone":"ELKHADHRA"},
+            {"nom":"SALEM MEJRI-TUCAL","tonnage":1250,"zone":"CHEBIKA-ELHAWEREB"},
+            {"nom":"SAMIR ATTIYA-ABIDA","tonnage":1200,"zone":"ELHAWAREB-HAFOUZ"},
+            {"nom":"CHAKIR HICHRI","tonnage":1200,"zone":"BOUFICHA"},
+            {"nom":"NEGI ZAAFOURI-SICAM","tonnage":900,"zone":"ZAAFRIYA"},
+            {"nom":"AMOR KHECHIN-01","tonnage":640,"zone":"BATTEN-ZAAFRANA"},
+        ],
+        "ACHREF AJLANI":[
+            {"nom":"WAEL ZOUARI","tonnage":780,"zone":"OULED ZID"},
+            {"nom":"KARIM GARMALLAH","tonnage":600,"zone":"SIDI AICH"},
+            {"nom":"SAMIR BRAIKIYA","tonnage":450,"zone":"OULED ZID"},
+            {"nom":"HAFEDH MESBEH","tonnage":420,"zone":"SIDI AICH"},
+            {"nom":"YESSINE CHELGHOUM","tonnage":390,"zone":"Aouled Ouhiba"},
+            {"nom":"SEJIR SNENI","tonnage":360,"zone":"SIDI AICH"},
+            {"nom":"HSEN CHERIF","tonnage":360,"zone":"SIDI AICH"},
+            {"nom":"NASREDDINE B LAMINE","tonnage":360,"zone":"SIDI AICH"},
+        ],
+        "JILANI OBAY":[
+            {"nom":"Riadh Kouki","tonnage":750,"zone":"Sidi Ismail"},
+            {"nom":"Naceur Sallami","tonnage":700,"zone":"Bou Salem"},
+            {"nom":"Sameh Allouchi","tonnage":420,"zone":"Wed Mliz"},
+            {"nom":"Lashed Rbei","tonnage":400,"zone":"Gar Dimaou"},
+        ],
+    }
+
+    # Filtrer selon le rôle : commercial voit seulement ses données
+    if CURRENT_ROLE == "commercial":
+        my_name = st.session_state.get("name", "").upper()
+        visible_comm = [c for c in PREV_COMPARE if c["commercial"].upper() == my_name]
+        if not visible_comm:
+            visible_comm = PREV_COMPARE  # fallback
+    else:
+        visible_comm = PREV_COMPARE
+
+    # ── Graphique groupé Mai25/Mai26/Juin26 ──────────────────────────
+    fig_pc = go.Figure()
+    comms = [c["commercial"] for c in visible_comm]
+    fig_pc.add_trace(go.Bar(name="Mai 2025", x=comms,
+                            y=[c["mai25"] for c in visible_comm],
+                            marker_color="#90A4AE",
+                            text=[f"{c['mai25']}t" for c in visible_comm], textposition="outside"))
+    fig_pc.add_trace(go.Bar(name="Mai 2026 (prév.)", x=comms,
+                            y=[c["mai26"] for c in visible_comm],
+                            marker_color="#42A5F5",
+                            text=[f"{c['mai26']}t" for c in visible_comm], textposition="outside"))
+    fig_pc.add_trace(go.Bar(name="Juin 2026 (déposé)", x=comms,
+                            y=[c["juin26"] for c in visible_comm],
+                            marker_color="#66BB6A",
+                            text=[f"{c['juin26']}t" for c in visible_comm], textposition="outside"))
+    fig_pc.update_layout(barmode="group", template="plotly_dark",
+                         paper_bgcolor="#161b22", plot_bgcolor="#0d1117",
+                         height=400, title="Évolution des prévisions par commercial",
+                         legend=dict(orientation="h", y=-0.2), yaxis_title="Tonnes")
+    st.plotly_chart(fig_pc, use_container_width=True)
+
+    # ── Tableau comparatif ───────────────────────────────────────────
+    rows_pc = []
+    for c in visible_comm:
+        pct_25 = f"{c['delta_25_juin']/c['mai25']*100:+.0f}%" if c['mai25'] else "—"
+        rows_pc.append({
+            "Commercial":      c["commercial"],
+            "Mai 2025 (t)":    c["mai25"],
+            "Mai 2026 (t)":    c["mai26"],
+            "Juin 2026 (t)":   c["juin26"],
+            "Δ vs Mai25":      f"{c['delta_25_juin']:+d}",
+            "Δ vs Mai26":      f"{c['delta_26_juin']:+d}",
+            "% vs 2025":       pct_25,
+            "Tendance":        "📈 hausse" if c['delta_25_juin']>0 else ("📉 baisse" if c['delta_25_juin']<0 else "➡️ stable"),
+        })
+    st.dataframe(_pd.DataFrame(rows_pc), use_container_width=True, hide_index=True)
+
+    # ════════════════════════════════════════════════════════════════
+    # AGRICULTEURS PERDUS (présents 2025, absents 2026)
+    # ════════════════════════════════════════════════════════════════
+    st.divider()
+    st.markdown("## ⚠️ Agriculteurs de 2025 non retrouvés en 2026")
+    st.caption("Agriculteurs qui livraient en Mai 2025 mais absents de la prévision 2026 (≥200t) — à recontacter éventuellement")
+
+    for c in visible_comm:
+        comm = c["commercial"]
+        lost = LOST_FARMERS.get(comm, [])
+        if not lost:
+            continue
+        total_lost = sum(l["tonnage"] for l in lost)
+        with st.expander(f"🔴 {comm} — {len(lost)} agriculteurs perdus ({total_lost:,}t potentiels)".replace(",", " ")):
+            df_lost = _pd.DataFrame(lost)
+            df_lost.columns = ["Agriculteur","Tonnage 2025 (t)","Zone"]
+            df_lost = df_lost.sort_values("Tonnage 2025 (t)", ascending=False)
+            st.dataframe(df_lost, use_container_width=True, hide_index=True)
+            st.download_button(
+                f"⬇️ Exporter perdus {comm} (CSV)",
+                data=df_lost.to_csv(index=False, sep=";").encode("utf-8-sig"),
+                file_name=f"agriculteurs_perdus_{comm.split()[0]}.csv",
+                mime="text/csv",
+                key=f"lost_{comm}",
+            )
+
+    # Récapitulatif global perdus (admin uniquement)
+    if CURRENT_ROLE != "commercial":
+        st.markdown("**📊 Récapitulatif global des agriculteurs perdus**")
+        recap_lost = []
+        for comm in [c["commercial"] for c in PREV_COMPARE]:
+            lst = LOST_FARMERS.get(comm, [])
+            recap_lost.append({
+                "Commercial": comm,
+                "Nb perdus (≥200t)": len(lst),
+                "Tonnage perdu (t)": sum(l["tonnage"] for l in lst),
+            })
+        df_rl = _pd.DataFrame(recap_lost)
+        tot_row = {"Commercial":"TOTAL",
+                   "Nb perdus (≥200t)":df_rl["Nb perdus (≥200t)"].sum(),
+                   "Tonnage perdu (t)":df_rl["Tonnage perdu (t)"].sum()}
+        df_rl = _pd.concat([df_rl, _pd.DataFrame([tot_row])], ignore_index=True)
+        st.dataframe(df_rl, use_container_width=True, hide_index=True)
 
 
 # ── TAB 8 (new): PRÉVISIONS DÉC→MAI→JUIN ────────────────────
