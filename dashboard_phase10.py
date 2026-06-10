@@ -2513,8 +2513,8 @@ with tab5:
 
     # Caps NORMAUX (1 livraison/jour)
     COMMERCIAL_CAPS = {
-        "FEDI": 850, "MAKKI BEN SALAH": 800, "KHALIL": 800,
-        "ACHREF AJLANI": 500, "JILANI OBAY": 50,
+        "FEDI": 850, "MAKKI BEN SALAH": 850, "KHALIL": 900,
+        "ACHREF AJLANI": 450, "JILANI OBAY": 100,
     }
     # ✅ Caps DOUBLES (matin + après-midi) — autorisés pendant PIC
     COMMERCIAL_CAPS_DOUBLE = {
@@ -4122,6 +4122,254 @@ with tab9:
                 file_name="agriculteurs_supabase.csv",
                 mime="text/csv",
             )
+
+    # ════════════════════════════════════════════════════════════════
+    # VUE PAR CENTRE & RENDEMENT (t/ha)
+    # ════════════════════════════════════════════════════════════════
+    st.divider()
+    st.markdown("## 🏘️ Vue par Centre & Rendement (t/ha)")
+    st.caption("Détail des agriculteurs regroupés par centre de collecte, avec rendement par hectare")
+
+    import json as _json, os as _os
+    _centres_path = _os.path.join(_os.path.dirname(__file__), "centres_data.json")
+    _CENTRES = None
+    try:
+        with open(_centres_path, encoding="utf-8") as _f:
+            _CENTRES = _json.load(_f)
+    except Exception:
+        _CENTRES = None
+
+    if not _CENTRES:
+        st.info("ℹ️ Fichier centres_data.json non trouvé. Ajoutez-le dans le repo GitHub "
+                "(à côté de dashboard_phase10.py) pour activer la vue par centre.")
+    else:
+        # Filtrer selon le rôle
+        if IS_COMMERCIAL:
+            my = st.session_state.get("name","").upper()
+            comm_list = [c for c in _CENTRES if c.upper() == my] or list(_CENTRES.keys())
+        else:
+            comm_list = list(_CENTRES.keys())
+
+        # Sélection commercial (admin) ou auto (commercial)
+        if IS_COMMERCIAL:
+            sel_comm = comm_list[0]
+            st.markdown(f"**Commercial : {sel_comm}**")
+        else:
+            sel_comm = st.selectbox("👤 Choisir un commercial", comm_list, key="centre_comm")
+
+        centres = _CENTRES.get(sel_comm, {})
+        if not centres:
+            st.warning("Aucun centre pour ce commercial.")
+        else:
+            # ── Récap rendement par centre ──
+            rows_c = []
+            for centre, info in centres.items():
+                rows_c.append({
+                    "Centre":          centre,
+                    "Nb agriculteurs": len(info["agriculteurs"]),
+                    "Hectares":        info["total_ha"],
+                    "Tonnage (t)":     info["total_ton"],
+                    "Rendement (t/ha)":info["rend"],
+                })
+            df_c = pd.DataFrame(rows_c).sort_values("Tonnage (t)", ascending=False)
+
+            # KPI globaux du commercial
+            tot_ha  = sum(c["total_ha"] for c in centres.values())
+            tot_ton = sum(c["total_ton"] for c in centres.values())
+            tot_agri= sum(len(c["agriculteurs"]) for c in centres.values())
+            k1,k2,k3,k4 = st.columns(4)
+            k1.metric("Centres", len(centres))
+            k2.metric("Agriculteurs", tot_agri)
+            k3.metric("Hectares", f"{tot_ha:.0f} ha")
+            k4.metric("Rendement moyen", f"{tot_ton/tot_ha:.1f} t/ha" if tot_ha>0 else "—")
+
+            # Graphique rendement par centre
+            import plotly.graph_objects as go
+            fig_c = go.Figure()
+            fig_c.add_trace(go.Bar(
+                x=df_c["Centre"], y=df_c["Rendement (t/ha)"],
+                marker_color="#4CAF50",
+                text=[f"{r:.0f} t/ha" for r in df_c["Rendement (t/ha)"]],
+                textposition="outside",
+            ))
+            fig_c.update_layout(
+                title=f"Rendement par centre — {sel_comm}",
+                template="plotly_dark", paper_bgcolor="#161b22", plot_bgcolor="#0d1117",
+                height=320, yaxis_title="t/ha",
+            )
+            st.plotly_chart(fig_c, use_container_width=True)
+
+            st.dataframe(df_c, use_container_width=True, hide_index=True)
+
+            # ── Détail agriculteurs d'un centre ──
+            st.markdown("### 🌾 Agriculteurs d'un centre")
+            sel_centre = st.selectbox("🏘️ Choisir un centre", list(centres.keys()), key="centre_sel")
+            info = centres[sel_centre]
+            st.caption(f"**{sel_centre}** — {len(info['agriculteurs'])} agriculteurs | "
+                       f"{info['total_ha']} ha | {info['total_ton']:,}t | {info['rend']} t/ha".replace(",", " "))
+
+            df_agri = pd.DataFrame(info["agriculteurs"])
+            df_agri.columns = ["Agriculteur","Hectares","Tonnage (t)","Rendement (t/ha)","Région"]
+            st.dataframe(df_agri, use_container_width=True, hide_index=True, height=320)
+
+            st.download_button(
+                f"⬇️ Exporter {sel_centre} (CSV)",
+                data=df_agri.to_csv(index=False, sep=";").encode("utf-8-sig"),
+                file_name=f"centre_{sel_centre.replace(' ','_')}.csv",
+                mime="text/csv",
+                key=f"dl_centre_{sel_centre}",
+            )
+
+    # ════════════════════════════════════════════════════════════════
+    # SECTION : BESOIN DE TRANSPORT PAR USINE
+    # ════════════════════════════════════════════════════════════════
+    st.divider()
+    st.markdown("## 🚛 Mon besoin de transport par usine")
+    st.caption("Tonnage à livrer par usine, type de véhicule recommandé et estimation bennes au pic")
+
+    # ── Données embarquées ──────────────────────────────────────────
+    _TRANSPORT_BESOINS = {
+        "FEDI": [
+            {"usine":"SICAM",    "tonnage":11860,"nb_agri":12,"vehicule":"PL/PPL","long":False,"bennes_pic":72},
+            {"usine":"TUCAL",    "tonnage":5900, "nb_agri":6, "vehicule":"PL/PPL","long":False,"bennes_pic":36},
+            {"usine":"COMOCAP",  "tonnage":12002,"nb_agri":50,"vehicule":"PL",    "long":False,"bennes_pic":73},
+            {"usine":"ABIDA",    "tonnage":1000, "nb_agri":1, "vehicule":"PL",    "long":False,"bennes_pic":6},
+            {"usine":"ELFALLEH", "tonnage":1100, "nb_agri":2, "vehicule":"PPL",   "long":False,"bennes_pic":14},
+        ],
+        "MAKKI BEN SALAH": [
+            {"usine":"SICAM",    "tonnage":10368,"nb_agri":40,"vehicule":"PL",    "long":False,"bennes_pic":63},
+            {"usine":"TUCAL",    "tonnage":6715, "nb_agri":19,"vehicule":"PL",    "long":False,"bennes_pic":41},
+            {"usine":"COMOCAP",  "tonnage":3162, "nb_agri":19,"vehicule":"PL",    "long":False,"bennes_pic":19},
+            {"usine":"ELFALLEH", "tonnage":2280, "nb_agri":3, "vehicule":"PPL",   "long":False,"bennes_pic":28},
+        ],
+        "KHALIL": [
+            {"usine":"SICAM",    "tonnage":8955, "nb_agri":11,"vehicule":"SEMI",  "long":True, "bennes_pic":52},
+            {"usine":"TUCAL",    "tonnage":3320, "nb_agri":4, "vehicule":"SEMI",  "long":True, "bennes_pic":19},
+            {"usine":"COMOCAP",  "tonnage":1320, "nb_agri":3, "vehicule":"SEMI",  "long":True, "bennes_pic":8},
+            {"usine":"ABIDA",    "tonnage":2915, "nb_agri":4, "vehicule":"PL",    "long":True, "bennes_pic":18},
+        ],
+        "ACHREF AJLANI": [
+            {"usine":"SICAM",    "tonnage":10768,"nb_agri":43,"vehicule":"SEMI",  "long":True, "bennes_pic":62},
+            {"usine":"TUCAL",    "tonnage":2100, "nb_agri":13,"vehicule":"SEMI",  "long":True, "bennes_pic":12},
+            {"usine":"COMOCAP",  "tonnage":1575, "nb_agri":1, "vehicule":"SEMI",  "long":True, "bennes_pic":9},
+            {"usine":"ABIDA",    "tonnage":1930, "nb_agri":11,"vehicule":"SEMI",  "long":True, "bennes_pic":12},
+        ],
+        "JILANI OBAY": [
+            {"usine":"SICAM",    "tonnage":3795, "nb_agri":7, "vehicule":"PL",    "long":False,"bennes_pic":23},
+            {"usine":"TUCAL",    "tonnage":1325, "nb_agri":2, "vehicule":"PL",    "long":False,"bennes_pic":8},
+            {"usine":"COMOCAP",  "tonnage":1845, "nb_agri":2, "vehicule":"PL",    "long":False,"bennes_pic":12},
+        ],
+    }
+    _VEH_COLORS = {
+        "SEMI":"#1E8449","PL":"#2F75B6","PPL":"#7030A0","PL/PPL":"#2F75B6"
+    }
+    _USINE_COLORS = {
+        "SICAM":"#0d3b6e","TUCAL":"#1a4731","COMOCAP":"#5c3a00",
+        "ABIDA":"#4a1500","ELFALLEH":"#3b0a45"
+    }
+
+    # Filtrer selon le rôle
+    if IS_COMMERCIAL:
+        _my_name = st.session_state.get("name","").upper()
+        _comm_list_t = [c for c in _TRANSPORT_BESOINS if c.upper()==_my_name]
+        if not _comm_list_t: _comm_list_t = list(_TRANSPORT_BESOINS.keys())
+    else:
+        _comm_list_t = list(_TRANSPORT_BESOINS.keys())
+        _sel_comm_t = st.selectbox("👤 Commercial", _comm_list_t, key="transp_comm_sel")
+        _comm_list_t = [_sel_comm_t]
+
+    for _comm_t in _comm_list_t:
+        _besoins = _TRANSPORT_BESOINS.get(_comm_t, [])
+        if not _besoins: continue
+
+        _tot_t  = sum(b["tonnage"] for b in _besoins)
+        _tot_bn = sum(b["bennes_pic"] for b in _besoins)
+        _nb_usines = len(_besoins)
+
+        if not IS_COMMERCIAL:
+            st.markdown(f"### {_comm_t}")
+
+        # KPI cards par usine
+        _cols_t = st.columns(len(_besoins))
+        for i, b in enumerate(_besoins):
+            _veh_col = _VEH_COLORS.get(b["vehicule"], "#ffffff")
+            _dist_lbl = "🔴 Longue distance" if b["long"] else "🟢 Courte distance"
+            _note = "<div style='font-size:10px;color:#ffd'>semi_coeff=0.7</div>" if b["long"] and b["vehicule"]=="SEMI" else ""
+            with _cols_t[i]:
+                st.markdown(f"""
+                <div style="background:{_USINE_COLORS.get(b['usine'],'#1a2332')};
+                            border-radius:10px;padding:10px;text-align:center;
+                            border:2px solid {_veh_col};">
+                  <div style="font-size:14px;font-weight:900;color:#fff">{b['usine']}</div>
+                  <div style="font-size:24px;font-weight:900;color:#fff;margin:4px 0">
+                    {b['tonnage']:,}t
+                  </div>
+                  <div style="font-size:11px;color:#ccc">{b['nb_agri']} agriculteurs</div>
+                  <div style="margin-top:6px;background:{_veh_col};border-radius:5px;
+                              padding:3px;font-size:11px;font-weight:bold;color:#fff">
+                    {b['vehicule']}
+                  </div>
+                  <div style="font-size:10px;color:#aaa;margin-top:4px">{_dist_lbl}</div>
+                  <div style="font-size:13px;color:#FFD700;font-weight:bold;margin-top:4px">
+                    ~{b['bennes_pic']} bennes/j
+                  </div>
+                  {_note}
+                </div>""".replace(",", " "), unsafe_allow_html=True)
+
+        st.markdown(" ")
+
+        # Tableau détaillé
+        _df_t = pd.DataFrame(_besoins)
+        _df_t = _df_t.rename(columns={
+            "usine":"Usine","tonnage":"Tonnage (t)","nb_agri":"Nb agriculteurs",
+            "vehicule":"Véhicule","long":"Longue distance","bennes_pic":"~Bennes/j au pic"
+        })
+        _df_t["Distance"] = _df_t["Longue distance"].map({True:"🔴 Longue",False:"🟢 Courte"})
+        _df_t = _df_t[["Usine","Tonnage (t)","Nb agriculteurs","Véhicule","Distance","~Bennes/j au pic"]]
+        # Ligne total
+        _tot_row = pd.DataFrame([{
+            "Usine":"TOTAL","Tonnage (t)":_tot_t,"Nb agriculteurs":sum(b["nb_agri"] for b in _besoins),
+            "Véhicule":"—","Distance":"—","~Bennes/j au pic":_tot_bn
+        }])
+        _df_t = pd.concat([_df_t, _tot_row], ignore_index=True)
+        st.dataframe(_df_t, use_container_width=True, hide_index=True)
+
+        # Graphique barres
+        _fig_t = go.Figure()
+        _usines_t = [b["usine"] for b in _besoins]
+        _tons_t   = [b["tonnage"] for b in _besoins]
+        _bens_t   = [b["bennes_pic"] for b in _besoins]
+        _cols_bar = [_VEH_COLORS.get(b["vehicule"],"#aaaaaa") for b in _besoins]
+        _fig_t.add_trace(go.Bar(
+            name="Tonnage",x=_usines_t,y=_tons_t,
+            marker_color=_cols_bar,
+            text=[f"{t:,}t".replace(",","") for t in _tons_t],
+            textposition="outside",yaxis="y1",
+        ))
+        _fig_t.add_trace(go.Scatter(
+            name="Bennes/j pic",x=_usines_t,y=_bens_t,
+            mode="markers+text",yaxis="y2",
+            marker=dict(symbol="diamond",size=14,color="#FFD700"),
+            text=[f"~{b}" for b in _bens_t],textposition="top center",
+        ))
+        _fig_t.update_layout(
+            title=f"Transport {_comm_t} — tonnage par usine (barres) et bennes au pic (◆)",
+            template="plotly_dark",paper_bgcolor="#161b22",plot_bgcolor="#0d1117",
+            height=350,
+            yaxis=dict(title="Tonnage (t)",side="left"),
+            yaxis2=dict(title="Bennes/jour pic",overlaying="y",side="right",showgrid=False),
+            legend=dict(orientation="h",y=-0.2),
+        )
+        st.plotly_chart(_fig_t,use_container_width=True)
+
+        # Export CSV
+        st.download_button(
+            f"⬇️ Exporter besoin transport {_comm_t} (CSV)",
+            data=_df_t.to_csv(index=False,sep=";").encode("utf-8-sig"),
+            file_name=f"transport_{_comm_t.split()[0]}_2026.csv",
+            mime="text/csv",
+            key=f"dl_transport_{_comm_t}",
+        )
 
 # ── TAB 11: UPLOAD PLANNING ──────────────────────────────────
 with tab10:
