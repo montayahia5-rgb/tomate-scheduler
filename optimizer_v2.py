@@ -690,14 +690,46 @@ class Farmer:
         self.end = clamp_date(self.end + datetime.timedelta(days=ext_days))
 
         n_days = max(1, (self.end - self.start).days + 1)
-        daily  = self.tonnage / n_days
-        # Pas d'auto-extension agressive : on garde la fenêtre déclarée
-        # (le lissage de la charge se fait par les véhicules, pas en décalant la récolte)
-        
-        self.window = {
-            self.start + datetime.timedelta(days=i): round(daily, 1)
-            for i in range(n_days)
-        }
+
+        # ✅ COURBE DE MATURATION EN CLOCHE (réaliste)
+        # Au lieu d'une répartition plate, le tonnage suit la maturation réelle:
+        #   - DÉBUT (20% du temps)  → 15% du tonnage (montée douce)
+        #   - MILIEU (50% du temps) → 60% du tonnage (pic de maturité)
+        #   - FIN   (30% du temps)  → 25% du tonnage (décrue)
+        # À l'intérieur de chaque phase, le tonnage est réparti uniformément.
+        def _build_bell_window(start, ndays, tonnage):
+            if ndays <= 1:
+                return {start: round(tonnage, 1)}
+            # Découpage du TEMPS en 3 phases
+            n_debut  = max(1, round(ndays * 0.20))
+            n_milieu = max(1, round(ndays * 0.50))
+            n_fin    = ndays - n_debut - n_milieu
+            if n_fin < 1:   # réajuster si arrondi laisse la fin vide
+                n_fin = 1
+                if n_milieu > 1:
+                    n_milieu -= 1
+                elif n_debut > 1:
+                    n_debut -= 1
+            # Répartition de la QUANTITÉ par phase
+            t_debut  = tonnage * 0.15
+            t_milieu = tonnage * 0.60
+            t_fin    = tonnage - t_debut - t_milieu   # = 25% (le reste exact)
+            # Intensité journalière par phase (uniforme dans la phase)
+            d_debut  = t_debut  / n_debut
+            d_milieu = t_milieu / n_milieu
+            d_fin    = t_fin    / n_fin
+            win = {}
+            idx = 0
+            for _ in range(n_debut):
+                win[start + datetime.timedelta(days=idx)] = round(d_debut, 1);  idx += 1
+            for _ in range(n_milieu):
+                win[start + datetime.timedelta(days=idx)] = round(d_milieu, 1); idx += 1
+            for _ in range(n_fin):
+                win[start + datetime.timedelta(days=idx)] = round(d_fin, 1);    idx += 1
+            return win
+
+        self.window = _build_bell_window(self.start, n_days, self.tonnage)
+        daily = self.tonnage / n_days   # moyenne (pour stats/affichage)
 
 farmers = [Farmer(row, date_cols) for _, row in df.iterrows()]
 total_dist = sum(f.distance_km for f in farmers if f.distance_km < 999)
@@ -781,22 +813,16 @@ for d_idx, date in enumerate(all_dates):
     for f_idx, f in enumerate(farmers):
         by_comm[f.commercial].append(x[(f_idx, d_idx)])
     for comm, vs in by_comm.items():
-        # ✅ Pendant PIC: utiliser cap DOUBLE (jours doubles autorisés)
-        # Hors PIC: cap normal
         cap_start, cap_end = CAP_PERIOD_SPECIAL.get(comm, CAP_PERIOD_DEFAULT)
         is_pic = (cap_start <= date <= cap_end)
+        cap_double = COMMERCIAL_CAPS_DOUBLE.get(comm, comm_effective_caps.get(comm, 1200))
         if is_pic:
-            # Pendant PIC, autoriser jusqu'au cap DOUBLE
-            cap_pic_double = COMMERCIAL_CAPS_DOUBLE.get(comm, comm_effective_caps.get(comm, 1200))
-            model.Add(sum(vs) <= int(cap_pic_double * SCALE))
-            continue   # ne pas appliquer le cap normal
-        if cap_start <= date <= cap_end:
-            # Réduire le cap solveur pour absorber l'arrondi
-            _cap_brut = comm_effective_caps.get(comm, 1200)
-            _marge    = max(ROUNDING_MARGIN_MIN, _cap_brut * ROUNDING_MARGIN_PCT)
-            _cap_solv = max(50, _cap_brut - _marge)  # min 50t
-            model.Add(sum(vs) <= int(_cap_solv * SCALE))
-        # Hors pic: pas de limite journalière commerciale
+            # Pendant PIC: autoriser jusqu'au cap DOUBLE (jours doubles)
+            model.Add(sum(vs) <= int(cap_double * SCALE))
+        else:
+            # ✅ Hors PIC: plafond = cap DOUBLE aussi (jamais dépasser le max physique)
+            # Évite les pics aberrants hors fenêtre 1-15 juillet (ex: FEDI 1170t)
+            model.Add(sum(vs) <= int(cap_double * SCALE))
 
 # Constraint 3: Factory daily cap — basé sur transport RÉEL confirmé + jokers
 # cap_reel = min(cap_max_usine, transport_confirmé + jokers_alloués)
@@ -824,13 +850,13 @@ for d_idx, date in enumerate(all_dates):
     for f_idx, f in enumerate(farmers):
         by_fact[f.usine].append(x[(f_idx, d_idx)])
     for fact, vs in by_fact.items():
-        if FACTORY_CAP_START <= date <= FACTORY_CAP_END:
-            cap_reel_brut = get_real_cap(fact)
-            # Réduire cap solveur pour absorber l'arrondi à la dizaine
-            _marge_f = max(ROUNDING_MARGIN_MIN, cap_reel_brut * ROUNDING_MARGIN_PCT)
-            cap_reel = max(20, cap_reel_brut - _marge_f)
-            model.Add(sum(vs) <= int(cap_reel * SCALE))
-        # Hors pic: pas de limite usine
+        # ✅ Cap usine appliqué TOUTE LA SAISON (pas seulement au pic)
+        # Une usine ne peut JAMAIS dépasser sa capacité physique.
+        cap_reel_brut = get_real_cap(fact)
+        # Réduire cap solveur pour absorber l'arrondi à la dizaine
+        _marge_f = max(ROUNDING_MARGIN_MIN, cap_reel_brut * ROUNDING_MARGIN_PCT)
+        cap_reel = max(20, cap_reel_brut - _marge_f)
+        model.Add(sum(vs) <= int(cap_reel * SCALE))
 
 print("  Caps journaliers (transport confirmé vs cap théorique):")
 for usine in FACTORY_CAPS:
