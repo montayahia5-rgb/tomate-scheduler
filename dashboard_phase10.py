@@ -1960,12 +1960,13 @@ with tab4:
     # Caps & transport confirmé (référence: transport_12_mai.xlsx)
     # Caps officiels + transport confirmé + joker + tracteur COMOCAP
     # COMOCAP : 100t/j en TRACTEUR (~10 voyages × 10t) en plus du transport confirmé
+    # ✅ Source: transport_etat_final.xlsx (10/06/2026)
     TRANSPORT_DATA_USINE = {
-        "SICAM":    {"cap": 1300, "conf": 1199, "bennes_conf": 58, "joker": 0,  "joker_bennes": 0, "tracteur": 0},
-        "TUCAL":    {"cap": 750,  "conf": 348,  "bennes_conf": 19, "joker": 76, "joker_bennes": 4, "tracteur": 0},
-        "COMOCAP":  {"cap": 700,  "conf": 298,  "bennes_conf": 21, "joker": 84, "joker_bennes": 6, "tracteur": 100},
-        "ABIDA":    {"cap": 150,  "conf": 50,   "bennes_conf": 2,  "joker": 0,  "joker_bennes": 0, "tracteur": 0},
-        "ELFALLEH": {"cap": 100,  "conf": 24,   "bennes_conf": 2,  "joker": 0,  "joker_bennes": 0, "tracteur": 0},
+        "SICAM":    {"cap": 1500, "conf": 1381, "bennes_conf": 67, "joker": 0,   "joker_bennes": 0, "tracteur": 0},
+        "TUCAL":    {"cap": 800,  "conf": 363,  "bennes_conf": 19, "joker": 114, "joker_bennes": 6, "tracteur": 0},
+        "COMOCAP":  {"cap": 800,  "conf": 328,  "bennes_conf": 23, "joker": 101, "joker_bennes": 7, "tracteur": 0},
+        "ABIDA":    {"cap": 200,  "conf": 80,   "bennes_conf": 3,  "joker": 0,   "joker_bennes": 0, "tracteur": 0},
+        "ELFALLEH": {"cap": 150,  "conf": 24,   "bennes_conf": 2,  "joker": 0,   "joker_bennes": 0, "tracteur": 0},
     }
     
     transport_summary = []
@@ -2046,14 +2047,17 @@ with tab4:
     @st.cache_data(ttl=300)
     def _load_fleet():
         import os
+        # ✅ Source: transport_etat_final.xlsx (10/06/2026)
         FALLBACK = {
-            "SICAM":    {"SEMI":330,"PL":825,"PPL": 44,"TRACTEUR":  0,"BOURAK":  0,"total":1199,"nb_bennes": 58},
-            "COMOCAP":  {"SEMI": 90,"PL": 76,"PPL":132,"TRACTEUR":100,"BOURAK":  0,"total": 398,"nb_bennes": 21},
-            "TUCAL":    {"SEMI": 30,"PL":318,"PPL":  0,"TRACTEUR":  0,"BOURAK": 76,"total": 424,"nb_bennes": 19},
-            "ABIDA":    {"SEMI": 30,"PL": 20,"PPL":  0,"TRACTEUR":  0,"BOURAK":  0,"total":  50,"nb_bennes":  2},
+            "SICAM":    {"SEMI":390,"PL":927,"PPL": 64,"TRACTEUR":  0,"BOURAK":  0,"total":1381,"nb_bennes": 67},
+            "COMOCAP":  {"SEMI": 90,"PL": 91,"PPL":147,"TRACTEUR":  0,"BOURAK":  0,"total": 328,"nb_bennes": 23},
+            "TUCAL":    {"SEMI": 60,"PL":303,"PPL":  0,"TRACTEUR":  0,"BOURAK":114,"total": 477,"nb_bennes": 25},
+            "ABIDA":    {"SEMI": 60,"PL": 20,"PPL":  0,"TRACTEUR":  0,"BOURAK":  0,"total":  80,"nb_bennes":  3},
             "ELFALLEH": {"SEMI":  0,"PL":  0,"PPL": 24,"TRACTEUR":  0,"BOURAK":  0,"total":  24,"nb_bennes":  2},
         }
-        paths = ["transport_disponible.xlsx",
+        paths = ["transport_etat_final.xlsx",
+                 os.path.join(os.path.dirname(__file__), "transport_etat_final.xlsx"),
+                 "transport_disponible.xlsx",
                  os.path.join(os.path.dirname(__file__), "transport_disponible.xlsx")]
         df_t = None
         for p in paths:
@@ -2111,16 +2115,17 @@ with tab4:
     # ✅ Valeurs réelles depuis Etat_Transport_Final_2026.xlsx
     # Logique: Confirmation=ok/OK ET Contrat ≠ "En attente"
     FLEET_EXACT = {
-        "SICAM":    {"PL":891,"PPL":64,"SEMI":390,"BOURAK":0,"LUIMEME":0,
-                     "nb_PL":46,"nb_PPL":6,"nb_SEMI":13,"nb_total":65,"total":1345},
+        # Source: transport_etat_final.xlsx (10/06/2026)
+        "SICAM":    {"PL":927,"PPL":64,"SEMI":390,"BOURAK":0,"LUIMEME":0,
+                     "nb_PL":48,"nb_PPL":6,"nb_SEMI":13,"nb_total":67,"total":1381},
         "TUCAL":    {"PL":303,"PPL":0,"SEMI":60,"BOURAK":114,"LUIMEME":0,
                      "nb_PL":17,"nb_PPL":0,"nb_SEMI":2,"nb_total":19,"total":363,
                      "bourak_nb":6,"bourak_t":114},
-        "COMOCAP":  {"PL":76,"PPL":95,"SEMI":90,"BOURAK":0,"LUIMEME":101,
-                     "nb_PL":5,"nb_PPL":10,"nb_SEMI":3,"nb_total":17,"total":261,
+        "COMOCAP":  {"PL":91,"PPL":147,"SEMI":90,"BOURAK":0,"LUIMEME":101,
+                     "nb_PL":6,"nb_PPL":14,"nb_SEMI":3,"nb_total":23,"total":328,
                      "luimeme_nb":7,"luimeme_t":101},
         "ABIDA":    {"PL":20,"PPL":0,"SEMI":60,"BOURAK":0,"LUIMEME":0,
-                     "nb_PL":1,"nb_PPL":0,"nb_SEMI":2,"nb_total":3,"total":80},  # cap=200
+                     "nb_PL":1,"nb_PPL":0,"nb_SEMI":2,"nb_total":3,"total":80},
         "ELFALLEH": {"PL":0,"PPL":24,"SEMI":0,"BOURAK":0,"LUIMEME":0,
                      "nb_PL":0,"nb_PPL":2,"nb_SEMI":0,"nb_total":2,"total":24},
     }
@@ -2311,9 +2316,10 @@ with tab4:
 
     # ── Données de base ─────────────────────────────────────────────
     _CONF = {
-        "SICAM":    {"total":1345,"PL":891, "PPL":64, "SEMI":390,"nb_PL":46,"nb_PPL":6, "nb_SEMI":13,"nb_total":65},
+        # Source: transport_etat_final.xlsx (10/06/2026)
+        "SICAM":    {"total":1381,"PL":927, "PPL":64, "SEMI":390,"nb_PL":48,"nb_PPL":6, "nb_SEMI":13,"nb_total":67},
         "TUCAL":    {"total":363, "PL":303, "PPL":0,  "SEMI":60, "nb_PL":17,"nb_PPL":0, "nb_SEMI":2, "nb_total":19},
-        "COMOCAP":  {"total":261, "PL":76,  "PPL":95, "SEMI":90, "nb_PL":5, "nb_PPL":10,"nb_SEMI":3, "nb_total":17},
+        "COMOCAP":  {"total":328, "PL":91,  "PPL":147,"SEMI":90, "nb_PL":6, "nb_PPL":14,"nb_SEMI":3, "nb_total":23},
         "ABIDA":    {"total":80,  "PL":20,  "PPL":0,  "SEMI":60, "nb_PL":1, "nb_PPL":0, "nb_SEMI":2, "nb_total":3},
         "ELFALLEH": {"total":24,  "PL":0,   "PPL":24, "SEMI":0,  "nb_PL":0, "nb_PPL":2, "nb_SEMI":0, "nb_total":2},
     }
@@ -2525,14 +2531,14 @@ with tab5:
         "SICAM": 1500, "TUCAL": 800, "COMOCAP": 800,
         "ABIDA": 200, "ELFALLEH": 150,
     }
-    # Transport confirmé réel — Source: Etat_Transport_Final_2026.xlsx (juin 2026)
-    # SICAM:    46 PL(891t) + 6 PPL(64t) + 13 SEMI(390t) = 1345t/j / 65 bennes
-    # TUCAL:    18 PL(321t) + 3 SEMI(90t) = 411t/j / 21 bennes
-    # COMOCAP:  5 PL(76t) + 10 PPL(102t) + 3 SEMI(90t) = 268t/j / 18 bennes
+    # ✅ Transport confirmé réel — Source: transport_etat_final.xlsx (10/06/2026)
+    # SICAM:    48 PL(927t) + 6 PPL(64t) + 13 SEMI(390t) = 1381t/j / 67 bennes
+    # TUCAL:    17 PL(303t) + 2 SEMI(60t) = 363t/j / 19 bennes
+    # COMOCAP:  6 PL(91t) + 14 PPL(147t) + 3 SEMI(90t) = 328t/j / 23 bennes
     # ABIDA:    1 PL(20t) + 2 SEMI(60t) = 80t/j / 3 bennes
     # ELFALLEH: 2 PPL(24t) = 24t/j / 2 bennes
     TRANSPORT_CONF = {
-        "SICAM": 1345, "TUCAL": 411, "COMOCAP": 268,
+        "SICAM": 1381, "TUCAL": 363, "COMOCAP": 328,
         "ABIDA": 80,   "ELFALLEH": 24,
     }
     # Jokers: BOURAK=114t (6 PL) + LUIMEME=101t (3 PL + 4 PPL)
@@ -4228,40 +4234,60 @@ with tab9:
     st.caption("Tonnage à livrer par usine, type de véhicule recommandé et estimation bennes au pic")
 
     # ── Données embarquées ──────────────────────────────────────────
+    # ── Besoins PIC validés par les commerciaux (guide terrain) ───────
+    # Chiffres = nb de bennes SIMULTANÉES au jour de POINTE
+    # ACHREF: 22 Semi | KHALIL: 40 PL + 10 Semi | JILANI: 83 PL
+    # MAKKI: 40 PL + 20 PPL | FEDI: 35 PL + 15 PPL
+    _BESOINS_PIC = {
+        "FEDI":            [{"type":"PL",   "nb":35,"t_par_benne":20,"cap_j":700},
+                            {"type":"PPL",  "nb":15,"t_par_benne":10,"cap_j":150}],
+        "MAKKI BEN SALAH": [{"type":"PL",   "nb":40,"t_par_benne":20,"cap_j":800},
+                            {"type":"PPL",  "nb":20,"t_par_benne":10,"cap_j":200}],
+        "KHALIL":          [{"type":"PL",   "nb":40,"t_par_benne":20,"cap_j":800},
+                            {"type":"SEMI", "nb":10,"t_par_benne":30,"cap_j":300}],
+        "ACHREF AJLANI":   [{"type":"SEMI", "nb":22,"t_par_benne":30,"cap_j":660}],
+        "JILANI OBAY":     [{"type":"PL",   "nb":83,"t_par_benne":20,"cap_j":1660}],
+    }
+    _TONNAGES = {
+        "FEDI":32312,"MAKKI BEN SALAH":22525,"KHALIL":16510,
+        "ACHREF AJLANI":16373,"JILANI OBAY":6965,
+    }
+
+    # Détail par usine (inchangé — pour référence)
     _TRANSPORT_BESOINS = {
         "FEDI": [
-            {"usine":"SICAM",    "tonnage":11860,"nb_agri":12,"vehicule":"PL/PPL","long":False,"bennes_pic":72},
-            {"usine":"TUCAL",    "tonnage":5900, "nb_agri":6, "vehicule":"PL/PPL","long":False,"bennes_pic":36},
-            {"usine":"COMOCAP",  "tonnage":12002,"nb_agri":50,"vehicule":"PL",    "long":False,"bennes_pic":73},
-            {"usine":"ABIDA",    "tonnage":1000, "nb_agri":1, "vehicule":"PL",    "long":False,"bennes_pic":6},
-            {"usine":"ELFALLEH", "tonnage":1100, "nb_agri":2, "vehicule":"PPL",   "long":False,"bennes_pic":14},
+            {"usine":"SICAM",    "tonnage":11860,"nb_agri":12,"vehicule":"PL/PPL","long":False},
+            {"usine":"TUCAL",    "tonnage":5900, "nb_agri":6, "vehicule":"PL/PPL","long":False},
+            {"usine":"COMOCAP",  "tonnage":12002,"nb_agri":50,"vehicule":"PL",    "long":False},
+            {"usine":"ABIDA",    "tonnage":1000, "nb_agri":1, "vehicule":"PL",    "long":False},
+            {"usine":"ELFALLEH", "tonnage":1100, "nb_agri":2, "vehicule":"PPL",   "long":False},
         ],
         "MAKKI BEN SALAH": [
-            {"usine":"SICAM",    "tonnage":10368,"nb_agri":40,"vehicule":"PL",    "long":False,"bennes_pic":63},
-            {"usine":"TUCAL",    "tonnage":6715, "nb_agri":19,"vehicule":"PL",    "long":False,"bennes_pic":41},
-            {"usine":"COMOCAP",  "tonnage":3162, "nb_agri":19,"vehicule":"PL",    "long":False,"bennes_pic":19},
-            {"usine":"ELFALLEH", "tonnage":2280, "nb_agri":3, "vehicule":"PPL",   "long":False,"bennes_pic":28},
+            {"usine":"SICAM",    "tonnage":10368,"nb_agri":40,"vehicule":"PL",    "long":False},
+            {"usine":"TUCAL",    "tonnage":6715, "nb_agri":19,"vehicule":"PL",    "long":False},
+            {"usine":"COMOCAP",  "tonnage":3162, "nb_agri":19,"vehicule":"PL",    "long":False},
+            {"usine":"ELFALLEH", "tonnage":2280, "nb_agri":3, "vehicule":"PPL",   "long":False},
         ],
         "KHALIL": [
-            {"usine":"SICAM",    "tonnage":8955, "nb_agri":11,"vehicule":"SEMI",  "long":True, "bennes_pic":52},
-            {"usine":"TUCAL",    "tonnage":3320, "nb_agri":4, "vehicule":"SEMI",  "long":True, "bennes_pic":19},
-            {"usine":"COMOCAP",  "tonnage":1320, "nb_agri":3, "vehicule":"SEMI",  "long":True, "bennes_pic":8},
-            {"usine":"ABIDA",    "tonnage":2915, "nb_agri":4, "vehicule":"PL",    "long":True, "bennes_pic":18},
+            {"usine":"SICAM",    "tonnage":8955, "nb_agri":11,"vehicule":"SEMI/PL","long":True},
+            {"usine":"TUCAL",    "tonnage":3320, "nb_agri":4, "vehicule":"SEMI/PL","long":True},
+            {"usine":"COMOCAP",  "tonnage":1320, "nb_agri":3, "vehicule":"PL",    "long":True},
+            {"usine":"ABIDA",    "tonnage":2915, "nb_agri":4, "vehicule":"PL",    "long":True},
         ],
         "ACHREF AJLANI": [
-            {"usine":"SICAM",    "tonnage":10768,"nb_agri":43,"vehicule":"SEMI",  "long":True, "bennes_pic":62},
-            {"usine":"TUCAL",    "tonnage":2100, "nb_agri":13,"vehicule":"SEMI",  "long":True, "bennes_pic":12},
-            {"usine":"COMOCAP",  "tonnage":1575, "nb_agri":1, "vehicule":"SEMI",  "long":True, "bennes_pic":9},
-            {"usine":"ABIDA",    "tonnage":1930, "nb_agri":11,"vehicule":"SEMI",  "long":True, "bennes_pic":12},
+            {"usine":"SICAM",    "tonnage":10768,"nb_agri":43,"vehicule":"SEMI",  "long":True},
+            {"usine":"TUCAL",    "tonnage":2100, "nb_agri":13,"vehicule":"SEMI",  "long":True},
+            {"usine":"COMOCAP",  "tonnage":1575, "nb_agri":1, "vehicule":"SEMI",  "long":True},
+            {"usine":"ABIDA",    "tonnage":1930, "nb_agri":11,"vehicule":"SEMI",  "long":True},
         ],
         "JILANI OBAY": [
-            {"usine":"SICAM",    "tonnage":3795, "nb_agri":7, "vehicule":"PL",    "long":False,"bennes_pic":23},
-            {"usine":"TUCAL",    "tonnage":1325, "nb_agri":2, "vehicule":"PL",    "long":False,"bennes_pic":8},
-            {"usine":"COMOCAP",  "tonnage":1845, "nb_agri":2, "vehicule":"PL",    "long":False,"bennes_pic":12},
+            {"usine":"SICAM",    "tonnage":3795, "nb_agri":7, "vehicule":"PL",    "long":False},
+            {"usine":"TUCAL",    "tonnage":1325, "nb_agri":2, "vehicule":"PL",    "long":False},
+            {"usine":"COMOCAP",  "tonnage":1845, "nb_agri":2, "vehicule":"PL",    "long":False},
         ],
     }
     _VEH_COLORS = {
-        "SEMI":"#1E8449","PL":"#2F75B6","PPL":"#7030A0","PL/PPL":"#2F75B6"
+        "SEMI":"#1E8449","PL":"#2F75B6","PPL":"#7030A0","PL/PPL":"#2F75B6","SEMI/PL":"#1E8449"
     }
     _USINE_COLORS = {
         "SICAM":"#0d3b6e","TUCAL":"#1a4731","COMOCAP":"#5c3a00",
@@ -4279,97 +4305,116 @@ with tab9:
         _comm_list_t = [_sel_comm_t]
 
     for _comm_t in _comm_list_t:
-        _besoins = _TRANSPORT_BESOINS.get(_comm_t, [])
-        if not _besoins: continue
+        _pic = _BESOINS_PIC.get(_comm_t, [])
+        _usine_detail = _TRANSPORT_BESOINS.get(_comm_t, [])
+        if not _pic: continue
 
-        _tot_t  = sum(b["tonnage"] for b in _besoins)
-        _tot_bn = sum(b["bennes_pic"] for b in _besoins)
-        _nb_usines = len(_besoins)
+        _tot_bn  = sum(p["nb"] for p in _pic)
+        _tot_cap = sum(p["cap_j"] for p in _pic)
+        _tonnage = _TONNAGES.get(_comm_t, 0)
 
         if not IS_COMMERCIAL:
             st.markdown(f"### {_comm_t}")
 
-        # KPI cards par usine
-        _cols_t = st.columns(len(_besoins))
-        for i, b in enumerate(_besoins):
-            _veh_col = _VEH_COLORS.get(b["vehicule"], "#ffffff")
-            _dist_lbl = "🔴 Longue distance" if b["long"] else "🟢 Courte distance"
-            _note = "<div style='font-size:10px;color:#ffd'>semi_coeff=0.7</div>" if b["long"] and b["vehicule"]=="SEMI" else ""
-            with _cols_t[i]:
+        # ── Bandeau récap PIC ──────────────────────────────────────────
+        st.markdown(f"""
+        <div style="background:#1a2332;border-radius:10px;padding:12px 18px;
+                    border-left:5px solid #FFD700;margin-bottom:12px;">
+          <span style="font-size:13px;color:#FFD700;font-weight:900">
+            🚛 BESOIN AU PIC — {_comm_t}
+          </span>
+          <span style="font-size:12px;color:#aaa;margin-left:16px">
+            {_tot_bn} bennes simultanées · {_tot_cap}t/j capacité · {_tonnage:,}t saison
+          </span>
+        </div>""".replace(",", " "), unsafe_allow_html=True)
+
+        # ── Cartes par type de véhicule ────────────────────────────────
+        _cols_pic = st.columns(len(_pic))
+        for i, p in enumerate(_cols_pic):
+            b = _pic[i]
+            vc = _VEH_COLORS.get(b["type"], "#888")
+            nb_total  = b["nb"]
+            cap_total = b["cap_j"]
+            with p:
                 st.markdown(f"""
-                <div style="background:{_USINE_COLORS.get(b['usine'],'#1a2332')};
-                            border-radius:10px;padding:10px;text-align:center;
-                            border:2px solid {_veh_col};">
-                  <div style="font-size:14px;font-weight:900;color:#fff">{b['usine']}</div>
-                  <div style="font-size:24px;font-weight:900;color:#fff;margin:4px 0">
-                    {b['tonnage']:,}t
+                <div style="background:#0d1117;border-radius:12px;padding:14px;
+                            text-align:center;border:3px solid {vc};">
+                  <div style="font-size:42px;font-weight:900;color:{vc}">{nb_total}</div>
+                  <div style="font-size:16px;font-weight:900;color:#fff;margin:4px 0">
+                    {b['type']}
                   </div>
-                  <div style="font-size:11px;color:#ccc">{b['nb_agri']} agriculteurs</div>
-                  <div style="margin-top:6px;background:{_veh_col};border-radius:5px;
-                              padding:3px;font-size:11px;font-weight:bold;color:#fff">
-                    {b['vehicule']}
+                  <div style="font-size:12px;color:#aaa">{b['t_par_benne']}t × {nb_total} = 
+                    <b style="color:#fff">{cap_total}t/j</b>
                   </div>
-                  <div style="font-size:10px;color:#aaa;margin-top:4px">{_dist_lbl}</div>
-                  <div style="font-size:13px;color:#FFD700;font-weight:bold;margin-top:4px">
-                    ~{b['bennes_pic']} bennes/j
+                  <div style="margin-top:8px;font-size:10px;color:#888">
+                    bennes simultanées au pic
                   </div>
-                  {_note}
-                </div>""".replace(",", " "), unsafe_allow_html=True)
+                </div>""", unsafe_allow_html=True)
 
         st.markdown(" ")
 
-        # Tableau détaillé
-        _df_t = pd.DataFrame(_besoins)
-        _df_t = _df_t.rename(columns={
-            "usine":"Usine","tonnage":"Tonnage (t)","nb_agri":"Nb agriculteurs",
-            "vehicule":"Véhicule","long":"Longue distance","bennes_pic":"~Bennes/j au pic"
-        })
-        _df_t["Distance"] = _df_t["Longue distance"].map({True:"🔴 Longue",False:"🟢 Courte"})
-        _df_t = _df_t[["Usine","Tonnage (t)","Nb agriculteurs","Véhicule","Distance","~Bennes/j au pic"]]
-        # Ligne total
-        _tot_row = pd.DataFrame([{
-            "Usine":"TOTAL","Tonnage (t)":_tot_t,"Nb agriculteurs":sum(b["nb_agri"] for b in _besoins),
-            "Véhicule":"—","Distance":"—","~Bennes/j au pic":_tot_bn
-        }])
-        _df_t = pd.concat([_df_t, _tot_row], ignore_index=True)
-        st.dataframe(_df_t, use_container_width=True, hide_index=True)
+        # ── Tableau récap par type ─────────────────────────────────────
+        _rows_pic = []
+        for p in _pic:
+            _rows_pic.append({
+                "Type véhicule": p["type"],
+                "Nb bennes au pic": p["nb"],
+                "Capacité/benne (t)": p["t_par_benne"],
+                "Capacité totale (t/j)": p["cap_j"],
+            })
+        _tot_row_p = {
+            "Type véhicule":"TOTAL",
+            "Nb bennes au pic":_tot_bn,
+            "Capacité/benne (t)":"—",
+            "Capacité totale (t/j)":_tot_cap,
+        }
+        _df_pic = pd.DataFrame(_rows_pic + [_tot_row_p])
+        st.dataframe(_df_pic, use_container_width=True, hide_index=True)
 
-        # Graphique barres
-        _fig_t = go.Figure()
-        _usines_t = [b["usine"] for b in _besoins]
-        _tons_t   = [b["tonnage"] for b in _besoins]
-        _bens_t   = [b["bennes_pic"] for b in _besoins]
-        _cols_bar = [_VEH_COLORS.get(b["vehicule"],"#aaaaaa") for b in _besoins]
-        _fig_t.add_trace(go.Bar(
-            name="Tonnage",x=_usines_t,y=_tons_t,
-            marker_color=_cols_bar,
-            text=[f"{t:,}t".replace(",","") for t in _tons_t],
-            textposition="outside",yaxis="y1",
-        ))
-        _fig_t.add_trace(go.Scatter(
-            name="Bennes/j pic",x=_usines_t,y=_bens_t,
-            mode="markers+text",yaxis="y2",
-            marker=dict(symbol="diamond",size=14,color="#FFD700"),
-            text=[f"~{b}" for b in _bens_t],textposition="top center",
-        ))
-        _fig_t.update_layout(
-            title=f"Transport {_comm_t} — tonnage par usine (barres) et bennes au pic (◆)",
+        # ── Détail par usine (tableau secondaire) ──────────────────────
+        if _usine_detail:
+            with st.expander("📋 Détail du tonnage par usine"):
+                _df_u = pd.DataFrame([{
+                    "Usine":b["usine"],"Tonnage (t)":b["tonnage"],
+                    "Nb agriculteurs":b["nb_agri"],"Véhicule":b["vehicule"],
+                    "Distance":"🔴 Longue" if b["long"] else "🟢 Courte",
+                } for b in _usine_detail])
+                _tot_u = {"Usine":"TOTAL","Tonnage (t)":sum(b["tonnage"] for b in _usine_detail),
+                          "Nb agriculteurs":sum(b["nb_agri"] for b in _usine_detail),
+                          "Véhicule":"—","Distance":"—"}
+                _df_u = pd.concat([_df_u, pd.DataFrame([_tot_u])], ignore_index=True)
+                st.dataframe(_df_u, use_container_width=True, hide_index=True)
+
+        # ── Graphique barres horizontales bennes par type ───────────────
+        _fig_pic = go.Figure()
+        for p in _pic:
+            _fig_pic.add_trace(go.Bar(
+                name=p["type"], y=[_comm_t.split()[0]], x=[p["nb"]],
+                orientation="h",
+                marker_color=_VEH_COLORS.get(p["type"],"#888"),
+                text=[f"{p['nb']} {p['type']} ({p['cap_j']}t)"],
+                textposition="inside", textfont_size=12,
+            ))
+        _fig_pic.update_layout(
+            barmode="stack",
+            title=f"Bennes au pic — {_comm_t}  ({_tot_bn} bennes | {_tot_cap}t/j)",
             template="plotly_dark",paper_bgcolor="#161b22",plot_bgcolor="#0d1117",
-            height=350,
-            yaxis=dict(title="Tonnage (t)",side="left"),
-            yaxis2=dict(title="Bennes/jour pic",overlaying="y",side="right",showgrid=False),
-            legend=dict(orientation="h",y=-0.2),
+            height=130, showlegend=True,
+            xaxis=dict(title="Nb bennes"),
+            margin=dict(l=10,r=10,t=40,b=10),
+            legend=dict(orientation="h",y=-0.5),
         )
-        st.plotly_chart(_fig_t,use_container_width=True)
+        st.plotly_chart(_fig_pic, use_container_width=True)
 
         # Export CSV
         st.download_button(
             f"⬇️ Exporter besoin transport {_comm_t} (CSV)",
-            data=_df_t.to_csv(index=False,sep=";").encode("utf-8-sig"),
+            data=_df_pic.to_csv(index=False,sep=";").encode("utf-8-sig"),
             file_name=f"transport_{_comm_t.split()[0]}_2026.csv",
             mime="text/csv",
             key=f"dl_transport_{_comm_t}",
         )
+        st.markdown("---")
 
 # ── TAB 11: UPLOAD PLANNING ──────────────────────────────────
 with tab10:
