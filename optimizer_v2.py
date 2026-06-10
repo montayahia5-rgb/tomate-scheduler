@@ -186,7 +186,9 @@ FLEET_CAPACITY["POILOUR"]       = FLEET_CAPACITY["PL"]
 ACCESS_VEHICLES = {
     # ── 1 véhicule ─────────────────────────────────────────────────
     "PL":          ["PL"],                       # PL seulement
-    "RM":          ["SEMI"],                     # RM = 100% Semi (3-5 semi/jour)
+    "PPL":         ["PPL"],                      # PPL seulement
+    "SEMI":        ["SEMI"],                     # ✅ SEMI seul → SEMI uniquement (ex: ACHREF Gafsa)
+    "RM":          ["SEMI"],                     # RM = 100% Semi (récolte mécanique)
     # ── 2 véhicules ────────────────────────────────────────────────
     "PL/PPL":      ["PL", "PPL"],
     "PL-PPL":      ["PL", "PPL"],
@@ -200,8 +202,6 @@ ACCESS_VEHICLES = {
     "SEMI/PL/PPL": ["SEMI", "PL", "PPL"],
     # ── Fallback ───────────────────────────────────────────────────
     "NAN":         ["TRACTEUR", "PPL", "PL", "SEMI"],
-    "PL":          ["PL"],           # PL seul → uniquement poilourds
-    "PPL":         ["PPL"],          # PPL seul → uniquement petits poilourds
 }
 
 # ── Capacités confirmées par usine (source: transport_12_mai.xlsx) ──────
@@ -679,8 +679,6 @@ class Farmer:
         
         # ✅ EXTENSION SIMPLE — max 1 à 3 jours seulement
         # On respecte au mieux la fenêtre déclarée par le commercial.
-        # Un petit écart (1-3j) suffit pour lisser légèrement la charge,
-        # sans décaler artificiellement la date de fin de récolte.
         if self.tonnage < 300:
             ext_days = 1       # Petit agriculteur → +1 jour
         elif self.tonnage < 700:
@@ -691,30 +689,42 @@ class Farmer:
 
         n_days = max(1, (self.end - self.start).days + 1)
 
+        # ✅ EXTENSION DE FAISABILITÉ — uniquement si nécessaire
+        # Un gros agriculteur sur une petite usine (ex: 1080t sur ELFALLEH cap 150t)
+        # ne peut PAS tenir dans une fenêtre courte sans violer le cap usine.
+        # On étend juste assez pour que sa charge/jour ≤ ~60% du cap usine
+        # (60% laisse de la place aux autres agriculteurs de la même usine).
+        _FACTORY_CAPS_LOCAL = {"SICAM":1500,"TUCAL":800,"COMOCAP":800,"ABIDA":200,"ELFALLEH":150}
+        _ucap = _FACTORY_CAPS_LOCAL.get(str(self.usine).upper(), 800)
+        _max_share = _ucap * 0.60        # part max d'un seul agriculteur sur l'usine
+        _daily_now = self.tonnage / n_days
+        if _daily_now > _max_share and _max_share > 0:
+            _days_needed = math.ceil(self.tonnage / _max_share)
+            # étendre la fin (sans dépasser la borne saison) pour atteindre _days_needed
+            _extra = _days_needed - n_days
+            if _extra > 0:
+                self.end = clamp_date(self.end + datetime.timedelta(days=_extra))
+                n_days = max(1, (self.end - self.start).days + 1)
+
         # ✅ COURBE DE MATURATION EN CLOCHE (réaliste)
-        # Au lieu d'une répartition plate, le tonnage suit la maturation réelle:
         #   - DÉBUT (20% du temps)  → 15% du tonnage (montée douce)
         #   - MILIEU (50% du temps) → 60% du tonnage (pic de maturité)
         #   - FIN   (30% du temps)  → 25% du tonnage (décrue)
-        # À l'intérieur de chaque phase, le tonnage est réparti uniformément.
         def _build_bell_window(start, ndays, tonnage):
             if ndays <= 1:
                 return {start: round(tonnage, 1)}
-            # Découpage du TEMPS en 3 phases
             n_debut  = max(1, round(ndays * 0.20))
             n_milieu = max(1, round(ndays * 0.50))
             n_fin    = ndays - n_debut - n_milieu
-            if n_fin < 1:   # réajuster si arrondi laisse la fin vide
+            if n_fin < 1:
                 n_fin = 1
                 if n_milieu > 1:
                     n_milieu -= 1
                 elif n_debut > 1:
                     n_debut -= 1
-            # Répartition de la QUANTITÉ par phase
             t_debut  = tonnage * 0.15
             t_milieu = tonnage * 0.60
-            t_fin    = tonnage - t_debut - t_milieu   # = 25% (le reste exact)
-            # Intensité journalière par phase (uniforme dans la phase)
+            t_fin    = tonnage - t_debut - t_milieu   # = 25% (reste exact)
             d_debut  = t_debut  / n_debut
             d_milieu = t_milieu / n_milieu
             d_fin    = t_fin    / n_fin
@@ -810,21 +820,23 @@ CAP_PERIOD_SPECIAL = {
     "JILANI OBAY": (datetime.date(2026, 7, 1), datetime.date(2026, 7, 12)),
     "KHALIL":      (datetime.date(2026, 7, 1), datetime.date(2026, 7, 12)),
 }
+COMM_OVERFLOW_WEIGHT = 30   # pénalité par tonne au-dessus du cap double commercial
+comm_overflows = []
 for d_idx, date in enumerate(all_dates):
     by_comm = defaultdict(list)
     for f_idx, f in enumerate(farmers):
         by_comm[f.commercial].append(x[(f_idx, d_idx)])
     for comm, vs in by_comm.items():
-        cap_start, cap_end = CAP_PERIOD_SPECIAL.get(comm, CAP_PERIOD_DEFAULT)
-        is_pic = (cap_start <= date <= cap_end)
         cap_double = COMMERCIAL_CAPS_DOUBLE.get(comm, comm_effective_caps.get(comm, 1200))
-        if is_pic:
-            # Pendant PIC: autoriser jusqu'au cap DOUBLE (jours doubles)
-            model.Add(sum(vs) <= int(cap_double * SCALE))
-        else:
-            # ✅ Hors PIC: plafond = cap DOUBLE aussi (jamais dépasser le max physique)
-            # Évite les pics aberrants hors fenêtre 1-15 juillet (ex: FEDI 1170t)
-            model.Add(sum(vs) <= int(cap_double * SCALE))
+        cap_scaled = int(cap_double * SCALE)
+        # Cap commercial SOUPLE: dépassement du cap double pénalisé
+        # (le cap double est déjà un plafond généreux = jours doubles)
+        c_total = model.NewIntVar(0, int(cap_double * SCALE * 5), f"comm_{d_idx}_{hash(comm)%10000}")
+        model.Add(c_total == sum(vs))
+        c_ovf = model.NewIntVar(0, int(cap_double * SCALE * 5), f"comm_ovf_{d_idx}_{hash(comm)%10000}")
+        model.Add(c_ovf >= c_total - cap_scaled)
+        model.Add(c_ovf >= 0)
+        comm_overflows.append(c_ovf * COMM_OVERFLOW_WEIGHT)
 
 # Constraint 3: Factory daily cap — basé sur transport RÉEL confirmé + jokers
 # cap_reel = min(cap_max_usine, transport_confirmé + jokers_alloués)
@@ -844,21 +856,33 @@ def get_real_cap(usine):
     cap_reel = min(cap_theorique, max(cap_transport, cap_theorique))
     return cap_reel  # = cap_theorique tant que transport < théorique
 
-# Factory caps — UNIQUEMENT du 1-15 juillet (hors pic: pas de limite usine)
+# Factory caps — SOUPLE (pénalité) appliqué TOUTE LA SAISON
+# ✅ Une usine ne devrait jamais dépasser sa capacité, MAIS certaines usines
+# (ex: COMOCAP) ont des agriculteurs dont les fenêtres se concentrent au pic
+# et dépassent structurellement le cap (jusqu'à 856t pour un cap de 800t).
+# Un cap DUR rend le modèle INFEASIBLE. On utilise donc un cap SOUPLE :
+# le dépassement est autorisé mais FORTEMENT pénalisé dans l'objectif.
+# Résultat: le solveur minimise les dépassements (reste à ~810-820 les pires
+# jours au lieu de bloquer), et le plan reste réalisable.
 FACTORY_CAP_START = datetime.date(2026, 7, 1)
 FACTORY_CAP_END   = datetime.date(2026, 7, 15)
+FACTORY_OVERFLOW_WEIGHT = 50   # pénalité par tonne au-dessus du cap (très forte)
+factory_overflows = []
 for d_idx, date in enumerate(all_dates):
     by_fact = defaultdict(list)
     for f_idx, f in enumerate(farmers):
         by_fact[f.usine].append(x[(f_idx, d_idx)])
     for fact, vs in by_fact.items():
-        # ✅ Cap usine appliqué TOUTE LA SAISON (pas seulement au pic)
-        # Une usine ne peut JAMAIS dépasser sa capacité physique.
         cap_reel_brut = get_real_cap(fact)
-        # Réduire cap solveur pour absorber l'arrondi à la dizaine
-        _marge_f = max(ROUNDING_MARGIN_MIN, cap_reel_brut * ROUNDING_MARGIN_PCT)
-        cap_reel = max(20, cap_reel_brut - _marge_f)
-        model.Add(sum(vs) <= int(cap_reel * SCALE))
+        cap_reel = max(20, cap_reel_brut)   # pas de marge d'arrondi sur cap souple
+        cap_scaled = int(cap_reel * SCALE)
+        # Variable d'excès = max(0, somme - cap)
+        total_day = model.NewIntVar(0, int(cap_reel * SCALE * 5), f"fact_{fact}_{d_idx}")
+        model.Add(total_day == sum(vs))
+        overflow = model.NewIntVar(0, int(cap_reel * SCALE * 5), f"ovf_{fact}_{d_idx}")
+        model.Add(overflow >= total_day - cap_scaled)
+        model.Add(overflow >= 0)
+        factory_overflows.append(overflow * FACTORY_OVERFLOW_WEIGHT)
 
 print("  Caps journaliers (transport confirmé vs cap théorique):")
 for usine in FACTORY_CAPS:
@@ -902,8 +926,10 @@ for f_idx, farmer in enumerate(farmers):
             # Distance cost: more tons on long routes = higher cost
             distance_costs.append(x[(f_idx, d_idx)] * dist_coeff)
 
-model.Minimize(sum(deviations) + sum(distance_costs))
-print(f"  Objective: minimize (plan deviation ×{DEVIATION_WEIGHT}) + (distance cost ×{DISTANCE_WEIGHT})")
+model.Minimize(sum(deviations) + sum(distance_costs)
+               + sum(factory_overflows) + sum(comm_overflows))
+print(f"  Objective: minimize (plan deviation ×{DEVIATION_WEIGHT}) + (distance ×{DISTANCE_WEIGHT})"
+      f" + (factory overflow ×{FACTORY_OVERFLOW_WEIGHT}) + (commercial overflow ×{COMM_OVERFLOW_WEIGHT})")
 
 # ============================================================
 # STEP 4: Solve
@@ -1229,13 +1255,31 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0):
     # ── PRÉFÉRENCES PAR USINE ───────────────────────────────────────────
     # Ordre de préférence des véhicules selon l'usine
     # Le système choisit le PREMIER véhicule de la liste qui est accessible
-    USINE_PREFS = {
-        "SICAM":    ["SEMI", "PL",  "PPL"],   # préfère SEMI
-        "TUCAL":    ["SEMI", "PL",  "PPL"],   # préfère SEMI
-        "COMOCAP":  ["PL",   "PPL", "SEMI"],  # préfère PL (TRACTEUR géré séparément)
-        "ABIDA":    ["PL",   "SEMI","PPL"],   # préfère PL
-        "ELFALLEH": ["PPL",  "PL",  "SEMI"],  # préfère PPL
-    }
+    # ── PRÉFÉRENCES PAR USINE (ajustées selon la DISTANCE) ──────────────
+    # Le choix PL vs SEMI dépend de la distance:
+    #   - Proche (Cap Bon, Bouficha, Nord): PL/PPL suffisent (FEDI, MAKKI)
+    #   - Loin (Gafsa, Sidi Bouzid, Kairouan): SEMI préféré (ACHREF, volume + distance)
+    _is_long_distance = (region and str(region).strip().upper() in
+                         {"GAFSA / KASSRINE", "GAFSA/KASSRINE", "SIDI BOUZID", "KAIROUAN"})
+
+    if _is_long_distance:
+        # Longue distance → SEMI en premier (transport massif efficace)
+        USINE_PREFS = {
+            "SICAM":    ["SEMI", "PL",  "PPL"],
+            "TUCAL":    ["SEMI", "PL",  "PPL"],
+            "COMOCAP":  ["SEMI", "PL",  "PPL"],
+            "ABIDA":    ["PL",   "SEMI","PPL"],   # ABIDA proche de Gafsa → PL ok
+            "ELFALLEH": ["PL",   "SEMI","PPL"],
+        }
+    else:
+        # Courte distance → PL/PPL en premier (Cap Bon, Nord, Bouficha)
+        USINE_PREFS = {
+            "SICAM":    ["PL",   "PPL", "SEMI"],   # ✅ Cap Bon → PL (FEDI)
+            "TUCAL":    ["PL",   "PPL", "SEMI"],
+            "COMOCAP":  ["PL",   "PPL", "SEMI"],
+            "ABIDA":    ["PL",   "SEMI","PPL"],
+            "ELFALLEH": ["PPL",  "PL",  "SEMI"],
+        }
     prefs = USINE_PREFS.get(usine, ["PL", "PPL", "SEMI"])
     # ✅ Filtrer prefs par allowed (accessibilité de l'agriculteur)
     prefs_allowed = [v for v in prefs if v in allowed]
