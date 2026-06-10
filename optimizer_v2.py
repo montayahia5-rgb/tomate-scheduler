@@ -1467,9 +1467,25 @@ for (nom, usine, date), data in consolidated.items():
             else:
                 veh_parts.append(f"{veh}({int(load)}t)")
     
-    veh_str = " | ".join(veh_parts) if veh_parts else "PL(20t)"
-    veh_type = vehicles[0]["vehicle"] if vehicles else "POILOUR"
-    trips    = sum(v["trips"] for v in vehicles)
+    # ✅ Fallback intelligent : utiliser le PREMIER véhicule AUTORISÉ
+    # (pas un POILOUR hardcodé qui violerait l'accessibilité de l'agriculteur)
+    if vehicles:
+        veh_type = vehicles[0]["vehicle"]
+    else:
+        # Aucun véhicule alloué (tonnage trop petit pour Semi par ex.)
+        # → utiliser le premier véhicule autorisé pour ce farmer
+        _allowed = farmer.allowed_veh if farmer.allowed_veh else ["PL"]
+        veh_type = _allowed[0]
+    
+    # Idem pour veh_str : fallback selon accessibilité
+    if not veh_parts:
+        _fallback_veh = veh_type
+        _fallback_cap = 30 if _fallback_veh == "SEMI" else (20 if _fallback_veh == "PL" else 10)
+        veh_str = f"{_fallback_veh}({_fallback_cap}t)"
+    else:
+        veh_str = " | ".join(veh_parts)
+    
+    trips    = sum(v["trips"] for v in vehicles) if vehicles else 1
     dist_km  = farmer.distance_km if farmer.distance_km < 999 else 0
     note     = f"{n_parcelles} parcelles consolidées" if n_parcelles > 1 else "AI-optimise"
     
