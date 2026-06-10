@@ -764,15 +764,17 @@ model = cp_model.CpModel()
 
 x = {}
 for f_idx, farmer in enumerate(farmers):
+    # ✅ Borne max journalière basée sur le taux MOYEN (pas le profil cloche)
+    # La cloche guide l'objectif (cible journalière), mais ne doit pas rendre
+    # le modèle INFEASIBLE: chaque jour de la fenêtre garde la même flexibilité,
+    # sinon les jours "bas" de la cloche (début/fin) bloquent la redistribution
+    # nécessaire pour respecter les caps usine stricts.
+    _ndays_f = max(1, len(farmer.window))
+    _avg_rate = farmer.tonnage / _ndays_f
+    _ub_day  = int(_avg_rate * SCALE * 3.0)   # 3× le taux moyen = marge généreuse
     for d_idx, date in enumerate(all_dates):
         if date in farmer.window:
-            # ub = taux journalier × multiplier (flexibilité de scheduling)
-            # ub=1.0 trop strict → INFEASIBLE car les caps PIC obligent
-            # à concentrer/étaler. ub=2.5 permet à OR-Tools de regrouper
-            # les livraisons sur certains jours pour respecter les caps.
-            # Le tonnage total reste contraint (±5%) donc pas de débordement global.
-            ub = int(farmer.window[date] * SCALE * 2.5)
-            x[(f_idx, d_idx)] = model.NewIntVar(0, max(1, ub), f"x_{f_idx}_{d_idx}")
+            x[(f_idx, d_idx)] = model.NewIntVar(0, max(1, _ub_day), f"x_{f_idx}_{d_idx}")
         else:
             x[(f_idx, d_idx)] = model.NewConstant(0)
 
