@@ -88,16 +88,18 @@ REAL_FLEET = {}
 
 def _load_real_fleet():
     """
-    Charge les capacités réelles depuis transport_disponible.xlsx
-    Supporte 2 formats :
-      - Ancien : colonnes 'tonnage','usine','Type de vehicule','actif'
-      - Nouveau : colonnes 'Usine','Tonnage','Type de vehicule','Confirmation'
+    Charge les capacités réelles depuis le fichier transport.
+    Priorité: transport_etat_final.xlsx → transport_disponible.xlsx
+    Logique: Confirmation=ok ET Contrat ≠ "En attente"
     """
     import os, pandas as pd
     from collections import defaultdict
     
     script_dir = os.path.dirname(os.path.abspath(__file__))
+    # ✅ Chercher d'abord le nouveau fichier, puis l'ancien en fallback
     candidates = [
+        os.path.join(script_dir, "transport_etat_final.xlsx"),
+        "transport_etat_final.xlsx",
         os.path.join(script_dir, "transport_disponible.xlsx"),
         "transport_disponible.xlsx",
     ]
@@ -106,51 +108,68 @@ def _load_real_fleet():
         return {}
     
     try:
-        df = pd.read_excel(fpath, sheet_name=0)
+        # ✅ Lire la feuille "liste confirmé" si elle existe
+        xl = pd.ExcelFile(fpath)
+        sheet = "liste confirmé" if "liste confirmé" in xl.sheet_names else xl.sheet_names[0]
+        df = pd.read_excel(fpath, sheet_name=sheet)
         cols_upper = [str(c).strip().lower() for c in df.columns]
         
         # Détecter le format
         if "usine" in cols_upper and "tonnage" in cols_upper:
-            # Nouveau format (transport_12_mai.xlsx)
             df.columns = [str(c).strip() for c in df.columns]
             usine_col = next(c for c in df.columns if c.lower()=="usine")
             ton_col   = next(c for c in df.columns if c.lower()=="tonnage")
             type_col  = next(c for c in df.columns if "type" in c.lower() and "vehicule" in c.lower())
             conf_col  = next((c for c in df.columns 
                               if c.lower() in ("confirmation","actif")), None)
+            cont_col  = next((c for c in df.columns 
+                              if c.lower() == "contrat"), None)
             
             df["_usine"]  = df[usine_col].astype(str).str.strip().str.upper()
             df["_tonnage"]= pd.to_numeric(df[ton_col], errors="coerce")
             df["_type"]   = df[type_col].astype(str).str.strip().str.upper()
+            # ✅ Confirmation = ok
             if conf_col:
                 df["_actif"] = df[conf_col].astype(str).str.strip().str.lower()
             else:
                 df["_actif"] = "ok"
+            # ✅ Exclure Contrat = "En attente"
+            if cont_col:
+                df["_exclu"] = df[cont_col].astype(str).str.strip().str.lower().str.contains("attente", na=False)
+            else:
+                df["_exclu"] = False
         else:
-            # Ancien format
             df["_usine"]  = df.iloc[:,1].astype(str).str.strip().str.upper()
             df["_tonnage"]= pd.to_numeric(df.iloc[:,0], errors="coerce")
             df["_type"]   = df.iloc[:,4].astype(str).str.strip().str.upper()
             df["_actif"]  = df.iloc[:,11].astype(str).str.strip().str.lower() \
                             if len(df.columns)>11 else pd.Series("ok", index=df.index)
+            df["_exclu"]  = False
         
-        # Normaliser usine + type véhicule
-        USINE_N = {"EL FALLEH":"ELFALLEH","ELFALLEH":"ELFALLEH","FELLEH":"ELFALLEH",
-                   "FELLA":"ELFALLEH","LUI-MEME":"LUIMEME","LUI-MÊME":"LUIMEME",
-                   "TOTAL":"SKIP"}
+        # Normaliser usine
+        USINE_N = {
+            "SICAM":"SICAM","COMOCAP":"COMOCAP","COMOCAB":"COMOCAP",
+            "TUCAL":"TUCAL","ABIDA":"ABIDA",
+            "EL FALLEH":"ELFALLEH","ELFALLEH":"ELFALLEH","FALLEH":"ELFALLEH",
+            "FELLA":"ELFALLEH",
+            "LUI-MEME":"LUIMEME","LUI-MÊME":"LUIMEME","LUIMEME":"LUIMEME",
+            "BOURAK":"BOURAK","TOTAL":"SKIP",
+        }
         df["_usine"] = df["_usine"].map(lambda x: USINE_N.get(x, x))
         
         def norm_vtype(t):
             t = str(t).strip().upper()
-            if "SEMI" in t or "DOUBLE" in t or "REMORQUE" in t: return "SEMI"
-            if t.startswith("PPL"): return "PPL"
+            if "SEMI" in t or "2*6" in t or "DOUBLE" in t or "REMORQUE" in t: return "SEMI"
+            if "PPL" in t or "PELÉE" in t or "PELEE" in t: return "PPL"
             if t.startswith("PL"):  return "PL"
             if "TRACTEUR" in t:     return "TRACTEUR"
             return t
         df["_type"] = df["_type"].apply(norm_vtype)
         
+        # ✅ Filtrer: actif=ok ET pas exclu (Contrat ≠ En attente)
         df_ok = df[
-            (df["_actif"]=="ok") & 
+            (df["_actif"]=="ok") &
+            (~df["_exclu"]) &
             df["_tonnage"].notna() & 
             (df["_tonnage"]>0) &
             (df["_usine"]!="SKIP")
@@ -164,9 +183,13 @@ def _load_real_fleet():
         for usine, vtypes in fleet.items():
             result[usine] = {vt: sorted(caps, reverse=True)
                              for vt, caps in vtypes.items()}
+        # ✅ Log du fichier chargé
+        fname = os.path.basename(fpath)
+        total_bn = sum(len(v) for vt in result.values() for v in vt.values())
+        print(f"  📂 Fichier transport: {fname} ({total_bn} bennes confirmées)")
         return result
     except Exception as e:
-        print(f"  ⚠️  transport_disponible.xlsx non chargé: {e}")
+        print(f"  ⚠️  Fichier transport non chargé: {e}")
         return {}
 
 REAL_FLEET = _load_real_fleet()
@@ -208,12 +231,12 @@ ACCESS_VEHICLES = {
 # Mise à jour: 12 mai 2026 — liste confirmée uniquement
 # ── Données exactes depuis transport_12_mai.xlsx (liste confirmée) ──────────
 TRANSPORT_CONFIRMED = {
-    # Source: Etat_Transport_Final_2026.xlsx
-    # Logique: Confirmation=ok/OK ET Contrat ≠ "En attente"
-    # (1 ligne exclue: CHOKRI ZIADIA COMOCAP 7t PPL — contrat En attente)
-    "SICAM":    {"total": 1345, "PL": 891, "PPL": 64,  "SEMI": 390, "nb_bennes": 65},
+    # Source: transport_etat_final.xlsx (10/06/2026)
+    # Logique: Confirmation=ok ET Contrat ≠ "En attente"
+    # ⚠️  ELFALLEH = 0 dans ce fichier (2 PPL EL FALLEH = autre libellé, non rattachés)
+    "SICAM":    {"total": 1381, "PL": 927, "PPL": 64,  "SEMI": 390, "nb_bennes": 67},
     "TUCAL":    {"total": 363,  "PL": 303, "PPL": 0,   "SEMI": 60,  "nb_bennes": 19},
-    "COMOCAP":  {"total": 261,  "PL": 76,  "PPL": 95,  "SEMI": 90,  "nb_bennes": 17},
+    "COMOCAP":  {"total": 328,  "PL": 91,  "PPL": 147, "SEMI": 90,  "nb_bennes": 23},
     "ABIDA":    {"total": 80,   "PL": 20,  "PPL": 0,   "SEMI": 60,  "nb_bennes": 3},
     "ELFALLEH": {"total": 24,   "PL": 0,   "PPL": 24,  "SEMI": 0,   "nb_bennes": 2},
 }
