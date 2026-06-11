@@ -1760,31 +1760,44 @@ for (comm, agri), decl in _decl_by_agri.items():
             _is_semi_rm = (f.allowed_veh == ["SEMI"] or str(f.access).upper() == "RM")
             break
 
-    # ✅ Correction sur le DERNIER jour
-    last_idx = agri_indices[-1]
-    current  = all_days[last_idx]["Tonnes/Jour"]
-    new_val  = round(current - diff, 1)
+    remaining_diff = diff  # positif = trop planifié, négatif = trop peu
 
-    if _is_semi_rm:
-        # Pour SEMI/RM : arrondir au multiple de 30 le plus proche
-        new_val_30 = int(round(new_val / 30)) * 30
-        if new_val_30 > 0:
-            all_days[last_idx]["Tonnes/Jour"] = new_val_30
+    if _is_semi_rm and diff > 0:
+        # SEMI/RM avec EXCÈS : supprimer des jours entiers (multiples de 30t)
+        # du dernier jour vers le premier jusqu'à équilibrer
+        for idx in reversed(agri_indices):
+            if remaining_diff < 15:  # moins d'un demi-Semi → stop
+                break
+            current_day = all_days[idx]["Tonnes/Jour"]
+            if current_day <= 0:
+                continue
+            # Réduire au multiple de 30 inférieur
+            reduce = min(current_day, int(remaining_diff / 30) * 30)
+            if reduce <= 0:
+                reduce = current_day  # supprimer ce jour entièrement
+            new_val_30 = int(round((current_day - reduce) / 30)) * 30
+            all_days[idx]["Tonnes/Jour"] = max(0, new_val_30)
+            remaining_diff -= reduce
             _corrections += 1
-        else:
-            # Le dernier jour devient négatif : le supprimer (mettre à 0)
-            all_days[last_idx]["Tonnes/Jour"] = 0
-            _corrections += 1
+    elif _is_semi_rm and diff < 0:
+        # SEMI/RM avec DÉFICIT : augmenter le dernier jour (multiple de 30)
+        last_idx = agri_indices[-1]
+        current  = all_days[last_idx]["Tonnes/Jour"]
+        new_val  = round((current - diff) / 30) * 30
+        all_days[last_idx]["Tonnes/Jour"] = max(30, new_val)
+        _corrections += 1
     else:
+        # Non SEMI/RM : correction sur le dernier jour
+        last_idx = agri_indices[-1]
+        current  = all_days[last_idx]["Tonnes/Jour"]
+        new_val  = round(current - diff, 1)
         if new_val >= _min_t:
             all_days[last_idx]["Tonnes/Jour"] = new_val
             _corrections += 1
         elif new_val > 0:
-            # Correction partielle : appliquer quand même même si < min
             all_days[last_idx]["Tonnes/Jour"] = max(0, new_val)
             _corrections += 1
         elif len(agri_indices) >= 2:
-            # Essayer l'avant-dernier jour
             prev_idx  = agri_indices[-2]
             prev_curr = all_days[prev_idx]["Tonnes/Jour"]
             prev_new  = round(prev_curr - diff, 1)
