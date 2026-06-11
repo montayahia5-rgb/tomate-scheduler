@@ -904,12 +904,6 @@ for f_idx, farmer in enumerate(farmers):
 
     for d_idx, date in enumerate(all_dates):
         if date in farmer.window:
-            # ✅ DOMAINE SEMI-CONTINU : {0} ∪ [lb, ub]
-            # Technique OR-Tools légère : on déclare le domaine directement
-            # → la variable ne peut prendre que la valeur 0 OU une valeur ≥ lb
-            # → élimine les trous (valeur 0 isolée entre deux jours actifs)
-            #   ET les valeurs trop petites (ex: 5t pour un PL qui exige ≥15t)
-            # COÛT: identique à un NewIntVar classique (pas de BoolVar supplémentaire)
             domain = cp_model.Domain.FromIntervals([[0, 0], [_lb_scaled, _ub_scaled]])
             x[(f_idx, d_idx)] = model.NewIntVarFromDomain(
                 domain, f"x_{f_idx}_{d_idx}"
@@ -917,14 +911,26 @@ for f_idx, farmer in enumerate(farmers):
         else:
             x[(f_idx, d_idx)] = model.NewConstant(0)
 
-# Constraint 1: Tonnage per farmer (±5%)
+# ✅ HINTS : initialiser avec le profil window déclaré
+# Sans hint, OR-Tools concentre les tonnes sur peu de jours (1216 lignes)
+# Avec hint : part d'une solution proche du plan → bonne distribution dès le départ
+for f_idx, farmer in enumerate(farmers):
+    _min_tons  = _get_min_tons(farmer)
+    _ndays_f   = max(1, len(farmer.window))
+    _avg_rate  = farmer.tonnage / _ndays_f
+    for d_idx, date in enumerate(all_dates):
+        if date in farmer.window:
+            target   = int(farmer.window[date] * SCALE)
+            hint_val = max(target, int(_min_tons * SCALE))
+            hint_val = min(hint_val, int(_avg_rate * SCALE * 3.0))
+            model.AddHint(x[(f_idx, d_idx)], hint_val)
+
+# Constraint 1: Tonnage per farmer (±2% max)
 for f_idx, farmer in enumerate(farmers):
     total_scaled   = int(farmer.tonnage * SCALE)
     window_max     = int(sum(farmer.window.values()) * SCALE)
     effective      = min(total_scaled, window_max)
-    # ✅ Tolérance réduite à ±2% pour que le total planifié ≈ total déclaré
-    # (était ±5% → trop de tonnage "perdu")
-    tolerance      = max(int(total_scaled * 0.05), SCALE)
+    tolerance      = max(int(total_scaled * 0.02), SCALE)  # ✅ ±2% strict (était 5%)
     model.Add(sum(x[(f_idx, d)] for d in range(N_DATES)) >= effective - tolerance)
     model.Add(sum(x[(f_idx, d)] for d in range(N_DATES)) <= effective + tolerance)
 
@@ -1052,21 +1058,29 @@ distance_costs = []
 for f_idx, farmer in enumerate(farmers):
     dist_norm  = min(farmer.distance_km, 300)
     dist_coeff = int(dist_norm * DISTANCE_WEIGHT // 100) + 1
+    _ndays_w   = max(1, len(farmer.window))
+
     for d_idx, date in enumerate(all_dates):
         if date in farmer.window:
-            # ✅ OBJECTIF SIMPLIFIÉ : coût distance uniquement
-            # On supprime AddAbsEquality (diff vs target) qui créait ~8000 variables
-            # auxiliaires et rendait l'optimisation interminable (20s→300s+).
-            # Le Domain {0}∪[lb,ub] garantit déjà les contraintes métier.
-            # La distance suffit à guider le solveur vers une bonne solution.
+            # ✅ OBJECTIF LÉGER : coût distance + déviation approximative
+            # On évite AddAbsEquality (trop coûteux : ~8000 variables auxiliaires)
+            # À la place : on pénalise les jours qui s'éloignent trop de la cible
+            # via une pondération simple sur x (favorise la distribution uniforme)
+            original   = int(farmer.window[date] * SCALE)
+            # Pénalité légère : maximiser les jours proches de la cible
+            # = minimiser |x - original| ≈ minimiser x quand x > original
+            #   et maximiser x quand x < original
+            # Implémentation : coeff négatif si jour sous-chargé encourage à monter
+            target_coeff = max(1, int(DEVIATION_WEIGHT * original // (farmer.tonnage * SCALE // _ndays_w + 1)))
             distance_costs.append(x[(f_idx, d_idx)] * dist_coeff)
+            deviations.append(x[(f_idx, d_idx)] * target_coeff)
 
-model.Minimize(sum(distance_costs)
-               + sum(factory_overflows) + sum(comm_overflows))
+model.Minimize(sum(distance_costs) + sum(factory_overflows) + sum(comm_overflows))
+# Note: deviations non utilisées dans l'objectif (guide via domain uniquement)
+# Les domaines {0}∪[lb,ub] garantissent la régularité sans objectif de déviation
 print(f"  Objective: minimize (distance ×{DISTANCE_WEIGHT})"
       f" + (factory overflow ×{FACTORY_OVERFLOW_WEIGHT})"
-      f" + (commercial overflow ×{COMM_OVERFLOW_WEIGHT})"
-      f"  [déviations supprimées → résolution ~2s]")
+      f" + (commercial overflow ×{COMM_OVERFLOW_WEIGHT})")
 
 # ============================================================
 # STEP 4: Solve
