@@ -44,6 +44,13 @@ def df_to_csv(df):
     """Convert dataframe to CSV bytes for download button."""
     return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
+def df_to_xlsx_styled(df, sheet_name="Données", title=None):
+    """
+    Convert ONE dataframe to a styled Excel file (single sheet).
+    Used for download buttons in the dashboard.
+    """
+    return dfs_to_excel({sheet_name: df})
+
 def dfs_to_zip(sheets: dict) -> bytes:
     """
     Convert multiple dataframes to a ZIP of CSVs.
@@ -64,10 +71,123 @@ def dfs_to_excel(sheets: dict) -> bytes:
     sheets = {"Sheet Name": dataframe, ...}
     Returns Excel bytes.
     """
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.formatting.rule import ColorScaleRule, CellIsRule
+
+    # ── Styles ───────────────────────────────────────────────
+    HEADER_FILL = PatternFill("solid", start_color="1F3864", end_color="1F3864")  # bleu foncé
+    HEADER_FONT = Font(color="FFFFFF", bold=True, name="Calibri", size=11)
+    ROW_ALT_FILL = PatternFill("solid", start_color="EAF1FA", end_color="EAF1FA")  # bleu clair
+    BORDER_THIN = Border(left=Side(style="thin", color="D0D7DE"),
+                          right=Side(style="thin", color="D0D7DE"),
+                          top=Side(style="thin", color="D0D7DE"),
+                          bottom=Side(style="thin", color="D0D7DE"))
+    CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    LEFT   = Alignment(horizontal="left",   vertical="center", wrap_text=True)
+    RIGHT  = Alignment(horizontal="right",  vertical="center")
+
+    # Couleurs spéciales (premières lignes : pic, statut, etc.)
+    PIC_FILL = PatternFill("solid", start_color="FFF2CC", end_color="FFF2CC")  # jaune pic
+    OK_FILL  = PatternFill("solid", start_color="C6EFCE", end_color="C6EFCE")  # vert OK
+    BAD_FILL = PatternFill("solid", start_color="FFC7CE", end_color="FFC7CE")  # rouge alerte
+
+    # Colonnes commerciales (couleur par commercial)
+    COMM_FILLS = {
+        "FEDI":            PatternFill("solid", start_color="DEEBF7", end_color="DEEBF7"),
+        "MAKKI BEN SALAH": PatternFill("solid", start_color="E2EFDA", end_color="E2EFDA"),
+        "KHALIL":          PatternFill("solid", start_color="FFF2CC", end_color="FFF2CC"),
+        "ACHREF AJLANI":   PatternFill("solid", start_color="EDEDED", end_color="EDEDED"),
+        "JILANI OBAY":     PatternFill("solid", start_color="FCE4D6", end_color="FCE4D6"),
+    }
+
+    def _is_numeric(s):
+        try:
+            pd.to_numeric(s, errors="raise"); return True
+        except Exception:
+            return False
+
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         for sheet_name, df in sheets.items():
             df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+            ws = writer.sheets[sheet_name[:31]]
+
+            n_rows, n_cols = df.shape
+
+            # ── Style des headers ────────────────────────────
+            for col_idx in range(1, n_cols + 1):
+                cell = ws.cell(row=1, column=col_idx)
+                cell.fill = HEADER_FILL
+                cell.font = HEADER_FONT
+                cell.alignment = CENTER
+                cell.border = BORDER_THIN
+
+            ws.row_dimensions[1].height = 30
+
+            # ── Style des cellules de données ────────────────
+            comm_col_idx = None
+            pic_col_idx  = None
+            for i, col in enumerate(df.columns, start=1):
+                col_str = str(col).strip().lower()
+                if "commercial" == col_str:
+                    comm_col_idx = i
+                if "pic" in col_str:
+                    pic_col_idx = i
+
+            for r in range(2, n_rows + 2):
+                for c in range(1, n_cols + 1):
+                    cell = ws.cell(row=r, column=c)
+                    cell.border = BORDER_THIN
+                    cell.alignment = RIGHT if _is_numeric(pd.Series([cell.value])) else LEFT
+                    # Lignes alternées (zébrage)
+                    if r % 2 == 0:
+                        cell.fill = ROW_ALT_FILL
+
+                # Coloration spéciale par commercial
+                if comm_col_idx:
+                    comm_val = str(ws.cell(row=r, column=comm_col_idx).value or "").strip().upper()
+                    if comm_val in COMM_FILLS:
+                        ws.cell(row=r, column=comm_col_idx).fill = COMM_FILLS[comm_val]
+                        ws.cell(row=r, column=comm_col_idx).font = Font(bold=True, name="Calibri", size=10)
+
+                # Coloration PIC (jaune)
+                if pic_col_idx:
+                    pic_val = str(ws.cell(row=r, column=pic_col_idx).value or "")
+                    if "PIC" in pic_val.upper():
+                        ws.cell(row=r, column=pic_col_idx).fill = PIC_FILL
+                        ws.cell(row=r, column=pic_col_idx).font = Font(bold=True, color="996600")
+
+            # ── Largeur auto des colonnes ────────────────────
+            for col_idx, col in enumerate(df.columns, start=1):
+                col_letter = get_column_letter(col_idx)
+                max_len = max(
+                    [len(str(col))] +
+                    [len(str(v)) for v in df.iloc[:, col_idx - 1].head(200).tolist()]
+                )
+                ws.column_dimensions[col_letter].width = min(max(12, max_len + 3), 35)
+
+            # ── Geler la 1re ligne (header) ──────────────────
+            ws.freeze_panes = "A2"
+
+            # ── Filtres automatiques ─────────────────────────
+            if n_rows > 0:
+                last_col_letter = get_column_letter(n_cols)
+                ws.auto_filter.ref = f"A1:{last_col_letter}{n_rows + 1}"
+
+            # ── Color scale pour colonnes "Tonnes" / "Tonnage" ───
+            for col_idx, col in enumerate(df.columns, start=1):
+                col_lower = str(col).lower()
+                if ("tonne" in col_lower or "tonnage" in col_lower) and n_rows > 1:
+                    col_letter = get_column_letter(col_idx)
+                    rng = f"{col_letter}2:{col_letter}{n_rows + 1}"
+                    rule = ColorScaleRule(
+                        start_type="min", start_color="FFFFFF",
+                        mid_type="percentile", mid_value=50, mid_color="9EC3E6",
+                        end_type="max", end_color="1F3864",
+                    )
+                    ws.conditional_formatting.add(rng, rule)
+
     buf.seek(0)
     return buf.read()
 
@@ -1260,12 +1380,25 @@ with tab1:
         p_display,
         use_container_width=True, height=280,
     )
-    st.download_button(
-        "⬇️ Exporter planning journalier (CSV)",
-        data=df_to_csv(p[display_cols].sort_values("Date").reset_index(drop=True)),
-        file_name="planning_journalier.csv",
-        mime="text/csv",
-    )
+    _planning_export = p[display_cols].sort_values("Date").reset_index(drop=True)
+    col_dl1, col_dl2 = st.columns(2)
+    with col_dl1:
+        st.download_button(
+            "📊 Excel stylé (recommandé)",
+            data=df_to_xlsx_styled(_planning_export, sheet_name="Planning"),
+            file_name="planning_journalier.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True,
+        )
+    with col_dl2:
+        st.download_button(
+            "⬇️ CSV brut",
+            data=df_to_csv(_planning_export),
+            file_name="planning_journalier.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
 # ── TAB 2: PAR COMMERCIAL ────────────────────────────────────
 with tab2:
@@ -1889,12 +2022,24 @@ with tab4:
     st.plotly_chart(fig12, use_container_width=True)
 
     # Export transport table
-    st.download_button(
-        "⬇️ Exporter tableau transport (CSV)",
-        data=df_to_csv(veh_daily),
-        file_name="transport_journalier.csv",
-        mime="text/csv",
-    )
+    _ct1, _ct2 = st.columns(2)
+    with _ct1:
+        st.download_button(
+            "📊 Transport — Excel stylé",
+            data=df_to_xlsx_styled(veh_daily, sheet_name="Transport"),
+            file_name="transport_journalier.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True,
+        )
+    with _ct2:
+        st.download_button(
+            "⬇️ Transport — CSV brut",
+            data=df_to_csv(veh_daily),
+            file_name="transport_journalier.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
     # ── Vehicle count summary ──
     st.subheader("📦 Total voyages par type — saison complète")
