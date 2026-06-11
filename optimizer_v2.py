@@ -1739,10 +1739,13 @@ for comm, decl in _decl_by_comm.items():
     print(f"      {comm:<20}: déclaré={decl:>8.0f}t | planifié={plan:>8.0f}t | diff={diff:+.0f}t")
 
 # Correction par AGRICULTEUR sur son DERNIER JOUR
-# → la variation ne se voit que sur 1 jour, pas éparpillée au hasard
+# → recalcul en direct depuis all_days pour éviter les effets de bord
 _corrections = 0
 for (comm, agri), decl in _decl_by_agri.items():
-    plan = _plan_by_agri.get((comm, agri), 0.0)
+    # ✅ RECALCUL EN TEMPS RÉEL depuis all_days (pas depuis _plan_by_agri figé)
+    # Évite la sur-correction : si on a déjà modifié des jours, on prend en compte
+    plan = sum(r["Tonnes/Jour"] for r in all_days
+               if r["Commercial"] == comm and r["Agriculteur"] == agri)
     diff = round(plan - decl, 1)
     if abs(diff) < 0.5:
         continue
@@ -1766,26 +1769,24 @@ for (comm, agri), decl in _decl_by_agri.items():
 
     if _is_semi_rm and diff > 0:
         # SEMI/RM avec EXCÈS : supprimer des jours entiers (multiples de 30t)
-        # du dernier jour vers le premier jusqu'à équilibrer
         for idx in reversed(agri_indices):
-            if remaining_diff < 15:  # moins d'un demi-Semi → stop
+            if remaining_diff < 15:
                 break
             current_day = all_days[idx]["Tonnes/Jour"]
             if current_day <= 0:
                 continue
-            # Réduire au multiple de 30 inférieur
             reduce = min(current_day, int(remaining_diff / 30) * 30)
             if reduce <= 0:
-                reduce = current_day  # supprimer ce jour entièrement
+                reduce = current_day
             new_val_30 = int(round((current_day - reduce) / 30)) * 30
             all_days[idx]["Tonnes/Jour"] = max(0, new_val_30)
             remaining_diff -= reduce
             _corrections += 1
     elif _is_semi_rm and diff < 0:
-        # SEMI/RM avec DÉFICIT : augmenter le dernier jour (multiple de 30)
+        # SEMI/RM avec DÉFICIT : augmenter le dernier jour
         last_idx = agri_indices[-1]
         current  = all_days[last_idx]["Tonnes/Jour"]
-        new_val  = round((current - diff) / 30) * 30
+        new_val  = int(round((current - diff) / 30)) * 30
         all_days[last_idx]["Tonnes/Jour"] = max(30, new_val)
         _corrections += 1
     else:
