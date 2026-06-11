@@ -646,14 +646,11 @@ class Farmer:
         else:
             self.geo_region = get_region(self.zone)
         
-        # ✅ CONTRAINTE SEMI LONGUE DISTANCE (Gafsa/Kassrine/Sidi Bouzid/Kairouan)
-        # Semi depuis Gafsa → max 0.7 voyage/jour = 21t/j PAR BENNE
-        # (1 voyage toutes les 30h = 2 voyages en 3 jours)
-        # Chaque benne Semi = capacité 30t × 0.7 = 21t/j effective
-        LONG_DISTANCE_REGIONS = {"GAFSA / KASSRINE", "SIDI BOUZID", "KAIROUAN"}
-        SEMI_COEFF_LOCAL = 1.0     # régions proches → capacité pleine
-        SEMI_COEFF_LONG  = 0.7     # longue distance → max 0.7 voyage/j
-        self.semi_coeff = SEMI_COEFF_LONG if self.geo_region in LONG_DISTANCE_REGIONS else SEMI_COEFF_LOCAL
+        # ✅ SEMI = TOUJOURS 30t physique par voyage
+        # Le coefficient 0.7 (rotation longue distance) ne s'applique PAS à la capacité
+        # mais au nombre max de voyages/jour par benne — géré ailleurs.
+        # Chaque Semi transporte 30t — qu'il soit à 10km ou à 200km de l'usine.
+        self.semi_coeff = 1.0   # ✅ TOUJOURS 1.0 (Semi = 30t fixe)
 
         # ── Build maturity window ──────────────────────────
         # Case 1: date_cols present (Excel fallback path)
@@ -1112,23 +1109,22 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0):
         
         mn_veh, mx_veh = FLEET_CAPACITY.get(veh, (7, 25))
         
-        # ✅ SEMI longue distance: capacité effective réduite par semi_coeff
-        if veh == "SEMI" and semi_coeff < 1.0:
-            mx_veh = round(mx_veh * semi_coeff, 1)  # ex: 30×0.7=21t
+        # ✅ SEMI : capacité TOUJOURS 30t (pas de réduction par coeff)
+        # Note: semi_coeff était utilisé pour réduire artificiellement la capacité
+        # → SUPPRIMÉ car un Semi physique transporte 30t qu'il aille à 10km ou 200km
         
-        # ✅ SEMI seul (ACHREF/Gafsa): ne jamais créer de voyage partiel
-        #    Trop petit pour 1 Semi → rien ce jour (rattrapé les autres jours)
+        # ✅ SEMI seul (ACHREF/RM/Gafsa): TOUJOURS 30t par voyage
+        #    Bennes entières uniquement, plus de coefficient bizarre
+        #    Si qty < 27t → reporté au lendemain (jamais de voyage partiel)
         _semi_only = (allowed == ["SEMI"])
         if veh == "SEMI" and _semi_only:
-            SEMI_CAP_NOM = 30.0
-            cap_eff_r = round(SEMI_CAP_NOM * semi_coeff, 1)  # 21t longue / 30t locale
-            mn_eff_r  = round(FLEET_CAPACITY["SEMI"][0] * semi_coeff, 1)
-            if qty < mn_eff_r:
-                return []   # trop petit → pas de voyage ce jour
-            nb = max(1, int(qty // cap_eff_r))  # bennes entières seulement
-            return [{"vehicle": "SEMI", "trips": nb, "tons_each": cap_eff_r,
-                     "semi_coeff": semi_coeff,
-                     "note": f"Longue dist ×{semi_coeff}" if semi_coeff < 1 else ""}]
+            SEMI_CAP = 30.0   # ✅ TOUJOURS 30t (capacité physique réelle)
+            SEMI_MIN = 27.0   # seuil minimum pour 1 voyage (90% de la benne)
+            if qty < SEMI_MIN:
+                return []   # trop petit → reporté au lendemain
+            nb = max(1, int(round(qty / SEMI_CAP)))  # nb voyages entiers de 30t
+            return [{"vehicle": "SEMI", "trips": nb, "tons_each": SEMI_CAP,
+                     "real_cap": SEMI_CAP}]
         
         # Récupérer les bennes réelles de cette usine
         real_caps = []
@@ -1137,9 +1133,8 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0):
             if not real_caps and usine_name == "TUCAL":
                 real_caps = list(REAL_FLEET.get("BOURAK", {}).get(veh, []))
         
-        # ✅ Si SEMI longue distance: ajuster les capacités réelles
-        if veh == "SEMI" and semi_coeff < 1.0 and real_caps:
-            real_caps = [round(c * semi_coeff, 1) for c in real_caps]
+        # ✅ SEMI: capacités réelles utilisées telles quelles (pas de × coeff)
+        # Le tableau transport_etat_final.xlsx donne les vraies capacités (30t typique)
         
         if not real_caps:
             return _alloc_theory(veh, qty)
@@ -1271,27 +1266,22 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0):
                 best_score, best, best_ratio, best_trips = score, veh, ratio, n_trips
         return best
 
-    # ── CAS SPÉCIAL : SEMI seul (ACHREF et autres Gafsa) ────────────────
-    # SEMI = 30t par voyage (capacité nominale). Règles:
-    #   1. Si tonnage < 27t × semi_coeff → pas de voyage ce jour (trop petit)
-    #   2. Nb bennes = floor(tonnage / cap_nominale) → bennes entières seulement
-    #   3. Le reste (< 1 benne) est laissé pour le lendemain dans la fenêtre
-    #      → plus jamais de SEMI à 10t, 20t ou 40t
+    # ── CAS SPÉCIAL : SEMI seul (ACHREF, RM, Gafsa) ──────────────────────
+    # ✅ Semi = TOUJOURS 30t physique (capacité réelle du camion)
+    # Règles:
+    #   1. Si tonnage < 27t → reporté au lendemain (pas de voyage partiel)
+    #   2. Nb voyages = arrondi(tonnage / 30) → 30t, 60t, 90t, 120t...
     if allowed == ["SEMI"]:
-        SEMI_CAP_NOM = 30.0                              # capacité nominale (t)
-        mn_s = FLEET_CAPACITY["SEMI"][0]                 # minimum = 27t
-        cap_eff = round(SEMI_CAP_NOM * semi_coeff, 1)   # 30×1.0=30t / 30×0.7=21t
-        mn_eff  = round(mn_s * semi_coeff, 1)            # 27×0.7≈18.9t
+        SEMI_CAP = 30.0   # capacité physique réelle
+        SEMI_MIN = 27.0   # seuil minimum (90% benne)
         if tons <= 0:
             return []
-        # ✅ Trop petit → ignorer ce jour
-        if tons < mn_eff:
-            return []
-        # ✅ Bennes entières seulement
-        nb_voyages = max(1, int(tons // cap_eff))
-        return [{"vehicle": "SEMI", "trips": nb_voyages, "tons_each": cap_eff,
-                 "semi_coeff": semi_coeff,
-                 "note": f"Longue dist ×{semi_coeff}" if semi_coeff < 1 else ""}]
+        if tons < SEMI_MIN:
+            return []   # trop petit → reporté
+        # ✅ Bennes entières de 30t (arrondi pour 30/60/90...)
+        nb_voyages = max(1, int(round(tons / SEMI_CAP)))
+        return [{"vehicle": "SEMI", "trips": nb_voyages, "tons_each": SEMI_CAP,
+                 "real_cap": SEMI_CAP}]
 
     # ── PRÉFÉRENCES PAR USINE ───────────────────────────────────────────
     # Ordre de préférence des véhicules selon l'usine
