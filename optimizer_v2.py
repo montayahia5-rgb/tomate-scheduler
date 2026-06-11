@@ -920,20 +920,26 @@ def get_real_cap(usine):
 # jours au lieu de bloquer), et le plan reste réalisable.
 FACTORY_CAP_START = datetime.date(2026, 7, 1)
 FACTORY_CAP_END   = datetime.date(2026, 7, 15)
-FACTORY_OVERFLOW_WEIGHT = 50   # pénalité par tonne au-dessus du cap (très forte)
+FACTORY_OVERFLOW_WEIGHT = 500   # pénalité TRÈS FORTE par tonne au-dessus de LIMITE (était 50)
 factory_overflows = []
 for d_idx, date in enumerate(all_dates):
     by_fact = defaultdict(list)
     for f_idx, f in enumerate(farmers):
         by_fact[f.usine].append(x[(f_idx, d_idx)])
     for fact, vs in by_fact.items():
-        cap_reel_brut = get_real_cap(fact)
-        cap_reel = max(20, cap_reel_brut)   # pas de marge d'arrondi sur cap souple
+        # ✅ Utiliser LIMITE (pas CAP physique) comme contrainte
+        cap_reel_brut = FACTORY_LIMITS.get(fact, get_real_cap(fact))
+        cap_reel = max(20, cap_reel_brut)
         cap_scaled = int(cap_reel * SCALE)
-        # Variable d'excès = max(0, somme - cap)
-        total_day = model.NewIntVar(0, int(cap_reel * SCALE * 5), f"fact_{fact}_{d_idx}")
+        # ✅ CONTRAINTE DURE : on autorise petit dépassement (~5%) pour faisabilité
+        # mais on pénalise FORTEMENT pour forcer le solveur à étaler
+        cap_dur = int(cap_reel * SCALE * 1.05)   # marge 5% pour faisabilité
+        total_day = model.NewIntVar(0, cap_dur, f"fact_{fact}_{d_idx}")
         model.Add(total_day == sum(vs))
-        overflow = model.NewIntVar(0, int(cap_reel * SCALE * 5), f"ovf_{fact}_{d_idx}")
+        # ✅ CONTRAINTE DURE : total ≤ LIMITE + 5%
+        model.Add(total_day <= cap_dur)
+        # Pénalité forte sur tout dépassement de LIMITE pure
+        overflow = model.NewIntVar(0, int(cap_reel * SCALE * 0.1), f"ovf_{fact}_{d_idx}")
         model.Add(overflow >= total_day - cap_scaled)
         model.Add(overflow >= 0)
         factory_overflows.append(overflow * FACTORY_OVERFLOW_WEIGHT)
