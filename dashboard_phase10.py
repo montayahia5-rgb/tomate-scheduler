@@ -324,6 +324,415 @@ def dfs_to_excel(sheets: dict) -> bytes:
     return buf.read()
 
 
+def _build_usine_excel(planning_df, usine_name, agri_df=None):
+    """
+    Génère un fichier Excel riche pour une usine donnée.
+    Structure :
+      - Titre = nom de l'usine (ex: SICAM)
+      - Colonnes : Commercial | Région | Agriculteur | Tonnage Total | Accessibilité
+                   | Date début | Date fin | <un onglet par jour>
+      - Total par jour (toutes commerciales)
+      - Total par commercial
+      - Onglet "Récap" + un onglet par jour
+
+    Args:
+        planning_df : DataFrame filtré sur cette usine (depuis table planning Supabase)
+        usine_name  : str — "SICAM", "TUCAL", etc.
+        agri_df     : DataFrame table agriculteurs (pour Date début/fin et Accessibilité)
+    """
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.formatting.rule import ColorScaleRule
+    import io as _io
+
+    # ── Couleurs ──────────────────────────────────────────────────────
+    USINE_COLORS = {
+        "SICAM":    "1F3864",  # bleu foncé
+        "TUCAL":    "4A235A",  # violet
+        "COMOCAP":  "0B4F6C",  # bleu pétrole
+        "ABIDA":    "922B21",  # rouge bordeaux
+        "ELFALLEH": "196F3D",  # vert
+    }
+    HDR_COLOR   = USINE_COLORS.get(usine_name.upper(), "1F3864")
+    COMM_FILLS  = {
+        "FEDI":            "DEEBF7",
+        "MAKKI BEN SALAH": "E2EFDA",
+        "KHALIL":          "FFF2CC",
+        "ACHREF AJLANI":   "EDEDED",
+        "JILANI OBAY":     "FCE4D6",
+    }
+    ALT_ROW     = "F5F8FF"
+    TOTAL_FILL  = "D6E4F0"
+    SUBTOT_FILL = "EBF5FB"
+    PIC_FILL    = "FFF2CC"
+    THIN        = Side(style="thin", color="CCCCCC")
+    BORDER      = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+    BOLD        = Font(bold=True, name="Calibri", size=10)
+    NORMAL_FONT = Font(name="Calibri", size=10)
+    CENTER      = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    LEFT        = Alignment(horizontal="left",   vertical="center")
+    RIGHT       = Alignment(horizontal="right",  vertical="center")
+
+    def hdr_fill(color): return PatternFill("solid", start_color=color, end_color=color)
+    def row_fill(color): return PatternFill("solid", start_color=color, end_color=color)
+
+    # ── Préparer les données ────────────────────────────────────────
+    df = planning_df.copy()
+    if df.empty:
+        return df_to_xlsx_styled(df, sheet_name=usine_name)
+
+    # Normaliser colonnes
+    col_comm  = next((c for c in df.columns if c.lower() in ("commercial",)), "Commercial")
+    col_agri  = next((c for c in df.columns if c.lower() in ("agriculteur",)), "Agriculteur")
+    col_tons  = next((c for c in df.columns if "tonne" in c.lower() and "jour" in c.lower()), "Tonnes/Jour")
+    col_date  = next((c for c in df.columns if c.lower() == "date"), "Date")
+    col_reg   = next((c for c in df.columns if "region" in c.lower() or "région" in c.lower()), None)
+    col_acc   = next((c for c in df.columns if "access" in c.lower() or "accès" in c.lower()), None)
+    col_pic   = next((c for c in df.columns if "pic" in c.lower()), None)
+
+    df[col_date] = pd.to_datetime(df[col_date], errors="coerce")
+    df[col_tons] = pd.to_numeric(df[col_tons], errors="coerce").fillna(0)
+
+    # Enrichir avec les données agriculteurs (date_debut, date_fin, accessibilite)
+    agri_lookup = {}
+    if agri_df is not None and not agri_df.empty:
+        for _, row in agri_df.iterrows():
+            key = (str(row.get("commercial","")).strip().upper(),
+                   str(row.get("nom","")).strip().upper())
+            agri_lookup[key] = {
+                "date_debut":    row.get("date_debut", ""),
+                "date_fin":      row.get("date_fin",   ""),
+                "accessibilite": row.get("accessibilite", ""),
+                "region":        row.get("region", ""),
+            }
+
+    def _get_agri_info(comm, nom, field):
+        k = (str(comm).strip().upper(), str(nom).strip().upper())
+        # Essayer sans suffixe (AMOR KHECHIN (RM-SICAM) → AMOR KHECHIN)
+        base_nom = str(nom).split(" (")[0].strip().upper()
+        k2 = (str(comm).strip().upper(), base_nom)
+        data = agri_lookup.get(k) or agri_lookup.get(k2) or {}
+        v = data.get(field, "")
+        if field in ("date_debut","date_fin") and v:
+            try:
+                return pd.to_datetime(v).strftime("%d/%m/%Y")
+            except Exception:
+                return str(v)
+        return str(v) if v else ""
+
+    # ── Tableau de base : 1 ligne par agriculteur × commercial ──────
+    # Tonnage total par (commercial, agriculteur)
+    agri_summary = (df.groupby([col_comm, col_agri], dropna=False)
+                    [col_tons].sum()
+                    .reset_index()
+                    .rename(columns={col_tons: "Tonnage Total (t)"}))
+    agri_summary["Région"]       = agri_summary.apply(
+        lambda r: _get_agri_info(r[col_comm], r[col_agri], "region") or
+                  (df[(df[col_comm]==r[col_comm]) & (df[col_agri]==r[col_agri])][col_reg].iloc[0]
+                   if col_reg else ""), axis=1)
+    agri_summary["Accessibilité"] = agri_summary.apply(
+        lambda r: _get_agri_info(r[col_comm], r[col_agri], "accessibilite") or
+                  (df[(df[col_comm]==r[col_comm]) & (df[col_agri]==r[col_agri])][col_acc].iloc[0]
+                   if col_acc else ""), axis=1)
+    agri_summary["Date début"]   = agri_summary.apply(
+        lambda r: _get_agri_info(r[col_comm], r[col_agri], "date_debut"), axis=1)
+    agri_summary["Date fin"]     = agri_summary.apply(
+        lambda r: _get_agri_info(r[col_comm], r[col_agri], "date_fin"), axis=1)
+    agri_summary = agri_summary.sort_values([col_comm, col_agri]).reset_index(drop=True)
+
+    # ── Tableau journalier : total par jour (toutes commerciales) ───
+    daily_total = (df.groupby(col_date, dropna=False)[col_tons].sum()
+                   .reset_index().rename(columns={col_tons: "Total t/jour"}))
+    daily_total[col_date] = daily_total[col_date].dt.strftime("%d/%m/%Y")
+
+    # ── Tableau journalier : total par commercial par jour ──────────
+    daily_by_comm = (df.groupby([col_date, col_comm], dropna=False)[col_tons].sum()
+                     .unstack(fill_value=0).reset_index())
+    daily_by_comm[col_date] = daily_by_comm[col_date].dt.strftime("%d/%m/%Y")
+    daily_by_comm.columns.name = None
+    daily_by_comm["TOTAL JOUR"] = daily_by_comm.iloc[:, 1:].sum(axis=1)
+
+    # Dates triées pour les onglets journaliers
+    all_dates_sorted = sorted(df[col_date].dropna().unique())
+
+    # ════════════════════════════════════════════════════════════════
+    # GÉNÉRATION EXCEL
+    # ════════════════════════════════════════════════════════════════
+    buf = _io.BytesIO()
+
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+
+        # ── ONGLET 1 : Récapitulatif agriculteurs ──────────────────
+        sheet_name_recap = f"{usine_name} — Récap"[:31]
+        ws_recap_cols = ["Commercial", "Région", "Agriculteur",
+                         "Tonnage Total (t)", "Accessibilité", "Date début", "Date fin"]
+        recap_df = agri_summary[[col_comm, "Région", col_agri,
+                                  "Tonnage Total (t)", "Accessibilité",
+                                  "Date début", "Date fin"]].copy()
+        recap_df.columns = ws_recap_cols
+        recap_df.to_excel(writer, sheet_name=sheet_name_recap, index=False, startrow=2)
+        ws = writer.sheets[sheet_name_recap]
+
+        # Titre de l'usine (ligne 1)
+        ws.merge_cells("A1:G1")
+        title_cell = ws["A1"]
+        title_cell.value = f"🏭  Planning {usine_name}  —  Saison 2026"
+        title_cell.font  = Font(bold=True, size=14, color="FFFFFF", name="Calibri")
+        title_cell.fill  = hdr_fill(HDR_COLOR)
+        title_cell.alignment = CENTER
+        ws.row_dimensions[1].height = 32
+
+        # Headers (ligne 3)
+        for ci, col_h in enumerate(ws_recap_cols, 1):
+            c = ws.cell(row=3, column=ci)
+            c.fill      = hdr_fill(HDR_COLOR)
+            c.font      = Font(bold=True, color="FFFFFF", name="Calibri", size=11)
+            c.alignment = CENTER
+            c.border    = BORDER
+        ws.row_dimensions[3].height = 28
+
+        n_agri = len(recap_df)
+        # Style données
+        for ri in range(n_agri):
+            row_idx = ri + 4
+            comm_val = str(ws.cell(row_idx, 1).value or "").strip().upper()
+            is_alt = ri % 2 == 0
+            fill_comm = COMM_FILLS.get(comm_val, ALT_ROW if is_alt else "FFFFFF")
+
+            for ci in range(1, 8):
+                cell = ws.cell(row_idx, ci)
+                cell.border = BORDER
+                cell.font   = NORMAL_FONT
+                cell.alignment = RIGHT if ci == 4 else LEFT
+                if ci == 1:  # Commercial
+                    cell.fill = hdr_fill(fill_comm)
+                    cell.font = Font(bold=True, name="Calibri", size=10)
+                elif is_alt:
+                    cell.fill = hdr_fill(ALT_ROW)
+
+        # ── Ajouter sous-totaux par commercial EN FIN DE TABLEAU ──
+        all_comms = recap_df["Commercial"].unique()
+        for comm_val in sorted(all_comms):
+            tot_val = recap_df[recap_df["Commercial"] == comm_val]["Tonnage Total (t)"].sum()
+            rr = ws.max_row + 1
+            ws.cell(rr, 1).value = f"Sous-total {comm_val}"
+            ws.cell(rr, 4).value = round(tot_val, 0)
+            ws.merge_cells(f"A{rr}:C{rr}")
+            for ci in range(1, 8):
+                ws.cell(rr, ci).fill      = hdr_fill(SUBTOT_FILL)
+                ws.cell(rr, ci).font      = Font(bold=True, name="Calibri", size=10, color="0B4F6C")
+                ws.cell(rr, ci).border    = BORDER
+                ws.cell(rr, ci).alignment = RIGHT if ci == 4 else LEFT
+
+        # Ligne TOTAL général
+        last_row = ws.max_row + 1
+        ws.merge_cells(f"A{last_row}:C{last_row}")
+        ws.cell(last_row, 1).value = "TOTAL GÉNÉRAL"
+        ws.cell(last_row, 1).fill  = hdr_fill(HDR_COLOR)
+        ws.cell(last_row, 1).font  = Font(bold=True, color="FFFFFF", name="Calibri", size=11)
+        ws.cell(last_row, 1).alignment = LEFT
+        ws.cell(last_row, 4).value = recap_df["Tonnage Total (t)"].sum()
+        ws.cell(last_row, 4).fill  = hdr_fill(HDR_COLOR)
+        ws.cell(last_row, 4).font  = Font(bold=True, color="FFFFFF", name="Calibri", size=11)
+        ws.cell(last_row, 4).alignment = RIGHT
+        for ci in range(1, 8):
+            ws.cell(last_row, ci).border = BORDER
+
+        # Largeurs colonnes récap
+        for ci, w in enumerate([20, 16, 28, 16, 14, 12, 12], 1):
+            ws.column_dimensions[get_column_letter(ci)].width = w
+        ws.freeze_panes = "A4"
+        ws.auto_filter.ref = f"A3:G{3+n_agri}"
+
+        # ── ONGLET 2 : Total journalier ────────────────────────────
+        sheet_name_daily = f"{usine_name} — Journalier"[:31]
+        daily_by_comm.to_excel(writer, sheet_name=sheet_name_daily, index=False, startrow=2)
+        ws2 = writer.sheets[sheet_name_daily]
+
+        ws2.merge_cells(f"A1:{get_column_letter(len(daily_by_comm.columns))}1")
+        t2 = ws2["A1"]
+        t2.value     = f"🏭  {usine_name}  —  Tonnage journalier par commercial"
+        t2.font      = Font(bold=True, size=13, color="FFFFFF", name="Calibri")
+        t2.fill      = hdr_fill(HDR_COLOR)
+        t2.alignment = CENTER
+        ws2.row_dimensions[1].height = 30
+
+        nb_cols2 = len(daily_by_comm.columns)
+        for ci in range(1, nb_cols2 + 1):
+            c = ws2.cell(row=3, column=ci)
+            c.fill = hdr_fill(HDR_COLOR)
+            c.font = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
+            c.alignment = CENTER
+            c.border = BORDER
+        ws2.row_dimensions[3].height = 26
+
+        for ri in range(len(daily_by_comm)):
+            row_idx = ri + 4
+            is_alt = ri % 2 == 0
+            date_str = str(ws2.cell(row_idx, 1).value or "")
+            # Détecter le PIC (juillet)
+            is_pic = False
+            try:
+                d = pd.to_datetime(date_str, dayfirst=True)
+                is_pic = (d.month == 7 and 1 <= d.day <= 15)
+            except Exception:
+                pass
+            for ci in range(1, nb_cols2 + 1):
+                cell = ws2.cell(row_idx, ci)
+                cell.border = BORDER
+                cell.font   = NORMAL_FONT
+                cell.alignment = CENTER
+                if ci == nb_cols2:  # Colonne TOTAL JOUR
+                    cell.fill = hdr_fill(TOTAL_FILL)
+                    cell.font = Font(bold=True, name="Calibri", size=10)
+                elif is_pic:
+                    cell.fill = hdr_fill(PIC_FILL)
+                elif is_alt:
+                    cell.fill = hdr_fill(ALT_ROW)
+
+        # Ligne total général
+        last_row2 = ws2.max_row + 1
+        ws2.cell(last_row2, 1).value = "TOTAL SAISON"
+        ws2.cell(last_row2, 1).fill  = hdr_fill(HDR_COLOR)
+        ws2.cell(last_row2, 1).font  = Font(bold=True, color="FFFFFF", name="Calibri")
+        ws2.cell(last_row2, 1).alignment = CENTER
+        ws2.cell(last_row2, 1).border = BORDER
+        for ci in range(2, nb_cols2 + 1):
+            v = daily_by_comm.iloc[:, ci-1].sum() if ci <= len(daily_by_comm.columns) else 0
+            ws2.cell(last_row2, ci).value = round(v, 0)
+            ws2.cell(last_row2, ci).fill  = hdr_fill(HDR_COLOR)
+            ws2.cell(last_row2, ci).font  = Font(bold=True, color="FFFFFF", name="Calibri")
+            ws2.cell(last_row2, ci).alignment = CENTER
+            ws2.cell(last_row2, ci).border = BORDER
+
+        # Color scale sur la colonne TOTAL JOUR
+        rng_total = f"{get_column_letter(nb_cols2)}4:{get_column_letter(nb_cols2)}{last_row2-1}"
+        ws2.conditional_formatting.add(rng_total, ColorScaleRule(
+            start_type="min", start_color="FFFFFF",
+            mid_type="percentile", mid_value=50, mid_color="9EC3E6",
+            end_type="max", end_color=HDR_COLOR,
+        ))
+
+        for ci, w in enumerate([12] + [16]*(nb_cols2-1), 1):
+            ws2.column_dimensions[get_column_letter(ci)].width = w
+        ws2.freeze_panes = "A4"
+
+        # ── ONGLETS 3+ : Un onglet par jour ───────────────────────
+        days_fr = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"]
+        for date_val in all_dates_sorted:
+            day_df = df[df[col_date] == date_val].copy()
+            if day_df.empty:
+                continue
+            try:
+                d = pd.Timestamp(date_val)
+                sheet_d = f"{d.day:02d}-{d.month:02d} ({days_fr[d.weekday()]})"
+            except Exception:
+                sheet_d = str(date_val)[:31]
+            sheet_d = sheet_d[:31]
+
+            # Colonnes du jour : Commercial | Région | Agriculteur | Tonnage | Accessibilité | Pic
+            day_cols_map = {
+                col_comm: "Commercial",
+                **({"Région": "Région"} if "Région" not in day_df.columns else {}),
+            }
+            # Construire le DataFrame du jour avec les colonnes demandées
+            day_out = pd.DataFrame()
+            day_out["Commercial"]    = day_df[col_comm].values
+            day_out["Région"]        = (day_df[col_reg].values if col_reg and col_reg in day_df.columns
+                                        else [""] * len(day_df))
+            day_out["Agriculteur"]   = day_df[col_agri].values
+            day_out["Tonnage (t)"]   = day_df[col_tons].values
+            day_out["Accessibilité"] = (day_df[col_acc].values if col_acc and col_acc in day_df.columns
+                                        else [""] * len(day_df))
+            if col_pic and col_pic in day_df.columns:
+                day_out["Pic"]       = day_df[col_pic].values
+            day_out = day_out.sort_values(["Commercial","Agriculteur"]).reset_index(drop=True)
+
+            day_out.to_excel(writer, sheet_name=sheet_d, index=False, startrow=2)
+            wsd = writer.sheets[sheet_d]
+
+            # Titre jour
+            nb_cols_d = len(day_out.columns)
+            wsd.merge_cells(f"A1:{get_column_letter(nb_cols_d)}1")
+            td = wsd["A1"]
+            try:
+                day_label = d.strftime("%A %d/%m/%Y")
+            except Exception:
+                day_label = sheet_d
+            td.value     = f"🏭  {usine_name}  —  {day_label}"
+            td.font      = Font(bold=True, size=12, color="FFFFFF", name="Calibri")
+            td.fill      = hdr_fill(HDR_COLOR)
+            td.alignment = CENTER
+            wsd.row_dimensions[1].height = 28
+
+            # Headers
+            for ci in range(1, nb_cols_d + 1):
+                c = wsd.cell(row=3, column=ci)
+                c.fill = hdr_fill(HDR_COLOR)
+                c.font = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
+                c.alignment = CENTER
+                c.border = BORDER
+            wsd.row_dimensions[3].height = 24
+
+            # Données
+            for ri in range(len(day_out)):
+                row_idx = ri + 4
+                comm_val = str(wsd.cell(row_idx, 1).value or "").strip().upper()
+                is_alt = ri % 2 == 0
+                fill_comm = COMM_FILLS.get(comm_val, "")
+                for ci in range(1, nb_cols_d + 1):
+                    cell = wsd.cell(row_idx, ci)
+                    cell.border = BORDER
+                    cell.font   = NORMAL_FONT
+                    cell.alignment = RIGHT if ci == 4 else LEFT
+                    if ci == 1 and fill_comm:
+                        cell.fill = hdr_fill(fill_comm)
+                        cell.font = Font(bold=True, name="Calibri", size=10)
+                    elif is_alt:
+                        cell.fill = hdr_fill(ALT_ROW)
+
+            # Ligne totaux du jour par commercial + total général
+            last_d = len(day_out) + 4
+
+            # Sous-totaux par commercial
+            for comm_val_d in day_out["Commercial"].unique():
+                sub_d = day_out[day_out["Commercial"] == comm_val_d]["Tonnage (t)"].sum()
+                wsd.append([])
+                rr = wsd.max_row
+                # Nettoyer d'abord
+                for ci in range(1, nb_cols_d + 1):
+                    cell = wsd.cell(rr, ci)
+                    cell.value     = None
+                    cell.fill      = hdr_fill(SUBTOT_FILL)
+                    cell.font      = Font(bold=True, name="Calibri", size=10, color="0B4F6C")
+                    cell.border    = BORDER
+                    cell.alignment = RIGHT if ci == 4 else LEFT
+                wsd.cell(rr, 1).value = f"Sous-total {comm_val_d}"
+                wsd.cell(rr, 4).value = round(sub_d, 0)
+
+            # TOTAL GÉNÉRAL du jour
+            wsd.append([])
+            last_d_row = wsd.max_row
+            for ci in range(1, nb_cols_d + 1):
+                cell = wsd.cell(last_d_row, ci)
+                cell.value     = None
+                cell.fill      = hdr_fill(HDR_COLOR)
+                cell.font      = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
+                cell.border    = BORDER
+                cell.alignment = RIGHT if ci == 4 else LEFT
+            wsd.cell(last_d_row, 1).value = f"TOTAL {sheet_d}"
+            wsd.cell(last_d_row, 4).value = round(day_out["Tonnage (t)"].sum(), 0)
+
+            # Largeurs colonnes
+            for ci, w in enumerate([18, 14, 26, 12, 14, 8], 1):
+                if ci <= nb_cols_d:
+                    wsd.column_dimensions[get_column_letter(ci)].width = w
+            wsd.freeze_panes = "A4"
+
+    buf.seek(0)
+    return buf.read()
+
+
 def df_to_xlsx_by_day(df, date_col="Date", base_name="Jour"):
     """
     ✅ Convertit un DataFrame en Excel avec UN ONGLET PAR JOUR + onglet récap.
@@ -2469,10 +2878,11 @@ with tab3:
             )
             st.dataframe(daily_usine, use_container_width=True, height=300)
             st.download_button(
-                "⬇️ Exporter (CSV)",
-                data=df_to_xlsx_styled(daily_usine),
-                file_name=f"livraisons_{CURRENT_NAME}.xlsx",
+                f"📊 Télécharger planning {CURRENT_NAME} (Excel)",
+                data=_build_usine_excel(fact_one, CURRENT_NAME, AGRI_DF),
+                file_name=f"planning_{CURRENT_NAME}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
             )
         else:
             sel_fact = st.selectbox("Choisir une usine", factories)
@@ -2483,6 +2893,15 @@ with tab3:
             st.dataframe(
                 fact_one[show_cols_usine].reset_index(drop=True),
                 use_container_width=True, height=260,
+            )
+            # ✅ Bouton export riche avec colonnes organisées + totaux
+            st.download_button(
+                f"📊 Télécharger planning {sel_fact} (Excel complet)",
+                data=_build_usine_excel(fact_one, sel_fact, AGRI_DF),
+                file_name=f"planning_{sel_fact}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True,
             )
 
 # ── TAB 4: TRANSPORT & ALERTES ───────────────────────────────
