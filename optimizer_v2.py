@@ -898,31 +898,32 @@ x = {}
 for f_idx, farmer in enumerate(farmers):
     _ndays_f   = max(1, len(farmer.window))
     _avg_rate  = farmer.tonnage / _ndays_f
-    _min_tons  = _get_min_tons(farmer)
-    _lb_scaled = int(_min_tons * SCALE)
-    _ub_scaled = max(int(_avg_rate * SCALE * 3.0), _lb_scaled * 2, 1)
+    _ub_scaled = max(int(_avg_rate * SCALE * 3.0), 1)
 
     for d_idx, date in enumerate(all_dates):
         if date in farmer.window:
-            domain = cp_model.Domain.FromIntervals([[0, 0], [_lb_scaled, _ub_scaled]])
-            x[(f_idx, d_idx)] = model.NewIntVarFromDomain(
-                domain, f"x_{f_idx}_{d_idx}"
-            )
+            # ✅ NewIntVar classique [0, ub] — pas de Domain semi-continu
+            # Le Domain {0}∪[lb,ub] forçait OR-Tools à concentrer les tonnes
+            # sur peu de jours (1226 lignes au lieu de 3152) car il préférait
+            # mettre 0 plutôt que de satisfaire lb=60t sur chaque jour.
+            # Le minimum par accessibilité est géré en post-traitement.
+            x[(f_idx, d_idx)] = model.NewIntVar(0, _ub_scaled, f"x_{f_idx}_{d_idx}")
         else:
             x[(f_idx, d_idx)] = model.NewConstant(0)
 
 # ✅ HINTS : initialiser avec le profil window déclaré
-# Sans hint, OR-Tools concentre les tonnes sur peu de jours (1216 lignes)
+# Sans hint, OR-Tools concentre les tonnes sur peu de jours
 # Avec hint : part d'une solution proche du plan → bonne distribution dès le départ
 for f_idx, farmer in enumerate(farmers):
     _min_tons  = _get_min_tons(farmer)
     _ndays_f   = max(1, len(farmer.window))
     _avg_rate  = farmer.tonnage / _ndays_f
+    _ub_scaled = max(int(_avg_rate * SCALE * 3.0), 1)
     for d_idx, date in enumerate(all_dates):
         if date in farmer.window:
             target   = int(farmer.window[date] * SCALE)
             hint_val = max(target, int(_min_tons * SCALE))
-            hint_val = min(hint_val, int(_avg_rate * SCALE * 3.0))
+            hint_val = min(hint_val, _ub_scaled)
             model.AddHint(x[(f_idx, d_idx)], hint_val)
 
 # Constraint 1: Tonnage per farmer (±2% max)
@@ -1777,18 +1778,14 @@ for (comm, agri), decl in _decl_by_agri.items():
     diff = round(plan - decl, 1)
     if abs(diff) < 0.5:
         continue
-    # Trouver le DERNIER JOUR de cet agriculteur (= le meilleur endroit pour ajuster)
     agri_indices = [i for i, r in enumerate(all_days)
                     if r["Commercial"] == comm and r["Agriculteur"] == agri]
     if not agri_indices:
         continue
     agri_indices.sort(key=lambda i: all_days[i]["Date"])
-    last_idx = agri_indices[-1]
-    current  = all_days[last_idx]["Tonnes/Jour"]
 
-    # Trouver le farmer pour connaître son accessibilité
     _farmer_ref = None
-    _min_t = 10  # fallback
+    _min_t = 10
     _is_semi_rm = False
     for f in farmers:
         if f.commercial == comm and f.name == agri:
@@ -1797,30 +1794,37 @@ for (comm, agri), decl in _decl_by_agri.items():
             _is_semi_rm = (f.allowed_veh == ["SEMI"] or str(f.access).upper() == "RM")
             break
 
-    # Appliquer la correction
-    new_val = round(current - diff, 1)
+    # ✅ Correction sur le DERNIER jour
+    last_idx = agri_indices[-1]
+    current  = all_days[last_idx]["Tonnes/Jour"]
+    new_val  = round(current - diff, 1)
 
-    # ✅ Pour SEMI/RM : arrondir au multiple de 30t le plus proche
     if _is_semi_rm:
-        new_val = int(round(new_val / 30)) * 30
-        if new_val <= 0:
-            new_val = 30  # minimum 1 Semi
-
-    if new_val >= _min_t:
-        all_days[last_idx]["Tonnes/Jour"] = new_val
-        _corrections += 1
-    elif len(agri_indices) >= 2:
-        # Essayer l'avant-dernier jour
-        prev_idx  = agri_indices[-2]
-        prev_curr = all_days[prev_idx]["Tonnes/Jour"]
-        prev_new  = round(prev_curr - diff, 1)
-        if _is_semi_rm:
-            prev_new = int(round(prev_new / 30)) * 30
-            if prev_new <= 0:
-                prev_new = 30
-        if prev_new >= _min_t:
-            all_days[prev_idx]["Tonnes/Jour"] = prev_new
+        # Pour SEMI/RM : arrondir au multiple de 30 le plus proche
+        new_val_30 = int(round(new_val / 30)) * 30
+        if new_val_30 > 0:
+            all_days[last_idx]["Tonnes/Jour"] = new_val_30
             _corrections += 1
+        else:
+            # Le dernier jour devient négatif : le supprimer (mettre à 0)
+            all_days[last_idx]["Tonnes/Jour"] = 0
+            _corrections += 1
+    else:
+        if new_val >= _min_t:
+            all_days[last_idx]["Tonnes/Jour"] = new_val
+            _corrections += 1
+        elif new_val > 0:
+            # Correction partielle : appliquer quand même même si < min
+            all_days[last_idx]["Tonnes/Jour"] = max(0, new_val)
+            _corrections += 1
+        elif len(agri_indices) >= 2:
+            # Essayer l'avant-dernier jour
+            prev_idx  = agri_indices[-2]
+            prev_curr = all_days[prev_idx]["Tonnes/Jour"]
+            prev_new  = round(prev_curr - diff, 1)
+            if prev_new >= _min_t:
+                all_days[prev_idx]["Tonnes/Jour"] = prev_new
+                _corrections += 1
 
 print(f"    → {_corrections} ajustement(s) appliqués")
 # Recalculer pour vérifier
