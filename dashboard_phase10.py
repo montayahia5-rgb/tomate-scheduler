@@ -51,6 +51,28 @@ def df_to_xlsx_styled(df, sheet_name="Données", title=None):
     """
     return dfs_to_excel({sheet_name: df})
 
+# ── Plotly: réduire la sensibilité du hover ──────────────────
+def smooth_hover(fig, mobile_ready=True):
+    """
+    Rend les courbes Plotly MOINS sensibles au survol :
+    - hoverdistance = 50px (défaut Plotly = 20) → il faut s'approcher davantage
+    - spikedistance = -1 → désactive les lignes verticales ultra-sensibles
+    - hovermode = "closest" → tooltip seulement sur le point le plus proche
+                              (au lieu de "x unified" qui affiche tout d'un coup)
+    Sur mobile, désactive complètement le hover (clic uniquement).
+    """
+    fig.update_layout(
+        hoverdistance=50,
+        spikedistance=-1,
+        hovermode="closest",
+        # Sur mobile, désactive complètement le hover (problème tactile)
+        # L'utilisateur clique pour voir les détails
+    )
+    # Désactiver les spike lines pour ne pas suivre la souris partout
+    fig.update_xaxes(showspikes=False)
+    fig.update_yaxes(showspikes=False)
+    return fig
+
 def dfs_to_zip(sheets: dict) -> bytes:
     """
     Convert multiple dataframes to a ZIP of CSVs.
@@ -426,10 +448,47 @@ CURRENT_FILTER = st.session_state["filter"]
 
 st.markdown("""
 <style>
+  /* ── Fond global dark partout ───────────────────────── */
   [data-testid="stAppViewContainer"] { background: #0d1117; }
   [data-testid="stSidebar"]          { background: #161b22; border-right:1px solid #21262d; }
+  [data-testid="stHeader"]           { background: #0d1117; }
   .block-container { padding-top: 1.5rem; }
-  h1,h2,h3 { color: #f0f6fc; }
+  h1,h2,h3,h4 { color: #f0f6fc; }
+
+  /* ── FIX TABLES BLANCHES (st.dataframe + st.table) ──── */
+  [data-testid="stDataFrame"],
+  [data-testid="stTable"],
+  [data-testid="stDataFrameResizable"] {
+    background: #161b22 !important;
+    border-radius: 8px;
+  }
+  [data-testid="stDataFrame"] *,
+  [data-testid="stTable"] * {
+    background-color: transparent !important;
+  }
+  /* Cellules dataframe en dark */
+  [data-testid="stDataFrame"] [role="row"] {
+    background: #161b22 !important;
+  }
+  [data-testid="stDataFrame"] [role="row"]:nth-child(even) {
+    background: #1c2128 !important;
+  }
+  [data-testid="stDataFrame"] [role="columnheader"] {
+    background: #1F3864 !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+  }
+  [data-testid="stDataFrame"] [role="gridcell"] {
+    color: #e6edf3 !important;
+    border-color: #30363d !important;
+  }
+  /* Boutons d'expansion/scroll dans les dataframes */
+  [data-testid="stDataFrame"] button {
+    background: #21262d !important;
+    color: #e6edf3 !important;
+  }
+
+  /* ── KPI cards ──────────────────────────────────────── */
   .metric-row { display:flex; gap:16px; margin-bottom:20px; flex-wrap:wrap; }
   .kpi-box {
     background:#161b22; border:1px solid #21262d; border-radius:12px;
@@ -451,7 +510,122 @@ st.markdown("""
   .stDownloadButton > button:hover {
     border-color:#3b82f6 !important; color:#3b82f6 !important;
   }
+
+  /* ── Tabs en dark ───────────────────────────────────── */
+  .stTabs [data-baseweb="tab-list"] {
+    background: #161b22 !important;
+    border-radius: 8px;
+    padding: 4px;
+  }
+  .stTabs [data-baseweb="tab"] {
+    color: #8b949e !important;
+  }
+  .stTabs [aria-selected="true"] {
+    background: #21262d !important;
+    color: #f0f6fc !important;
+  }
+
+  /* ── Inputs / selects en dark ───────────────────────── */
+  [data-baseweb="input"], [data-baseweb="select"] {
+    background: #0d1117 !important;
+  }
+  input, textarea, select {
+    background: #0d1117 !important;
+    color: #e6edf3 !important;
+  }
+
+  /* ── Expanders ──────────────────────────────────────── */
+  [data-testid="stExpander"] {
+    background: #161b22 !important;
+    border: 1px solid #21262d !important;
+    border-radius: 8px;
+  }
+
+  /* ───────────────────────────────────────────────────── */
+  /* ── RESPONSIVE MOBILE (largeur < 768px) ────────────── */
+  /* ───────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .block-container { padding: 1rem 0.5rem !important; }
+    h1 { font-size: 1.3rem !important; }
+    h2 { font-size: 1.1rem !important; }
+    h3 { font-size: 1rem !important; }
+
+    /* KPI cards en colonne sur mobile */
+    .metric-row {
+      flex-direction: column !important;
+      gap: 8px !important;
+    }
+    .kpi-box {
+      min-width: 100% !important;
+      padding: 10px 14px !important;
+    }
+    .kpi-val { font-size: 1.3rem !important; }
+    .kpi-lbl { font-size: .65rem !important; }
+
+    /* Tableaux scrollables horizontalement */
+    [data-testid="stDataFrame"], [data-testid="stTable"] {
+      overflow-x: auto !important;
+      font-size: 11px !important;
+    }
+    [data-testid="stDataFrame"] [role="columnheader"] {
+      font-size: 10px !important;
+      padding: 4px !important;
+    }
+    [data-testid="stDataFrame"] [role="gridcell"] {
+      font-size: 11px !important;
+      padding: 4px !important;
+    }
+
+    /* Tabs compacts */
+    .stTabs [data-baseweb="tab"] {
+      font-size: 11px !important;
+      padding: 6px 8px !important;
+    }
+
+    /* Boutons full-width */
+    .stButton > button, .stDownloadButton > button {
+      width: 100% !important;
+      font-size: .8rem !important;
+    }
+
+    /* Sidebar plus compacte */
+    [data-testid="stSidebar"] {
+      width: 85% !important;
+      min-width: 280px !important;
+    }
+
+    /* Plotly responsive */
+    .js-plotly-plot, .plotly {
+      width: 100% !important;
+    }
+  }
+
+  /* ── Graphiques Plotly : réduire la sensibilité hover ──
+     hovermode="closest" est moins sensible que x/x unified */
+  .js-plotly-plot .hovertext {
+    pointer-events: none;
+  }
 </style>
+
+<script>
+/* ── Réduire la sensibilité des graphiques Plotly ────────
+   Patche les figures pour utiliser hoverdistance plus grand
+   = il faut être PLUS proche d'un point pour déclencher tooltip */
+function fixPlotlyHover() {
+  document.querySelectorAll('.js-plotly-plot').forEach(function(el) {
+    if (el._fullLayout && !el._hoverFixed) {
+      el._hoverFixed = true;
+      try {
+        window.Plotly.relayout(el, {
+          'hoverdistance': 50,       // pixels minimum pour tooltip (défaut 20)
+          'spikedistance': -1,       // désactive le spike line ultra-sensible
+        });
+      } catch(e) {}
+    }
+  });
+}
+setInterval(fixPlotlyHover, 1500);
+</script>
 """, unsafe_allow_html=True)
 
 # ── Supabase connection ──────────────────────────────────────
@@ -1299,7 +1473,7 @@ with tab1:
     )
     fig.update_layout(
         plot_bgcolor="#0d1117", paper_bgcolor="#161b22",
-        legend_title="Période", hovermode="x unified", height=420,
+        legend_title="Période", hovermode="closest", height=420,
         font_color="#8b949e",
     )
     fig.add_vrect(x0=str(PEAK_START), x1=str(PEAK_END),
@@ -1415,7 +1589,7 @@ with tab2:
     fig4.update_traces(line_width=2)
     fig4.update_layout(
         plot_bgcolor="#0d1117", paper_bgcolor="#161b22",
-        height=400, hovermode="x unified",
+        height=400, hovermode="closest",
     )
     fig4.add_vrect(x0=str(PEAK_START), x1=str(PEAK_END),
                    fillcolor="gold", opacity=0.06, line_width=0)
@@ -1563,7 +1737,7 @@ with tab2:
             )
             fig_lines.update_layout(
                 paper_bgcolor="#161b22",
-                hovermode="x unified",
+                hovermode="closest",
                 legend=dict(orientation="h", yanchor="top", y=-0.15),
             )
             fig_lines.add_vrect(x0=str(PEAK_START), x1=str(PEAK_END),
@@ -1914,7 +2088,7 @@ with tab3:
         fig9.update_traces(line_width=2)
         fig9.update_layout(
             plot_bgcolor="#0d1117", paper_bgcolor="#161b22",
-            height=420, hovermode="x unified",
+            height=420, hovermode="closest",
         )
         fig9.add_vrect(x0=str(PEAK_START), x1=str(PEAK_END),
                        fillcolor="gold", opacity=0.06, line_width=0)
@@ -2015,7 +2189,7 @@ with tab4:
     )
     fig12.update_layout(
         plot_bgcolor="#0d1117", paper_bgcolor="#161b22",
-        height=400, hovermode="x unified",
+        height=400, hovermode="closest",
     )
     fig12.add_vrect(x0=str(PEAK_START), x1=str(PEAK_END),
                     fillcolor="gold", opacity=0.06, line_width=0)
@@ -2922,7 +3096,7 @@ with tab6:
     ))
     fig1.update_layout(
         template="plotly_dark", plot_bgcolor="#0d1117", paper_bgcolor="#161b22",
-        height=380, hovermode="x unified",
+        height=380, hovermode="closest",
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
         yaxis=dict(title="Tonnes/jour"),
     )
@@ -2951,7 +3125,7 @@ with tab6:
             annotation_text=f"Cap 2025 : {HIST['stats']['sicam_max']:,.0f}t",
             annotation_position="top right")
         fig2.update_layout(template="plotly_dark", plot_bgcolor="#0d1117",
-            paper_bgcolor="#161b22", height=300, hovermode="x unified",
+            paper_bgcolor="#161b22", height=300, hovermode="closest",
             legend=dict(orientation="h", yanchor="bottom", y=1.02),
             yaxis=dict(title="t/jour"))
         st.plotly_chart(fig2, use_container_width=True)
@@ -2984,7 +3158,7 @@ with tab6:
             annotation_text=f"Cap 2025 : {HIST['stats']['autres_max']:,.0f}t",
             annotation_position="top right")
         fig3.update_layout(template="plotly_dark", plot_bgcolor="#0d1117",
-            paper_bgcolor="#161b22", height=300, hovermode="x unified",
+            paper_bgcolor="#161b22", height=300, hovermode="closest",
             legend=dict(orientation="h", yanchor="bottom", y=1.02),
             yaxis=dict(title="t/jour"))
         st.plotly_chart(fig3, use_container_width=True)
@@ -3020,7 +3194,7 @@ with tab6:
         ))
     fig4.update_layout(
         template="plotly_dark", plot_bgcolor="#0d1117", paper_bgcolor="#161b22",
-        height=340, hovermode="x unified",
+        height=340, hovermode="closest",
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
         yaxis=dict(title="Tonnes/jour"),
         title="Courbes empilées par usine (plan 2026)",
@@ -3770,7 +3944,7 @@ with tab7:
             title=f"Tonnage par région × usine — {filter_label}",
             template="plotly_dark", text_auto=".2s")
         fig_ru.update_layout(paper_bgcolor="#161b22", plot_bgcolor="#0d1117",
-                              height=400, hovermode="x unified")
+                              height=400, hovermode="closest")
         st.plotly_chart(fig_ru, use_container_width=True)
         st.markdown("---")
 
@@ -3797,7 +3971,7 @@ with tab7:
             title=f"Tonnage par région × commercial — {filter_label}",
             template="plotly_dark", text_auto=".2s")
         fig_rc.update_layout(paper_bgcolor="#161b22", plot_bgcolor="#0d1117",
-                              height=400, hovermode="x unified")
+                              height=400, hovermode="closest")
         st.plotly_chart(fig_rc, use_container_width=True)
         st.markdown("---")
 
