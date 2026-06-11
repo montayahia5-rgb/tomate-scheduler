@@ -733,9 +733,9 @@ class Farmer:
         # dans la fenêtre → OR-Tools peut distribuer sur plus de jours.
         # choose_vehicles applique ensuite la règle progressive (60/90/120t).
         if self.allowed_veh == ["SEMI"]:
-            # Règle RM progressive : minimum 60t/j (2 Semi) dès le 1er jour
-            # → la fenêtre est calculée sur 60t/j pour que OR-Tools distribue correctement
-            _max_per_day = 60.0
+            # Fenêtre calculée sur 30t/j pour maximiser le nombre de jours disponibles
+            # La progression 60/90/120t est appliquée dans le post-traitement (arrondi)
+            _max_per_day = 30.0
             _daily_check = self.tonnage / n_days
             if _daily_check > _max_per_day:
                 _days_needed_semi = math.ceil(self.tonnage / _max_per_day)
@@ -1547,15 +1547,12 @@ for (nom, usine, date), data in consolidated.items():
     
     # ✅ ARRONDI à la DIZAINE la plus proche MAIS pour RM → multiple de 30t obligatoire
     if farmer.allowed_veh == ["SEMI"] or str(farmer.access).upper() == "RM":
-        # RM/SEMI : arrondir au multiple de 30t INFÉRIEUR (floor, pas round)
-        # → évite d'ajouter des tonnes systématiquement (ex: 28t → 30t × 62 agri = +124t)
-        # Le déficit résiduel est comblé par le post-traitement (augmenter le dernier jour)
-        tons = int(tons_brut / 30) * 30   # floor division → toujours ≤ tons_brut
-        if tons == 0 and tons_brut >= 15:  # au moins un demi-Semi → arrondir à 30t
+        # RM/SEMI : arrondir au multiple de 30t INFÉRIEUR (floor)
+        tons = int(tons_brut / 30) * 30
+        if tons == 0 and tons_brut >= 15:
             tons = 30
     else:
         tons = int(round(round(tons_brut, 1) / 10)) * 10
-        # ✅ Minimum selon l'accessibilité (pas 10t fixe)
         _min_t_agri = _get_min_tons(farmer)
         if tons == 0 and tons_brut > 0:
             tons = _min_t_agri
@@ -1573,6 +1570,17 @@ for (nom, usine, date), data in consolidated.items():
             _rm_rank = days_list.index(date)  # 0=jour1, 1=jour2, 2+=jour3
         except ValueError:
             _rm_rank = 0
+        # ✅ Règle RM progressive : appliquer minimum selon rang du jour
+        # j1 → min 60t (2 Semi), j2 → min 90t (3 Semi), j3+ → min 120t (4 Semi)
+        if _rm_rank == 0:
+            _rm_min = 60
+        elif _rm_rank == 1:
+            _rm_min = 90
+        else:
+            _rm_min = 120
+        # Forcer le minimum si le tonnage OR-Tools le permet (ne pas dépasser tons_brut × 1.5)
+        if tons < _rm_min and tons_brut >= _rm_min * 0.5:
+            tons = _rm_min
 
     vehicles = choose_vehicles(tons, farmer.allowed_veh,
                               usine=farmer.usine,
