@@ -1365,24 +1365,15 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0, 
         return best
 
     # ── CAS SPÉCIAL : SEMI seul / RM (Gafsa/Kasserine — ACHREF) ─────────────
-    # ✅ Règle Gafsa : TOUJOURS multiple de 30t (capacité physique 1 Semi = 30t)
-    # Montée progressive selon le rang du jour de livraison :
-    #   Jour 1 (rm_day_rank=0) → 2 Semi = 60t
-    #   Jour 2 (rm_day_rank=1) → 3 Semi = 90t
-    #   Jour 3+ (rm_day_rank≥2) → 4 Semi = 120t
-    # Jamais de 40t, 50t, 70t, 100t... — uniquement 30, 60, 90, 120t
+    # ✅ Règle Gafsa : TOUJOURS multiple de 30t (1 Semi = 30t physique)
+    # nb_semi calculé depuis le tonnage réel OR-Tools (pas de progression forcée)
+    # La progression 60/90/120t est appliquée dans le post-traitement Tonnes/Jour
     if allowed == ["SEMI"]:
         SEMI_CAP = 30.0
         if tons <= 0:
             return []
-        # Progression selon rang du jour
-        if rm_day_rank == 0:
-            nb_semi = 2   # Jour 1 : 2 Semi = 60t
-        elif rm_day_rank == 1:
-            nb_semi = 3   # Jour 2 : 3 Semi = 90t
-        else:
-            nb_semi = 4   # Jour 3+ : 4 Semi = 120t (régime de croisière)
-        # ✅ Tonnage = nb_semi × 30t exactement (multiple de 30 garanti)
+        # nb_semi = tonnage réel / 30t (arrondi au plus proche)
+        nb_semi = max(1, int(round(tons / SEMI_CAP)))
         return [{"vehicle": "SEMI", "trips": nb_semi,
                  "tons_each": SEMI_CAP, "real_cap": SEMI_CAP, "solde": 0.0}]
 
