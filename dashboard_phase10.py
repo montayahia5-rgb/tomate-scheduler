@@ -1714,22 +1714,30 @@ with tab2:
                 _sel_agri["tonnage_total"], errors="coerce").fillna(0)
             # ✅ FIX: Grouper par (nom, usine, accessibilite) pour distinguer les lots
             # d'un même agriculteur (ex: AMOR KHECHIN RM-SICAM vs PL-TUCAL)
+            _has_usine = "usine" in _sel_agri.columns
+            _has_acc   = "accessibilite" in _sel_agri.columns
             _grp_cols = ["nom"]
-            if "usine" in _sel_agri.columns:
+            if _has_usine:
                 _grp_cols.append("usine")
-            if "accessibilite" in _sel_agri.columns:
+            if _has_acc:
                 _grp_cols.append("accessibilite")
             agri_totals = _sel_agri.groupby(_grp_cols, dropna=False)["tonnage_total"].sum().reset_index()
             
             # Construire un nom d'affichage avec suffixe si nécessaire
+            # Pré-calculer le nombre de lots par nom (1 seul groupby au lieu d'un par ligne)
+            if _has_usine and _has_acc:
+                _lots_per_name = (_sel_agri.groupby("nom", dropna=False)
+                                  .apply(lambda g: g[["usine","accessibilite"]].drop_duplicates().shape[0])
+                                  .to_dict())
+            else:
+                _lots_per_name = {}
+            
             def _make_display_name(row):
-                base = str(row["nom"])
-                # S'il y a plusieurs lots pour ce nom, ajouter usine + accès
-                same_name = _sel_agri[_sel_agri["nom"] == base]
-                n_lots = same_name.groupby(["usine","accessibilite"], dropna=False).ngroups if "usine" in same_name.columns else 1
-                if n_lots > 1 and "usine" in row.index and "accessibilite" in row.index:
-                    acc = str(row.get("accessibilite","")).upper()
-                    us  = str(row.get("usine","")).upper()
+                base = str(row.get("nom", ""))
+                n_lots = _lots_per_name.get(base, 1)
+                if n_lots > 1 and _has_usine and _has_acc:
+                    acc = str(row.get("accessibilite", "")).upper() or "?"
+                    us  = str(row.get("usine", "")).upper() or "?"
                     return f"{base} ({acc}-{us})"
                 return base
             
