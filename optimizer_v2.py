@@ -728,6 +728,20 @@ class Farmer:
 
         n_days = max(1, (self.end - self.start).days + 1)
 
+        # ✅ EXTENSION SEMI-ONLY (ACHREF Gafsa/Kasserine) :
+        # Pour les agriculteurs accessibles UNIQUEMENT en Semi, plafonner à 30t/jour
+        # (1 Semi = 30t exactement). Si tonnage/jour > 30t → étendre la fenêtre.
+        # Exemple : 600t sur 15j (40t/j) → étendu à 20j (30t/j = 1 Semi plein).
+        if self.allowed_veh == ["SEMI"]:
+            _max_per_day = 30.0   # 1 Semi par jour exactement
+            _daily_check = self.tonnage / n_days
+            if _daily_check > _max_per_day:
+                _days_needed_semi = math.ceil(self.tonnage / _max_per_day)
+                _extra_semi = _days_needed_semi - n_days
+                if _extra_semi > 0:
+                    self.end = clamp_date(self.end + datetime.timedelta(days=_extra_semi))
+                    n_days = max(1, (self.end - self.start).days + 1)
+
         # ✅ EXTENSION DE FAISABILITÉ — uniquement si nécessaire
         # Un gros agriculteur sur une petite usine (ex: 1080t sur ELFALLEH cap 150t)
         # ne peut PAS tenir dans une fenêtre courte sans violer le cap usine.
@@ -796,6 +810,27 @@ class Farmer:
         daily = self.tonnage / n_days   # moyenne (pour stats/affichage)
 
 farmers = [Farmer(row, date_cols) for _, row in df.iterrows()]
+
+# ✅ DIFFÉRENCIATION DES NOMS pour agriculteurs avec plusieurs lots
+# Ex: AMOR KHECHIN a 3 lignes :
+#   - 600t RM   à SICAM    → "AMOR KHECHIN (RM-SICAM)"
+#   - 408t PL   à TUCAL    → "AMOR KHECHIN (PL-TUCAL)"
+#   - 408t PL   à ELFALLEH → "AMOR KHECHIN (PL-ELFALLEH)"
+# Cette différenciation rend le planning et les rapports plus lisibles
+# et garantit que chaque lot est traité indépendamment (Semi pour RM, PL pour PL).
+from collections import Counter as _Counter
+_name_count = _Counter((f.commercial, f.name) for f in farmers)
+for f in farmers:
+    if _name_count[(f.commercial, f.name)] > 1:
+        # Plusieurs lots pour cet agriculteur → suffixer le nom
+        _acc_simple = str(f.access).strip().upper()
+        _usine_simple = str(f.usine).strip().upper()
+        # Si RM → mettre RM en suffixe (priorité visuelle)
+        if _acc_simple == "RM":
+            f.name = f"{f.name} (RM-{_usine_simple})"
+        else:
+            f.name = f"{f.name} ({_acc_simple}-{_usine_simple})"
+
 total_dist = sum(f.distance_km for f in farmers if f.distance_km < 999)
 print(f"  Built {len(farmers)} farmers | Avg distance to usine: {total_dist/len(farmers):.0f}km")
 
@@ -1944,7 +1979,15 @@ for fact, lim in FACTORY_LIMITS.items():
     mx_pic  = sub_pic.groupby("Date")["Tonnes/Jour"].sum().max() if not sub_pic.empty else 0
     mx_all  = sub.groupby("Date")["Tonnes/Jour"].sum().max()
     cap_phys = FACTORY_CAPS[fact]
-    ok_pic  = "✅" if mx_pic <= lim else f"❌ DEPASSE LIMITE (cap={cap_phys})"
+    lim_dur  = lim * 1.05   # contrainte dure réelle (marge 5%)
+    # ✅ Comparer au seuil réel (LIMITE + marge faisabilité 5%)
+    if mx_pic <= lim:
+        ok_pic = "✅ DANS LIMITE"
+    elif mx_pic <= lim_dur:
+        depass = mx_pic - lim
+        ok_pic = f"⚠️ +{depass:.0f}t au-dessus de LIMITE (dans marge 5%)"
+    else:
+        ok_pic = f"❌ HORS MARGE (max={lim_dur:.0f}t)"
     print(f"    {fact:<12}: max PIC={mx_pic:.0f}t/j | max hors-pic={mx_all:.0f}t/j | LIMITE={lim}t / cap={cap_phys}t  {ok_pic}")
 print()
 print("  Next: python migrate.py")

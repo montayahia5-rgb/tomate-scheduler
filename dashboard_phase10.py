@@ -525,6 +525,47 @@ st.markdown("""
     color: #f0f6fc !important;
   }
 
+  /* ── AMÉLIORATION TABLEAUX (lisibilité tous écrans) ── */
+  [data-testid="stDataFrame"] {
+    border: 1px solid #30363d !important;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* Headers plus visibles */
+  [data-testid="stDataFrame"] [role="columnheader"] {
+    background: linear-gradient(180deg, #2d4a87, #1F3864) !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    font-size: 13px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-right: 1px solid #1a2942 !important;
+    padding: 10px 8px !important;
+  }
+  /* Cellules avec meilleur contraste */
+  [data-testid="stDataFrame"] [role="gridcell"] {
+    color: #e6edf3 !important;
+    border-color: #30363d !important;
+    font-size: 13px !important;
+    padding: 8px !important;
+  }
+  /* Lignes paires/impaires plus distinctes */
+  [data-testid="stDataFrame"] [role="row"]:nth-child(odd) [role="gridcell"] {
+    background: #161b22 !important;
+  }
+  [data-testid="stDataFrame"] [role="row"]:nth-child(even) [role="gridcell"] {
+    background: #1c2128 !important;
+  }
+  /* Hover row highlight */
+  [data-testid="stDataFrame"] [role="row"]:hover [role="gridcell"] {
+    background: #2d4a87 !important;
+    color: #ffffff !important;
+  }
+  /* Colonne nom agriculteur en gras blanc */
+  [data-testid="stDataFrame"] [role="gridcell"]:nth-child(2) {
+    font-weight: 600 !important;
+    color: #ffffff !important;
+  }
+
   /* ── Inputs / selects en dark ───────────────────────── */
   [data-baseweb="input"], [data-baseweb="select"] {
     background: #0d1117 !important;
@@ -1568,9 +1609,9 @@ with tab1:
     with col_dl2:
         st.download_button(
             "⬇️ CSV brut",
-            data=df_to_csv(_planning_export),
-            file_name="planning_journalier.csv",
-            mime="text/csv",
+            data=df_to_xlsx_styled(_planning_export),
+            file_name="planning_journalier.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
 
@@ -1882,10 +1923,10 @@ with tab2:
 
         # Export planning journalier
         st.download_button(
-            f"⬇️ Exporter planning journalier {selected} (CSV)",
+            f"📊 Exporter planning journalier {selected} (Excel)",
             data=piv_table.to_csv(index=True),
-            file_name=f"planning_{selected.replace(' ','_')}_journalier.csv",
-            mime="text/csv",
+            file_name=f"planning_{selected.replace(' ','_')}_journalier.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         
         # ── 🚛 NOUVEAU: Export TRANSPORT du commercial ─────────────────
@@ -1944,10 +1985,10 @@ with tab2:
             
             # Aussi CSV simple
             st.download_button(
-                f"⬇️ Exporter Transport {selected} (CSV)",
-                data=df_transport.to_csv(index=False).encode("utf-8-sig"),
-                file_name=f"transport_{selected.replace(' ','_')}.csv",
-                mime="text/csv",
+                f"📊 Exporter Transport {selected} (Excel)",
+                data=df_to_xlsx_styled(df_transport),
+                file_name=f"transport_{selected.replace(' ','_')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         else:
             st.info("Colonnes véhicules non disponibles dans le planning.")
@@ -2137,9 +2178,9 @@ with tab3:
             st.dataframe(daily_usine, use_container_width=True, height=300)
             st.download_button(
                 "⬇️ Exporter (CSV)",
-                data=df_to_csv(daily_usine),
-                file_name=f"livraisons_{CURRENT_NAME}.csv",
-                mime="text/csv",
+                data=df_to_xlsx_styled(daily_usine),
+                file_name=f"livraisons_{CURRENT_NAME}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         else:
             sel_fact = st.selectbox("Choisir une usine", factories)
@@ -2208,10 +2249,10 @@ with tab4:
         )
     with _ct2:
         st.download_button(
-            "⬇️ Transport — CSV brut",
-            data=df_to_csv(veh_daily),
-            file_name="transport_journalier.csv",
-            mime="text/csv",
+            "📊 Transport — Excel",
+            data=df_to_xlsx_styled(veh_daily),
+            file_name="transport_journalier.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
 
@@ -2630,10 +2671,10 @@ with tab4:
 
     # ── Export ────────────────────────────────────────────────────
     st.download_button(
-        "⬇️ Exporter détail transport (CSV)",
-        data=df_nec.to_csv(index=False).encode("utf-8-sig"),
-        file_name="transport_detail_2026.csv",
-        mime="text/csv",
+        "📊 Exporter détail transport (Excel)",
+        data=df_to_xlsx_styled(df_nec),
+        file_name="transport_detail_2026.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
     # ════════════════════════════════════════════════════════════════
@@ -2823,10 +2864,10 @@ with tab4:
     # ── Export CSV ──────────────────────────────────────────────────
     csv_louer = df_tbl.to_csv(index=False, sep=";").encode("utf-8-sig")
     st.download_button(
-        "⬇️ Exporter transport à louer (CSV)",
+        "📊 Exporter transport à louer (Excel)",
         data=csv_louer,
-        file_name="transport_a_louer_2026.csv",
-        mime="text/csv",
+        file_name="transport_a_louer_2026.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
 # ── TAB 5: DÉCALAGE & OPTIMISATION ──────────────────────────
@@ -3043,10 +3084,10 @@ with tab5:
         st.subheader("📊 Résumé par commercial")
         st.dataframe(resume.reset_index(drop=True), use_container_width=True)
         st.download_button(
-            "⬇️ Exporter résumé commercial (CSV)",
-            data=df_to_csv(resume.reset_index(drop=True)),
-            file_name="resume_commercial.csv",
-            mime="text/csv",
+            "📊 Exporter résumé commercial (Excel)",
+            data=df_to_xlsx_styled(resume.reset_index(drop=True)),
+            file_name="resume_commercial.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
 # ── TAB 6: HISTORIQUE 2025 vs 2026 ───────────────────────────
@@ -3079,28 +3120,106 @@ with tab6:
 
     st.markdown("---")
 
-    # ── Chart 1: Global overlay 2025 vs 2026 ──
-    st.subheader("Tonnage journalier global — 2025 réel vs 2026 plan")
+    # ── Chart 1: Comparaison PAR MOIS (lecture beaucoup plus claire) ──
+    st.subheader("📊 Comparaison MENSUELLE — 2025 réel vs 2026 plan")
+    st.caption("Tonnage agrégé par mois pour voir clairement la différence entre les 2 saisons")
+    
+    # Agréger 2025 et 2026 par mois (MM-YYYY)
+    from collections import defaultdict as _dd
+    _m25 = _dd(float)
+    _m26 = _dd(float)
+    MONTH_NAMES = {6:"Juin",7:"Juillet",8:"Août",9:"Septembre"}
+    
+    for date_str, tons in HIST["global_2025"]:
+        try:
+            mm = int(date_str.split("-")[0])
+            _m25[mm] += tons
+        except Exception:
+            pass
+    for date_str, tons in HIST["plan_2026"]:
+        try:
+            mm = int(date_str.split("-")[0])
+            _m26[mm] += tons
+        except Exception:
+            pass
+    
+    months_sorted = sorted(set(list(_m25.keys()) + list(_m26.keys())))
+    month_labels = [MONTH_NAMES.get(m, f"M{m}") for m in months_sorted]
+    vals_25 = [_m25.get(m, 0) for m in months_sorted]
+    vals_26 = [_m26.get(m, 0) for m in months_sorted]
+    
     fig1 = go.Figure()
-    fig1.add_trace(go.Scatter(
-        x=[f"2025-{r[0]}" for r in HIST["global_2025"]],
-        y=[r[1] for r in HIST["global_2025"]],
-        name="2025 Réel", line=dict(color="#8b5cf6", width=2),
-        fill="tozeroy", fillcolor="rgba(139,92,246,0.08)", mode="lines",
+    # ✅ COULEURS TRÈS DISTINCTES : 2025 = violet, 2026 = orange vif
+    fig1.add_trace(go.Bar(
+        name="📅 2025 Réel",
+        x=month_labels, y=vals_25,
+        marker_color="#9C27B0",     # violet foncé
+        marker_line_color="#6A1B9A", marker_line_width=2,
+        text=[f"{v:,.0f}t" for v in vals_25],
+        textposition="outside", textfont=dict(size=13, color="#E1BEE7"),
     ))
-    fig1.add_trace(go.Scatter(
-        x=[f"2026-{r[0]}" for r in HIST["plan_2026"]],
-        y=[r[1] for r in HIST["plan_2026"]],
-        name="2026 Plan", line=dict(color="#f5a623", width=2.5),
-        fill="tozeroy", fillcolor="rgba(245,166,35,0.08)", mode="lines",
+    fig1.add_trace(go.Bar(
+        name="🎯 2026 Plan",
+        x=month_labels, y=vals_26,
+        marker_color="#FF6B35",     # orange vif
+        marker_line_color="#C44115", marker_line_width=2,
+        text=[f"{v:,.0f}t" for v in vals_26],
+        textposition="outside", textfont=dict(size=13, color="#FFCC80"),
     ))
     fig1.update_layout(
-        template="plotly_dark", plot_bgcolor="#0d1117", paper_bgcolor="#161b22",
-        height=380, hovermode="closest",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-        yaxis=dict(title="Tonnes/jour"),
+        barmode="group", template="plotly_dark",
+        plot_bgcolor="#0d1117", paper_bgcolor="#161b22",
+        height=460, hovermode="x",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    font=dict(size=14)),
+        yaxis=dict(title="Tonnes totales", gridcolor="#21262d"),
+        xaxis=dict(title="Mois", tickfont=dict(size=14)),
+        bargap=0.15, bargroupgap=0.05,
+        title=dict(text="<b>Évolution mensuelle 2025 → 2026</b>",
+                    font=dict(size=16, color="#f0f6fc")),
     )
     st.plotly_chart(fig1, use_container_width=True)
+    
+    # Différences relatives par mois
+    st.markdown("**📈 Variations mois par mois**")
+    _diff_cols = st.columns(len(months_sorted))
+    for i, m in enumerate(months_sorted):
+        v25 = _m25.get(m, 0)
+        v26 = _m26.get(m, 0)
+        delta = v26 - v25
+        pct = (delta / v25 * 100) if v25 > 0 else 0
+        with _diff_cols[i]:
+            st.metric(
+                MONTH_NAMES.get(m, f"M{m}"),
+                f"{v26:,.0f}t",
+                delta=f"{delta:+,.0f}t ({pct:+.0f}%) vs 2025",
+                delta_color="inverse",
+            )
+    
+    st.divider()
+    
+    # ── Chart courbes journalières (pour les utilisateurs qui veulent le détail) ──
+    with st.expander("📉 Voir aussi le détail journalier (courbes superposées)", expanded=False):
+        fig1d = go.Figure()
+        fig1d.add_trace(go.Scatter(
+            x=[f"2025-{r[0]}" for r in HIST["global_2025"]],
+            y=[r[1] for r in HIST["global_2025"]],
+            name="2025 Réel", line=dict(color="#9C27B0", width=2),
+            fill="tozeroy", fillcolor="rgba(156,39,176,0.1)", mode="lines",
+        ))
+        fig1d.add_trace(go.Scatter(
+            x=[f"2026-{r[0]}" for r in HIST["plan_2026"]],
+            y=[r[1] for r in HIST["plan_2026"]],
+            name="2026 Plan", line=dict(color="#FF6B35", width=2.5),
+            fill="tozeroy", fillcolor="rgba(255,107,53,0.1)", mode="lines",
+        ))
+        fig1d.update_layout(
+            template="plotly_dark", plot_bgcolor="#0d1117", paper_bgcolor="#161b22",
+            height=380, hovermode="closest",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            yaxis=dict(title="Tonnes/jour"),
+        )
+        st.plotly_chart(fig1d, use_container_width=True)
 
     # ── Charts 2 & 3 side by side ──
     c1, c2 = st.columns(2)
@@ -3258,10 +3377,10 @@ with tab6:
     import pandas as _pd
     st.dataframe(_pd.DataFrame(comp_data), use_container_width=True, hide_index=True)
     st.download_button(
-        "⬇️ Exporter comparatif (CSV)",
-        data=df_to_csv(_pd.DataFrame(comp_data)),
-        file_name="comparatif_2025_2026.csv",
-        mime="text/csv",
+        "📊 Exporter comparatif (Excel)",
+        data=df_to_xlsx_styled(_pd.DataFrame(comp_data)),
+        file_name="comparatif_2025_2026.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
     # ════════════════════════════════════════════════════════════════
@@ -3395,10 +3514,10 @@ with tab6:
             df_lost = df_lost.sort_values("Tonnage 2025 (t)", ascending=False)
             st.dataframe(df_lost, use_container_width=True, hide_index=True)
             st.download_button(
-                f"⬇️ Exporter perdus {comm} (CSV)",
-                data=df_lost.to_csv(index=False, sep=";").encode("utf-8-sig"),
-                file_name=f"agriculteurs_perdus_{comm.split()[0]}.csv",
-                mime="text/csv",
+                f"📊 Exporter perdus {comm} (Excel)",
+                data=df_to_xlsx_styled(df_lost),
+                file_name=f"agriculteurs_perdus_{comm.split()[0]}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key=f"lost_{comm}",
             )
 
@@ -4004,14 +4123,14 @@ with tab7:
         col_dl1, col_dl2 = st.columns(2)
         with col_dl1:
             st.download_button("⬇️ Région × Usine (CSV)",
-                data=df_to_csv(pv_display.reset_index()),
-                file_name=f"tonnage_region_usine_{filter_label.replace(' ','_')}.csv",
-                mime="text/csv", use_container_width=True)
+                data=df_to_xlsx_styled(pv_display.reset_index()),
+                file_name=f"tonnage_region_usine_{filter_label.replace(' ','_')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
         with col_dl2:
             st.download_button("⬇️ Région × Commercial (CSV)",
-                data=df_to_csv(pv_comm_display.reset_index()),
-                file_name=f"tonnage_region_commercial_{filter_label.replace(' ','_')}.csv",
-                mime="text/csv", use_container_width=True)
+                data=df_to_xlsx_styled(pv_comm_display.reset_index()),
+                file_name=f"tonnage_region_commercial_{filter_label.replace(' ','_')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
 
 # ── TAB 9: GESTION AGRICULTEURS ──────────────────────────────
 with tab9:
@@ -4452,10 +4571,10 @@ with tab9:
 
             # Export
             st.download_button(
-                "⬇️ Exporter la liste (CSV)",
-                data=df_to_csv(display_df[show_cols]),
-                file_name="agriculteurs_supabase.csv",
-                mime="text/csv",
+                "📊 Exporter la liste (Excel)",
+                data=df_to_xlsx_styled(display_df[show_cols]),
+                file_name="agriculteurs_supabase.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
     # ════════════════════════════════════════════════════════════════
@@ -4548,10 +4667,10 @@ with tab9:
             st.dataframe(df_agri, use_container_width=True, hide_index=True, height=320)
 
             st.download_button(
-                f"⬇️ Exporter {sel_centre} (CSV)",
-                data=df_agri.to_csv(index=False, sep=";").encode("utf-8-sig"),
-                file_name=f"centre_{sel_centre.replace(' ','_')}.csv",
-                mime="text/csv",
+                f"📊 Exporter {sel_centre} (Excel)",
+                data=df_to_xlsx_styled(df_agri),
+                file_name=f"centre_{sel_centre.replace(' ','_')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key=f"dl_centre_{sel_centre}",
             )
 
@@ -4737,10 +4856,10 @@ with tab9:
 
         # Export CSV
         st.download_button(
-            f"⬇️ Exporter besoin transport {_comm_t} (CSV)",
-            data=_df_pic.to_csv(index=False,sep=";").encode("utf-8-sig"),
-            file_name=f"transport_{_comm_t.split()[0]}_2026.csv",
-            mime="text/csv",
+            f"📊 Exporter besoin transport {_comm_t} (Excel)",
+            data=df_to_xlsx_styled(_df_pic),
+            file_name=f"transport_{_comm_t.split()[0]}_2026.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key=f"dl_transport_{_comm_t}",
         )
         st.markdown("---")
