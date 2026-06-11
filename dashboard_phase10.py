@@ -1712,17 +1712,42 @@ with tab2:
             _sel_agri  = AGRI_DF[_comm_mask].copy()
             _sel_agri["tonnage_total"] = pd.to_numeric(
                 _sel_agri["tonnage_total"], errors="coerce").fillna(0)
-            # Grouper par NOM (toutes parcelles et usines confondues)
-            agri_totals = _sel_agri.groupby("nom")["tonnage_total"].sum().reset_index()
-            agri_totals.columns = ["Agriculteur", "Tonnage Total (t)"]
+            # ✅ FIX: Grouper par (nom, usine, accessibilite) pour distinguer les lots
+            # d'un même agriculteur (ex: AMOR KHECHIN RM-SICAM vs PL-TUCAL)
+            _grp_cols = ["nom"]
+            if "usine" in _sel_agri.columns:
+                _grp_cols.append("usine")
+            if "accessibilite" in _sel_agri.columns:
+                _grp_cols.append("accessibilite")
+            agri_totals = _sel_agri.groupby(_grp_cols, dropna=False)["tonnage_total"].sum().reset_index()
+            
+            # Construire un nom d'affichage avec suffixe si nécessaire
+            def _make_display_name(row):
+                base = str(row["nom"])
+                # S'il y a plusieurs lots pour ce nom, ajouter usine + accès
+                same_name = _sel_agri[_sel_agri["nom"] == base]
+                n_lots = same_name.groupby(["usine","accessibilite"], dropna=False).ngroups if "usine" in same_name.columns else 1
+                if n_lots > 1 and "usine" in row.index and "accessibilite" in row.index:
+                    acc = str(row.get("accessibilite","")).upper()
+                    us  = str(row.get("usine","")).upper()
+                    return f"{base} ({acc}-{us})"
+                return base
+            
+            agri_totals["Agriculteur"] = agri_totals.apply(_make_display_name, axis=1)
+            agri_totals = agri_totals[["Agriculteur", "tonnage_total"]].rename(
+                columns={"tonnage_total": "Tonnage Total (t)"})
+            # ✅ Trier par tonnage DÉCROISSANT (plus gros en haut visuellement)
             agri_totals = agri_totals.sort_values("Tonnage Total (t)", ascending=True)
             agri_totals["Tonnage Total (t)"] = agri_totals["Tonnage Total (t)"].round(0).astype(int)
+            
             # ✅ Ajouter NBR_HECTARES et t/ha
             if "nbr_hectares" in _sel_agri.columns:
                 ha_map = _sel_agri.groupby("nom")["nbr_hectares"].first()
-                _ha = pd.to_numeric(agri_totals["Agriculteur"].map(ha_map), errors="coerce")
+                _ha = pd.to_numeric(
+                    agri_totals["Agriculteur"].apply(
+                        lambda x: ha_map.get(x.split(" (")[0], 0)),
+                    errors="coerce")
                 agri_totals["Hectares"] = _ha.round(2)
-                # t/ha calculé seulement si hectares > 0
                 agri_totals["t/ha"] = (agri_totals["Tonnage Total (t)"] / _ha.replace(0, pd.NA)).round(1)
         else:
             # Fallback uniquement si AGRI_DF vide (connexion échouée au démarrage)
@@ -1732,7 +1757,8 @@ with tab2:
             agri_totals["Tonnage Total (t)"] = agri_totals["Tonnage Total (t)"].round(0).astype(int)
         
         n_agri = len(agri_totals)
-        bar_height = max(280, n_agri * 22)
+        # ✅ FIX: Hauteur plus grande pour TOUS afficher (35px par agri minimum)
+        bar_height = max(400, n_agri * 35 + 100)
         
         col_a, col_b = st.columns([3, 1])
         with col_a:
@@ -1744,14 +1770,25 @@ with tab2:
                 template="plotly_dark", height=bar_height,
                 text="Tonnage Total (t)",
             )
-            fig_bar.update_traces(textposition="outside")
+            fig_bar.update_traces(
+                textposition="outside",
+                texttemplate="%{x:,.0f}t",   # ✅ Format: 1,234t
+                textfont=dict(size=11, color="#f0f6fc"),
+            )
             fig_bar.update_layout(
                 paper_bgcolor="#161b22",
                 xaxis_title="Tonnes (t)",
                 yaxis_title="",
                 showlegend=False,
-                margin=dict(l=180),
+                margin=dict(l=250, r=80, t=60, b=40),    # ✅ Plus de marge gauche pour noms longs
+                yaxis=dict(automargin=True, tickfont=dict(size=11)),
+                # ✅ Forcer affichage de TOUS les ticks (pas de skip)
+                xaxis=dict(automargin=True),
             )
+            # ✅ Forcer Plotly à afficher TOUS les noms (pas de troncature)
+            fig_bar.update_yaxes(showticklabels=True, tickmode="array",
+                                  tickvals=list(range(len(agri_totals))),
+                                  ticktext=agri_totals["Agriculteur"].tolist())
             st.plotly_chart(fig_bar, use_container_width=True)
         
         with col_b:
