@@ -1222,11 +1222,10 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0):
             if remaining <= 0:
                 break
             actual_load = min(cap, remaining)
-            
-            # ✅ Si le reste est trop petit pour ce type de véhicule → stop
-            if actual_load < mn_veh and remaining < mn_veh:
-                break   # le reste sera géré après (véhicule plus petit)
-            
+            # ✅ CORRECTION Bug 1: ne jamais abandonner des tonnes restantes
+            # Avant: si remaining < mn_veh → break → tonnes perdues
+            # Ex: 40t en PL → PL(25t) | PL(22t) = 47t alors qu'il faut PL(25t) | PL(15t) = 40t
+            # Après: on charge toujours le reste réel même si < capacité min théorique
             result.append({"vehicle": veh, "trips": 1,
                            "tons_each": round(actual_load, 1),
                            "real_cap": round(cap, 1)})
@@ -1520,18 +1519,17 @@ for (nom, usine, date), data in consolidated.items():
         cap  = v.get('real_cap', None)   # capacité réelle du camion dans le tableau
         n    = v.get('trips', 1)
         
-        if cap is not None and isinstance(cap, (int, float)):
-            # ✅ Afficher la capacité RÉELLE du tableau de transport
-            # ex: PPL(14t) même si le camion porte 8t — la valeur vient du tableau
-            disp_cap = int(cap) if cap == int(cap) else cap
-            for _ in range(n):
-                veh_parts.append(f"{veh}({disp_cap}t)")
+        # ✅ CORRECTION Bug 2: toujours afficher la charge réelle livrée (tons_each)
+        # et NON la capacité physique du camion (real_cap).
+        # PL(15t) = ce camion livre 15t aujourd'hui, même si sa capacité max est 22t.
+        # C'est la seule valeur cohérente avec la colonne Tonnes/Jour du planning.
+        # Avant: PL(22t) affiché même si le camion ne livre que 15t → incohérence
+        # Après: PL(15t) → total affiché = total livré ✅
+        disp_load = int(load) if float(load) == int(float(load)) else round(float(load), 1)
+        if n > 1:
+            veh_parts.append(f"{veh} x{n}({disp_load}t)")
         else:
-            # Théorique (pas de tableau) → afficher la charge calculée
-            if n > 1:
-                veh_parts.append(f"{veh} x{n}({int(load)}t)")
-            else:
-                veh_parts.append(f"{veh}({int(load)}t)")
+            veh_parts.append(f"{veh}({disp_load}t)")
     
     # ✅ Fallback intelligent : utiliser le PREMIER véhicule AUTORISÉ
     # (pas un POILOUR hardcodé qui violerait l'accessibilité de l'agriculteur)
