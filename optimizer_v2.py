@@ -729,15 +729,14 @@ class Farmer:
         n_days = max(1, (self.end - self.start).days + 1)
 
         # ✅ EXTENSION SEMI-ONLY (ACHREF Gafsa/Kasserine) :
-        # Règle RM progressive : j1=60t, j2=90t, j3+=120t (4 Semi)
-        # La fenêtre doit être calculée sur la base du régime de croisière (120t/j)
-        # pour éviter que OR-Tools ne déborde le tonnage déclaré.
-        # Exemple : 600t → ceil(600/120) = 5 jours minimum nécessaires
+        # La fenêtre est calculée sur 30t/j (1 Semi) pour maximiser les jours
+        # dans la fenêtre → OR-Tools peut distribuer sur plus de jours.
+        # choose_vehicles applique ensuite la règle progressive (60/90/120t).
         if self.allowed_veh == ["SEMI"]:
-            _max_per_day_rm = 120.0  # régime croisière j3+ = 4 Semi × 30t
+            _max_per_day = 30.0
             _daily_check = self.tonnage / n_days
-            if _daily_check > _max_per_day_rm:
-                _days_needed_semi = math.ceil(self.tonnage / _max_per_day_rm)
+            if _daily_check > _max_per_day:
+                _days_needed_semi = math.ceil(self.tonnage / _max_per_day)
                 _extra_semi = _days_needed_semi - n_days
                 if _extra_semi > 0:
                     self.end = clamp_date(self.end + datetime.timedelta(days=_extra_semi))
@@ -912,33 +911,13 @@ for f_idx, farmer in enumerate(farmers):
         else:
             x[(f_idx, d_idx)] = model.NewConstant(0)
 
-# ✅ HINTS : initialiser avec le profil window déclaré
-# Sans hint, OR-Tools concentre les tonnes sur peu de jours
-# Avec hint : part d'une solution proche du plan → bonne distribution dès le départ
-for f_idx, farmer in enumerate(farmers):
-    _min_tons  = _get_min_tons(farmer)
-    _ndays_f   = max(1, len(farmer.window))
-    _avg_rate  = farmer.tonnage / _ndays_f
-    _ub_scaled = max(int(_avg_rate * SCALE * 3.0), 1)
-    _is_semi   = (farmer.allowed_veh == ["SEMI"] or str(farmer.access).upper() == "RM")
-    for d_idx, date in enumerate(all_dates):
-        if date in farmer.window:
-            target   = int(farmer.window[date] * SCALE)
-            if _is_semi:
-                # Pour SEMI/RM: hint = avg arrondi au multiple de 30 le plus proche
-                hint_30 = max(30, int(round(_avg_rate / 30)) * 30)
-                hint_val = int(hint_30 * SCALE)
-            else:
-                hint_val = max(target, int(_min_tons * SCALE))
-            hint_val = min(hint_val, _ub_scaled)
-            model.AddHint(x[(f_idx, d_idx)], hint_val)
-
-# Constraint 1: Tonnage per farmer (±2% max)
+# Constraint 1: Tonnage per farmer (±5%)
 for f_idx, farmer in enumerate(farmers):
     total_scaled   = int(farmer.tonnage * SCALE)
     window_max     = int(sum(farmer.window.values()) * SCALE)
     effective      = min(total_scaled, window_max)
-    tolerance      = max(int(total_scaled * 0.02), SCALE)  # ✅ ±2% strict (était 5%)
+    # ✅ Tolérance serrée ±2% — évite le débordement ACHREF
+    tolerance      = max(int(total_scaled * 0.02), SCALE)
     model.Add(sum(x[(f_idx, d)] for d in range(N_DATES)) >= effective - tolerance)
     model.Add(sum(x[(f_idx, d)] for d in range(N_DATES)) <= effective + tolerance)
 
@@ -1060,46 +1039,35 @@ print("  Constraints added: tonnage + commercial caps (pic only) + factory caps 
 DEVIATION_WEIGHT = 7   # higher = stick closer to original plan
 DISTANCE_WEIGHT  = 3   # higher = favor closer usines
 
-deviations     = []
+deviations = []
 distance_costs = []
 
 for f_idx, farmer in enumerate(farmers):
-    dist_norm  = min(farmer.distance_km, 300)
+    dist_norm = min(farmer.distance_km, 300)
     dist_coeff = int(dist_norm * DISTANCE_WEIGHT // 100) + 1
-    _ndays_w   = max(1, len(farmer.window))
-
     for d_idx, date in enumerate(all_dates):
         if date in farmer.window:
-            # ✅ OBJECTIF LÉGER : coût distance + déviation approximative
-            # On évite AddAbsEquality (trop coûteux : ~8000 variables auxiliaires)
-            # À la place : on pénalise les jours qui s'éloignent trop de la cible
-            # via une pondération simple sur x (favorise la distribution uniforme)
-            original   = int(farmer.window[date] * SCALE)
-            # Pénalité légère : maximiser les jours proches de la cible
-            # = minimiser |x - original| ≈ minimiser x quand x > original
-            #   et maximiser x quand x < original
-            # Implémentation : coeff négatif si jour sous-chargé encourage à monter
-            target_coeff = max(1, int(DEVIATION_WEIGHT * original // (farmer.tonnage * SCALE // _ndays_w + 1)))
+            original = int(farmer.window[date] * SCALE)
+            diff = model.NewIntVar(0, int(farmer.tonnage * SCALE), f"dev_{f_idx}_{d_idx}")
+            model.AddAbsEquality(diff, x[(f_idx, d_idx)] - original)
+            deviations.append(diff * DEVIATION_WEIGHT)
             distance_costs.append(x[(f_idx, d_idx)] * dist_coeff)
-            deviations.append(x[(f_idx, d_idx)] * target_coeff)
 
-model.Minimize(sum(distance_costs) + sum(factory_overflows) + sum(comm_overflows))
-# Note: deviations non utilisées dans l'objectif (guide via domain uniquement)
-# Les domaines {0}∪[lb,ub] garantissent la régularité sans objectif de déviation
-print(f"  Objective: minimize (distance ×{DISTANCE_WEIGHT})"
-      f" + (factory overflow ×{FACTORY_OVERFLOW_WEIGHT})"
-      f" + (commercial overflow ×{COMM_OVERFLOW_WEIGHT})")
+model.Minimize(sum(deviations) + sum(distance_costs)
+               + sum(factory_overflows) + sum(comm_overflows))
+print(f"  Objective: minimize (plan deviation ×{DEVIATION_WEIGHT}) + (distance ×{DISTANCE_WEIGHT})"
+      f" + (factory overflow ×{FACTORY_OVERFLOW_WEIGHT}) + (commercial overflow ×{COMM_OVERFLOW_WEIGHT})")
 
 # ============================================================
 # STEP 4: Solve
 # ============================================================
-print(f"\nSolving (max 10s, 8 cores)...")
+print(f"\nSolving (max 30s, 8 cores)...")
 solver = cp_model.CpSolver()
-solver.parameters.max_time_in_seconds   = 10
+solver.parameters.max_time_in_seconds   = 30
 solver.parameters.num_search_workers    = 8
 solver.parameters.log_search_progress   = True
 solver.parameters.cp_model_presolve     = True
-solver.parameters.linearization_level   = 1    # réduit à 1 (moins de LP = plus rapide)
+solver.parameters.linearization_level   = 2
 solver.parameters.search_branching      = cp_model.PORTFOLIO_SEARCH
 
 status = solver.Solve(model)
