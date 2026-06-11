@@ -87,20 +87,69 @@ def dfs_to_zip(sheets: dict) -> bytes:
     buf.seek(0)
     return buf.read()
 
+def _sanitize_sheet_name(name: str) -> str:
+    """
+    Excel limite les noms d'onglets à 31 chars et interdit certains caractères.
+    Caractères interdits: [ ] : * ? / \\
+    """
+    if not name:
+        return "Feuille1"
+    name = str(name)
+    for bad in ['[', ']', ':', '*', '?', '/', '\\']:
+        name = name.replace(bad, '-')
+    name = name.strip("'").strip()
+    name = name[:31].strip()
+    if not name:
+        name = "Feuille1"
+    return name
+
+
+def _sanitize_dataframe_for_excel(df):
+    """
+    Nettoie un DataFrame pour qu'il soit sérialisable dans Excel.
+    Convertit dates en string, gère NaN, supprime types complexes.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+    out = df.copy()
+    
+    for col in out.columns:
+        s = out[col]
+        if pd.api.types.is_datetime64_any_dtype(s):
+            try:
+                out[col] = s.dt.strftime("%d/%m/%Y")
+            except Exception:
+                out[col] = s.astype(str)
+        elif s.dtype == "object":
+            try:
+                out[col] = s.apply(
+                    lambda x: x.strftime("%d/%m/%Y") if isinstance(x, pd.Timestamp)
+                    else (str(x) if isinstance(x, (list, dict, tuple)) else x)
+                )
+            except Exception:
+                pass
+    
+    out = out.fillna("")
+    for col in out.columns:
+        if out[col].dtype == "object":
+            out[col] = out[col].astype(str).replace("nan", "").replace("NaT", "")
+    
+    return out
+
+
 def dfs_to_excel(sheets: dict) -> bytes:
     """
-    Convert multiple dataframes to a single Excel file with multiple sheets.
+    Convert multiple dataframes to a single styled Excel file with multiple sheets.
     sheets = {"Sheet Name": dataframe, ...}
     Returns Excel bytes.
     """
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
-    from openpyxl.formatting.rule import ColorScaleRule, CellIsRule
+    from openpyxl.formatting.rule import ColorScaleRule
 
-    # ── Styles ───────────────────────────────────────────────
-    HEADER_FILL = PatternFill("solid", start_color="1F3864", end_color="1F3864")  # bleu foncé
+    HEADER_FILL = PatternFill("solid", start_color="1F3864", end_color="1F3864")
     HEADER_FONT = Font(color="FFFFFF", bold=True, name="Calibri", size=11)
-    ROW_ALT_FILL = PatternFill("solid", start_color="EAF1FA", end_color="EAF1FA")  # bleu clair
+    ROW_ALT_FILL = PatternFill("solid", start_color="EAF1FA", end_color="EAF1FA")
     BORDER_THIN = Border(left=Side(style="thin", color="D0D7DE"),
                           right=Side(style="thin", color="D0D7DE"),
                           top=Side(style="thin", color="D0D7DE"),
@@ -108,13 +157,8 @@ def dfs_to_excel(sheets: dict) -> bytes:
     CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
     LEFT   = Alignment(horizontal="left",   vertical="center", wrap_text=True)
     RIGHT  = Alignment(horizontal="right",  vertical="center")
+    PIC_FILL = PatternFill("solid", start_color="FFF2CC", end_color="FFF2CC")
 
-    # Couleurs spéciales (premières lignes : pic, statut, etc.)
-    PIC_FILL = PatternFill("solid", start_color="FFF2CC", end_color="FFF2CC")  # jaune pic
-    OK_FILL  = PatternFill("solid", start_color="C6EFCE", end_color="C6EFCE")  # vert OK
-    BAD_FILL = PatternFill("solid", start_color="FFC7CE", end_color="FFC7CE")  # rouge alerte
-
-    # Colonnes commerciales (couleur par commercial)
     COMM_FILLS = {
         "FEDI":            PatternFill("solid", start_color="DEEBF7", end_color="DEEBF7"),
         "MAKKI BEN SALAH": PatternFill("solid", start_color="E2EFDA", end_color="E2EFDA"),
@@ -123,95 +167,194 @@ def dfs_to_excel(sheets: dict) -> bytes:
         "JILANI OBAY":     PatternFill("solid", start_color="FCE4D6", end_color="FCE4D6"),
     }
 
-    def _is_numeric(s):
+    def _is_numeric_value(v):
+        if v is None or v == "":
+            return False
         try:
-            pd.to_numeric(s, errors="raise"); return True
-        except Exception:
+            float(v)
+            return True
+        except (ValueError, TypeError):
             return False
 
+    if not sheets:
+        sheets = {"Vide": pd.DataFrame({"Info": ["Aucune donnée à exporter"]})}
+    
+    used_names = set()
+    def _unique_sheet_name(base):
+        clean = _sanitize_sheet_name(base)
+        if clean not in used_names:
+            used_names.add(clean)
+            return clean
+        for i in range(2, 100):
+            candidate = f"{clean[:28]}_{i}"
+            if candidate not in used_names:
+                used_names.add(candidate)
+                return candidate
+        return f"Sheet{len(used_names)+1}"
+
     buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        for sheet_name, df in sheets.items():
-            df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
-            ws = writer.sheets[sheet_name[:31]]
+    
+    try:
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            for sheet_name, df in sheets.items():
+                df_clean = _sanitize_dataframe_for_excel(df)
+                if df_clean.empty:
+                    df_clean = pd.DataFrame({"Info": ["Aucune donnée"]})
+                
+                clean_sheet = _unique_sheet_name(sheet_name)
+                df_clean.to_excel(writer, sheet_name=clean_sheet, index=False)
+                ws = writer.sheets[clean_sheet]
 
-            n_rows, n_cols = df.shape
+                n_rows, n_cols = df_clean.shape
+                if n_cols == 0:
+                    continue
 
-            # ── Style des headers ────────────────────────────
-            for col_idx in range(1, n_cols + 1):
-                cell = ws.cell(row=1, column=col_idx)
-                cell.fill = HEADER_FILL
-                cell.font = HEADER_FONT
-                cell.alignment = CENTER
-                cell.border = BORDER_THIN
-
-            ws.row_dimensions[1].height = 30
-
-            # ── Style des cellules de données ────────────────
-            comm_col_idx = None
-            pic_col_idx  = None
-            for i, col in enumerate(df.columns, start=1):
-                col_str = str(col).strip().lower()
-                if "commercial" == col_str:
-                    comm_col_idx = i
-                if "pic" in col_str:
-                    pic_col_idx = i
-
-            for r in range(2, n_rows + 2):
-                for c in range(1, n_cols + 1):
-                    cell = ws.cell(row=r, column=c)
+                # Headers
+                for col_idx in range(1, n_cols + 1):
+                    cell = ws.cell(row=1, column=col_idx)
+                    cell.fill = HEADER_FILL
+                    cell.font = HEADER_FONT
+                    cell.alignment = CENTER
                     cell.border = BORDER_THIN
-                    cell.alignment = RIGHT if _is_numeric(pd.Series([cell.value])) else LEFT
-                    # Lignes alternées (zébrage)
-                    if r % 2 == 0:
-                        cell.fill = ROW_ALT_FILL
+                ws.row_dimensions[1].height = 30
 
-                # Coloration spéciale par commercial
-                if comm_col_idx:
-                    comm_val = str(ws.cell(row=r, column=comm_col_idx).value or "").strip().upper()
-                    if comm_val in COMM_FILLS:
-                        ws.cell(row=r, column=comm_col_idx).fill = COMM_FILLS[comm_val]
-                        ws.cell(row=r, column=comm_col_idx).font = Font(bold=True, name="Calibri", size=10)
+                # Identifier colonnes spéciales
+                comm_col_idx = None
+                pic_col_idx  = None
+                for i, col in enumerate(df_clean.columns, start=1):
+                    col_str = str(col).strip().lower()
+                    if col_str == "commercial":
+                        comm_col_idx = i
+                    if "pic" in col_str:
+                        pic_col_idx = i
 
-                # Coloration PIC (jaune)
-                if pic_col_idx:
-                    pic_val = str(ws.cell(row=r, column=pic_col_idx).value or "")
-                    if "PIC" in pic_val.upper():
-                        ws.cell(row=r, column=pic_col_idx).fill = PIC_FILL
-                        ws.cell(row=r, column=pic_col_idx).font = Font(bold=True, color="996600")
+                # Style cellules
+                for r in range(2, n_rows + 2):
+                    for c in range(1, n_cols + 1):
+                        cell = ws.cell(row=r, column=c)
+                        cell.border = BORDER_THIN
+                        cell.alignment = RIGHT if _is_numeric_value(cell.value) else LEFT
+                        if r % 2 == 0:
+                            cell.fill = ROW_ALT_FILL
 
-            # ── Largeur auto des colonnes ────────────────────
-            for col_idx, col in enumerate(df.columns, start=1):
-                col_letter = get_column_letter(col_idx)
-                max_len = max(
-                    [len(str(col))] +
-                    [len(str(v)) for v in df.iloc[:, col_idx - 1].head(200).tolist()]
-                )
-                ws.column_dimensions[col_letter].width = min(max(12, max_len + 3), 35)
+                    if comm_col_idx:
+                        comm_val = str(ws.cell(row=r, column=comm_col_idx).value or "").strip().upper()
+                        if comm_val in COMM_FILLS:
+                            ws.cell(row=r, column=comm_col_idx).fill = COMM_FILLS[comm_val]
+                            ws.cell(row=r, column=comm_col_idx).font = Font(bold=True, name="Calibri", size=10)
 
-            # ── Geler la 1re ligne (header) ──────────────────
-            ws.freeze_panes = "A2"
+                    if pic_col_idx:
+                        pic_val = str(ws.cell(row=r, column=pic_col_idx).value or "")
+                        if "PIC" in pic_val.upper():
+                            ws.cell(row=r, column=pic_col_idx).fill = PIC_FILL
+                            ws.cell(row=r, column=pic_col_idx).font = Font(bold=True, color="996600")
 
-            # ── Filtres automatiques ─────────────────────────
-            if n_rows > 0:
-                last_col_letter = get_column_letter(n_cols)
-                ws.auto_filter.ref = f"A1:{last_col_letter}{n_rows + 1}"
-
-            # ── Color scale pour colonnes "Tonnes" / "Tonnage" ───
-            for col_idx, col in enumerate(df.columns, start=1):
-                col_lower = str(col).lower()
-                if ("tonne" in col_lower or "tonnage" in col_lower) and n_rows > 1:
+                # Largeur colonnes
+                for col_idx, col in enumerate(df_clean.columns, start=1):
                     col_letter = get_column_letter(col_idx)
-                    rng = f"{col_letter}2:{col_letter}{n_rows + 1}"
-                    rule = ColorScaleRule(
-                        start_type="min", start_color="FFFFFF",
-                        mid_type="percentile", mid_value=50, mid_color="9EC3E6",
-                        end_type="max", end_color="1F3864",
-                    )
-                    ws.conditional_formatting.add(rng, rule)
+                    try:
+                        max_len = max(
+                            [len(str(col))] +
+                            [len(str(v)) for v in df_clean.iloc[:, col_idx - 1].head(200).tolist()]
+                        )
+                    except Exception:
+                        max_len = 15
+                    ws.column_dimensions[col_letter].width = min(max(12, max_len + 3), 35)
 
+                ws.freeze_panes = "A2"
+
+                if n_rows > 0:
+                    last_col_letter = get_column_letter(n_cols)
+                    ws.auto_filter.ref = f"A1:{last_col_letter}{n_rows + 1}"
+
+                # Color scale pour tonnage
+                for col_idx, col in enumerate(df_clean.columns, start=1):
+                    col_lower = str(col).lower()
+                    if ("tonne" in col_lower or "tonnage" in col_lower) and n_rows > 1:
+                        col_letter = get_column_letter(col_idx)
+                        rng = f"{col_letter}2:{col_letter}{n_rows + 1}"
+                        try:
+                            rule = ColorScaleRule(
+                                start_type="min", start_color="FFFFFF",
+                                mid_type="percentile", mid_value=50, mid_color="9EC3E6",
+                                end_type="max", end_color="1F3864",
+                            )
+                            ws.conditional_formatting.add(rng, rule)
+                        except Exception:
+                            pass
+    except Exception as e:
+        # ✅ Fallback : Excel basique sans style
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            for sheet_name, df in sheets.items():
+                clean = _sanitize_sheet_name(sheet_name)
+                df_safe = _sanitize_dataframe_for_excel(df) if df is not None else pd.DataFrame()
+                if df_safe.empty:
+                    df_safe = pd.DataFrame({"Erreur": [f"Erreur génération: {str(e)[:200]}"]})
+                df_safe.to_excel(writer, sheet_name=clean, index=False)
+    
     buf.seek(0)
     return buf.read()
+
+
+def df_to_xlsx_by_day(df, date_col="Date", base_name="Jour"):
+    """
+    ✅ Convertit un DataFrame en Excel avec UN ONGLET PAR JOUR + onglet récap.
+    Chaque jour = un onglet séparé, triés chronologiquement.
+    """
+    if df is None or df.empty:
+        return df_to_xlsx_styled(pd.DataFrame({"Info": ["Aucune donnée"]}))
+    
+    # Trouver la colonne de date
+    actual_date_col = None
+    for c in df.columns:
+        if str(c).strip().lower() == date_col.lower():
+            actual_date_col = c
+            break
+    
+    if actual_date_col is None:
+        return df_to_xlsx_styled(df, sheet_name="Données")
+    
+    df_work = df.copy()
+    try:
+        df_work[actual_date_col] = pd.to_datetime(df_work[actual_date_col], errors="coerce")
+    except Exception:
+        pass
+    
+    sheets = {}
+    # Onglet récap (toutes les données)
+    sheets["📋 Tout le planning"] = df.copy()
+    
+    days_fr = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"]
+    
+    # Trier par date pour un ordre cohérent des onglets
+    df_sorted = df_work.sort_values(actual_date_col)
+    
+    for date_val, day_df in df_sorted.groupby(actual_date_col, dropna=False, sort=False):
+        if pd.isna(date_val):
+            sheet_name = "Sans date"
+        else:
+            try:
+                d = pd.Timestamp(date_val)
+                day_str = days_fr[d.weekday()]
+                sheet_name = f"{d.day:02d}-{d.month:02d} ({day_str})"
+            except Exception:
+                sheet_name = str(date_val)[:31]
+        
+        day_clean = day_df.copy()
+        if actual_date_col in day_clean.columns:
+            day_clean = day_clean.drop(columns=[actual_date_col])
+        # Trier par tonnage décroissant si applicable
+        for c in day_clean.columns:
+            if "tonne" in str(c).lower() or "tonnage" in str(c).lower():
+                try:
+                    day_clean = day_clean.sort_values(by=c, ascending=False)
+                except Exception:
+                    pass
+                break
+        sheets[sheet_name] = day_clean
+    
+    return dfs_to_excel(sheets)
 
 # ── Page config ──────────────────────────────────────────────
 # ============================================================
@@ -1596,22 +1739,31 @@ with tab1:
         use_container_width=True, height=280,
     )
     _planning_export = p[display_cols].sort_values("Date").reset_index(drop=True)
-    col_dl1, col_dl2 = st.columns(2)
+    col_dl1, col_dl2, col_dl3 = st.columns(3)
     with col_dl1:
         st.download_button(
-            "📊 Excel stylé (recommandé)",
-            data=df_to_xlsx_styled(_planning_export, sheet_name="Planning"),
-            file_name="planning_journalier.xlsx",
+            "📅 Excel SÉPARÉ PAR JOUR",
+            data=df_to_xlsx_by_day(_planning_export, date_col="Date"),
+            file_name="planning_par_jour.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
             use_container_width=True,
+            help="Un onglet par jour + un onglet récapitulatif",
         )
     with col_dl2:
         st.download_button(
-            "⬇️ CSV brut",
-            data=df_to_xlsx_styled(_planning_export),
+            "📊 Excel TOUT EN 1 ONGLET",
+            data=df_to_xlsx_styled(_planning_export, sheet_name="Planning"),
             file_name="planning_journalier.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+    with col_dl3:
+        st.download_button(
+            "⬇️ CSV brut",
+            data=df_to_csv(_planning_export),
+            file_name="planning_journalier.csv",
+            mime="text/csv",
             use_container_width=True,
         )
 
@@ -1966,13 +2118,28 @@ with tab2:
             st.dataframe(piv_table, use_container_width=True,
                          height=min(900, max(300, (n_farmers_piv + 2) * 35 + 40)))
 
-        # Export planning journalier
-        st.download_button(
-            f"📊 Exporter planning journalier {selected} (Excel)",
-            data=piv_table.to_csv(index=True),
-            file_name=f"planning_{selected.replace(' ','_')}_journalier.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        # Export planning journalier du commercial
+        # ✅ Reset_index pour avoir Date en colonne (piv_table a Date en index)
+        _piv_for_export = piv_table.reset_index()
+        col_pe1, col_pe2 = st.columns(2)
+        with col_pe1:
+            st.download_button(
+                f"📅 {selected} — Excel SÉPARÉ PAR JOUR",
+                data=df_to_xlsx_by_day(_piv_for_export, date_col="Date"),
+                file_name=f"planning_{selected.replace(' ','_')}_par_jour.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True,
+                help="Un onglet par jour",
+            )
+        with col_pe2:
+            st.download_button(
+                f"📊 {selected} — Excel récap complet",
+                data=df_to_xlsx_styled(_piv_for_export, sheet_name="Planning"),
+                file_name=f"planning_{selected.replace(' ','_')}_complet.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
         
         # ── 🚛 NOUVEAU: Export TRANSPORT du commercial ─────────────────
         st.markdown("---")
