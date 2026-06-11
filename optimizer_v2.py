@@ -859,23 +859,78 @@ date_to_idx = {d: i for i, d in enumerate(all_dates)}
 N_DATES     = len(all_dates)
 N_FARM      = len(farmers)
 
+# ✅ Minimum journalier selon l'accessibilité du véhicule
+# Un agriculteur PL ne peut pas avoir 5t/jour → minimum = capacité min du véhicule
+VEH_MIN_TONS = {
+    "SEMI":     30,   # SEMI seul = minimum 1 Semi = 30t (multiple de 30 obligatoire)
+    "RM":       30,   # RM = idem SEMI, minimum 30t (1 Semi)
+    "PL":       15,   # 1 PL = minimum 15t
+    "PPL":       6,   # 1 PPL = minimum 6t
+    "TRACTEUR":  9,   # 1 Tracteur = minimum 9t
+    "PL/PPL":    6,   # au moins 1 PPL = 6t minimum
+    "PL/SEMI":  15,   # au moins 1 PL = 15t minimum
+    "TRC/PPL":   6,
+    "TRC/PPL/PL": 6,
+    "PL/PPL/SEMI": 6,
+}
+
+def _get_min_tons(farmer):
+    """Retourne le minimum de tonnes par jour pour ce farmer selon son accessibilité.
+    
+    Règle Gafsa (SEMI/RM) : minimum = 30t (1 Semi exact = capacité physique)
+    Tous les tonnages SEMI/RM doivent être multiples de 30t (30, 60, 90...)
+    """
+    acc = str(farmer.access).strip().upper()
+    # Cas RM/SEMI → minimum 1 Semi = 30t (multiple de 30 obligatoire)
+    if acc == "RM" or farmer.allowed_veh == ["SEMI"]:
+        return 30  # 1 Semi minimum (pas 60 — la progression RM gère j1=30, j2=60, j3+=90)
+    # Chercher dans le dictionnaire
+    min_t = VEH_MIN_TONS.get(acc, 0)
+    if min_t > 0:
+        return min_t
+    # Fallback : prendre le minimum de tous les véhicules autorisés
+    mins = [FLEET_CAPACITY.get(v, (6, 25))[0] for v in farmer.allowed_veh]
+    return min(mins) if mins else 6
+
 model = cp_model.CpModel()
 
 x = {}
 for f_idx, farmer in enumerate(farmers):
-    # ✅ Borne max journalière basée sur le taux MOYEN (pas le profil cloche)
-    # La cloche guide l'objectif (cible journalière), mais ne doit pas rendre
-    # le modèle INFEASIBLE: chaque jour de la fenêtre garde la même flexibilité,
-    # sinon les jours "bas" de la cloche (début/fin) bloquent la redistribution
-    # nécessaire pour respecter les caps usine stricts.
-    _ndays_f = max(1, len(farmer.window))
+    _ndays_f  = max(1, len(farmer.window))
     _avg_rate = farmer.tonnage / _ndays_f
-    _ub_day  = int(_avg_rate * SCALE * 3.0)   # 3× le taux moyen = marge généreuse
+    _ub_day   = int(_avg_rate * SCALE * 3.0)
+    _min_tons = _get_min_tons(farmer)
+    _lb_day   = int(_min_tons * SCALE)   # borne basse = minimum selon accessibilité
+
     for d_idx, date in enumerate(all_dates):
         if date in farmer.window:
-            x[(f_idx, d_idx)] = model.NewIntVar(0, max(1, _ub_day), f"x_{f_idx}_{d_idx}")
+            # ✅ BORNE BASSE > 0 : force au moins _min_tons si le jour est actif
+            # Mais on ne peut pas forcer un LB > 0 sur toutes les variables car
+            # OR-Tools doit pouvoir mettre 0 si la contrainte tonnage total l'exige
+            # → on utilise NewIntVar(0, ...) mais on ajoute une contrainte "ou 0 ou ≥ min"
+            x[(f_idx, d_idx)] = model.NewIntVar(0, max(_lb_day, _ub_day), f"x_{f_idx}_{d_idx}")
         else:
             x[(f_idx, d_idx)] = model.NewConstant(0)
+
+# ✅ CONTRAINTE : pour chaque agriculteur et chaque jour de sa fenêtre,
+# la livraison est soit 0, soit ≥ minimum selon l'accessibilité
+# (évite les trous vides ET les valeurs trop petites comme 5t pour un PL)
+for f_idx, farmer in enumerate(farmers):
+    _min_tons_f  = _get_min_tons(farmer)
+    _lb_scaled_f = int(_min_tons_f * SCALE)
+    _ndays_f2    = max(1, len(farmer.window))
+    _avg_rate_f  = farmer.tonnage / _ndays_f2
+    _ub_f        = max(int(_avg_rate_f * SCALE * 3.0), _lb_scaled_f * 2, 1)
+
+    for d_idx, date in enumerate(all_dates):
+        if date not in farmer.window:
+            continue
+        var = x[(f_idx, d_idx)]
+        # Contrainte "ou 0 ou ≥ min" (contrainte semi-continue OR-Tools)
+        b = model.NewBoolVar(f"active_{f_idx}_{d_idx}")
+        model.Add(var >= _lb_scaled_f).OnlyEnforceIf(b)
+        model.Add(var == 0).OnlyEnforceIf(b.Not())
+        model.Add(var <= _ub_f).OnlyEnforceIf(b)
 
 # Constraint 1: Tonnage per farmer (±5%)
 for f_idx, farmer in enumerate(farmers):
@@ -1144,7 +1199,7 @@ else:
 # ============================================================
 print("\nBuilding output tables...")
 
-def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0):
+def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0, rm_day_rank=0):
     """
     VERSION V5 — Logique simplifiée et correcte.
     
@@ -1154,8 +1209,10 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0):
     - Exceptionnellement 2 types pour COMOCAP (TRACTEUR + transport principal)
     - Pas de découpage proportionnel artificiel en 4-5 types
     
-    semi_coeff : 0.7 pour Gafsa/Kassrine/Sidi Bouzid/Kairouan (longue distance)
-                 1 voyage toutes les 30h = max 0.7 voyage/j = 21t/j par benne Semi
+    rm_day_rank : rang du jour dans les jours de livraison de cet agriculteur RM
+                  0 = 1er jour → 2 Semi (60t)
+                  1 = 2ème jour → 3 Semi (90t)
+                  2+ = 3ème+ jour → 4 Semi (120t)
     
     Logique de sélection:
     1. Regarder la préférence usine (SICAM préfère SEMI, ELFALLEH préfère PPL...)
@@ -1331,22 +1388,27 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0):
                 best_score, best, best_ratio, best_trips = score, veh, ratio, n_trips
         return best
 
-    # ── CAS SPÉCIAL : SEMI seul (ACHREF, RM, Gafsa) ──────────────────────
-    # ✅ Semi = TOUJOURS 30t physique (capacité réelle du camion)
-    # Règles:
-    #   1. Si tonnage < 27t → reporté au lendemain (pas de voyage partiel)
-    #   2. Nb voyages = arrondi(tonnage / 30) → 30t, 60t, 90t, 120t...
+    # ── CAS SPÉCIAL : SEMI seul / RM (Gafsa/Kasserine — ACHREF) ─────────────
+    # ✅ Règle Gafsa : TOUJOURS multiple de 30t (capacité physique 1 Semi = 30t)
+    # Montée progressive selon le rang du jour de livraison :
+    #   Jour 1 (rm_day_rank=0) → 2 Semi = 60t
+    #   Jour 2 (rm_day_rank=1) → 3 Semi = 90t
+    #   Jour 3+ (rm_day_rank≥2) → 4 Semi = 120t
+    # Jamais de 40t, 50t, 70t, 100t... — uniquement 30, 60, 90, 120t
     if allowed == ["SEMI"]:
-        SEMI_CAP = 30.0   # capacité physique réelle
-        SEMI_MIN = 27.0   # seuil minimum (90% benne)
+        SEMI_CAP = 30.0
         if tons <= 0:
             return []
-        if tons < SEMI_MIN:
-            return []   # trop petit → reporté
-        # ✅ Bennes entières de 30t (arrondi pour 30/60/90...)
-        nb_voyages = max(1, int(round(tons / SEMI_CAP)))
-        return [{"vehicle": "SEMI", "trips": nb_voyages, "tons_each": SEMI_CAP,
-                 "real_cap": SEMI_CAP}]
+        # Progression selon rang du jour
+        if rm_day_rank == 0:
+            nb_semi = 2   # Jour 1 : 2 Semi = 60t
+        elif rm_day_rank == 1:
+            nb_semi = 3   # Jour 2 : 3 Semi = 90t
+        else:
+            nb_semi = 4   # Jour 3+ : 4 Semi = 120t (régime de croisière)
+        # ✅ Tonnage = nb_semi × 30t exactement (multiple de 30 garanti)
+        return [{"vehicle": "SEMI", "trips": nb_semi,
+                 "tons_each": SEMI_CAP, "real_cap": SEMI_CAP, "solde": 0.0}]
 
     # ── PRÉFÉRENCES PAR USINE ───────────────────────────────────────────
     # Ordre de préférence des véhicules selon l'usine
@@ -1482,24 +1544,79 @@ for f_idx, farmer in enumerate(farmers):
         consolidated[key]["farmer"] = farmer  # garder la dernière référence
         consolidated[key]["parcelles"].append(f_idx)
 
+# ✅ MINIMUM TONNAGE PAR ACCESSIBILITÉ
+# Un véhicule ne peut pas livrer moins que sa capacité minimale physique
+# → si le tonnage brut est trop petit, on l'accumule avec les jours adjacents
+
+# ✅ PRÉ-CALCUL pour RM progressif : rang du jour de livraison par agriculteur
+_rm_delivery_days = {}
+for (nom, usine, date), data in consolidated.items():
+    f = data["farmer"]
+    if f.allowed_veh == ["SEMI"] or str(f.access).upper() == "RM":
+        key_rm = (nom, usine)
+        if key_rm not in _rm_delivery_days:
+            _rm_delivery_days[key_rm] = []
+        _rm_delivery_days[key_rm].append(date)
+for key_rm in _rm_delivery_days:
+    _rm_delivery_days[key_rm] = sorted(_rm_delivery_days[key_rm])
+
+# ✅ ACCUMULATION des petits tonnages pour éviter les jours vides
+# Si tons_brut < min_tons pour ce véhicule → accumuler sur le jour suivant
+# Ex: PL min=15t, OR-Tools donne 8t → accumuler avec le lendemain
+_accumulator = {}  # {(nom, usine): tonnes_accumulées}
+
+# Trier les livraisons par (agriculteur, date) pour traitement chronologique
+consolidated_sorted = sorted(
+    consolidated.items(),
+    key=lambda x: (x[0][0], x[0][2])  # trier par (nom, date)
+)
+
 # Génération des all_days à partir des envois consolidés
 for (nom, usine, date), data in consolidated.items():
     tons_brut = data["tons"]
     farmer    = data["farmer"]
     n_parcelles = len(data["parcelles"])
     
-    # ✅ ARRONDI à la dizaine la plus proche
-    tons = int(round(round(tons_brut, 1) / 10)) * 10
-    if tons == 0 and tons_brut > 0:
-        tons = 10  # minimum 10t
+    # ✅ ARRONDI à la DIZAINE la plus proche MAIS pour RM → multiple de 30t obligatoire
+    if farmer.allowed_veh == ["SEMI"] or str(farmer.access).upper() == "RM":
+        # RM/SEMI : arrondir au multiple de 30t le plus proche (pas 10t)
+        tons = int(round(tons_brut / 30)) * 30
+        if tons == 0 and tons_brut > 0:
+            tons = 30
+    else:
+        tons = int(round(round(tons_brut, 1) / 10)) * 10
+        # ✅ Minimum selon l'accessibilité (pas 10t fixe)
+        _min_t_agri = _get_min_tons(farmer)
+        if tons == 0 and tons_brut > 0:
+            tons = _min_t_agri
+        elif 0 < tons < _min_t_agri:
+            tons = _min_t_agri
     if tons <= 0:
         continue
-    
+
+    # Calculer le rang du jour pour les agriculteurs RM (montée progressive Semi)
+    _rm_rank = 0
+    if farmer.allowed_veh == ["SEMI"] or str(farmer.access).upper() == "RM":
+        key_rm = (nom, usine)
+        days_list = _rm_delivery_days.get(key_rm, [])
+        try:
+            _rm_rank = days_list.index(date)  # 0=jour1, 1=jour2, 2+=jour3
+        except ValueError:
+            _rm_rank = 0
+
     vehicles = choose_vehicles(tons, farmer.allowed_veh,
                               usine=farmer.usine,
-                              region=farmer.geo_region if farmer.geo_region not in ("", "AUTRE") 
+                              region=farmer.geo_region if farmer.geo_region not in ("", "AUTRE")
                                      else farmer.region,
-                              semi_coeff=getattr(farmer, "semi_coeff", 1.0))
+                              semi_coeff=getattr(farmer, "semi_coeff", 1.0),
+                              rm_day_rank=_rm_rank)
+
+    # ✅ Pour SEMI/RM : recalculer le tonnage réel (nb_semi × 30t)
+    # Le tonnage OR-Tools peut être 100t mais choose_vehicles impose 1/2/3 Semi
+    # → on corrige Tonnes/Jour pour afficher le vrai tonnage livré (30, 60 ou 90t)
+    if (farmer.allowed_veh == ["SEMI"] or str(farmer.access).upper() == "RM") and vehicles:
+        tons_rm_reel = sum(v.get("trips", 1) * v.get("tons_each", 30) for v in vehicles)
+        tons = int(round(tons_rm_reel / 30)) * 30  # garantit multiple de 30
     veh_parts = []
     for v in vehicles:
         if v.get('tons_each', 0) <= 0:
@@ -1620,26 +1737,31 @@ for row in all_days:
 print(f"    → {len(jours_doubles_uniques)} jours doubles identifiés ({nb_jours_doubles} livraisons concernées)")
 
 # ✅ POST-TRAITEMENT CORRECTION TONNAGE : total planifié = total déclaré
-# L'arrondi à la dizaine crée un excédent/déficit par rapport au tonnage déclaré
-# → ajuster par commercial pour que total planifié ≈ total déclaré
+# CORRECTION CLÉE : ajuster par AGRICULTEUR (pas par commercial) et seulement
+# sur le DERNIER JOUR de chaque agriculteur → évite les sauts brusques 100→10→100
 print("  Post-traitement correction tonnage (arrondi)...")
 from collections import defaultdict as _dd_ton
 
-# 1. Calculer total planifié et déclaré par COMMERCIAL
-_plan_by_comm  = _dd_ton(float)   # total planifié
-_decl_by_comm  = {}               # total déclaré (depuis Supabase = farmer.tonnage × n_jours)
-
-# Calculer tonnage déclaré par commercial depuis les farmers
+# Tonnages déclarés par commercial
+_decl_by_comm  = {}
 for f in farmers:
-    comm = f.commercial
-    if comm not in _decl_by_comm:
-        _decl_by_comm[comm] = 0.0
-    _decl_by_comm[comm] += f.tonnage
+    _decl_by_comm[f.commercial] = _decl_by_comm.get(f.commercial, 0.0) + f.tonnage
 
-# Calculer tonnage planifié (après arrondi) par commercial
+# Tonnages déclarés par (commercial, agriculteur)
+_decl_by_agri = {}
+for f in farmers:
+    key = (f.commercial, f.name)
+    _decl_by_agri[key] = _decl_by_agri.get(key, 0.0) + f.tonnage
+
+# Tonnages planifiés par (commercial, agriculteur)
+_plan_by_agri  = _dd_ton(float)
 for row in all_days:
-    comm = row["Commercial"]
-    _plan_by_comm[comm] += row["Tonnes/Jour"]
+    key = (row["Commercial"], row["Agriculteur"])
+    _plan_by_agri[key] += row["Tonnes/Jour"]
+
+_plan_by_comm  = _dd_ton(float)
+for row in all_days:
+    _plan_by_comm[row["Commercial"]] += row["Tonnes/Jour"]
 
 print("    Vérification avant correction:")
 for comm, decl in _decl_by_comm.items():
@@ -1647,41 +1769,58 @@ for comm, decl in _decl_by_comm.items():
     diff = plan - decl
     print(f"      {comm:<20}: déclaré={decl:>8.0f}t | planifié={plan:>8.0f}t | diff={diff:+.0f}t")
 
-# 2. Corriger par commercial : si excédent → réduire certains jours de 10t
+# Correction par AGRICULTEUR sur son DERNIER JOUR
+# → la variation ne se voit que sur 1 jour, pas éparpillée au hasard
 _corrections = 0
-for comm, decl in _decl_by_comm.items():
-    plan = _plan_by_comm.get(comm, 0)
-    diff = round(plan - decl, 1)   # positif = trop planifié
-    
-    if abs(diff) < 1:   # déjà correct
+for (comm, agri), decl in _decl_by_agri.items():
+    plan = _plan_by_agri.get((comm, agri), 0.0)
+    diff = round(plan - decl, 1)
+    if abs(diff) < 0.5:
         continue
-    
-    # Trouver toutes les livraisons de ce commercial, triées par tonnage décroissant
-    comm_indices = [i for i, r in enumerate(all_days) if r["Commercial"] == comm]
-    
-    remaining = diff
-    if diff > 0:
-        # Trop planifié → réduire les plus grandes livraisons
-        comm_indices.sort(key=lambda i: all_days[i]["Tonnes/Jour"], reverse=True)
-        for idx in comm_indices:
-            if remaining < 1: break
-            current = all_days[idx]["Tonnes/Jour"]
-            reduce  = min(10, int(remaining), current - 10)
-            if reduce >= 1:
-                all_days[idx]["Tonnes/Jour"] = current - reduce
-                remaining -= reduce
-                _corrections += 1
-    else:
-        # Trop peu planifié → augmenter les petites livraisons
-        comm_indices.sort(key=lambda i: all_days[i]["Tonnes/Jour"])
-        for idx in comm_indices:
-            if remaining > -1: break
-            current = all_days[idx]["Tonnes/Jour"]
-            add = min(10, int(-remaining))
-            if add >= 1:
-                all_days[idx]["Tonnes/Jour"] = current + add
-                remaining += add
-                _corrections += 1
+    # Trouver le DERNIER JOUR de cet agriculteur (= le meilleur endroit pour ajuster)
+    agri_indices = [i for i, r in enumerate(all_days)
+                    if r["Commercial"] == comm and r["Agriculteur"] == agri]
+    if not agri_indices:
+        continue
+    agri_indices.sort(key=lambda i: all_days[i]["Date"])
+    last_idx = agri_indices[-1]
+    current  = all_days[last_idx]["Tonnes/Jour"]
+
+    # Trouver le farmer pour connaître son accessibilité
+    _farmer_ref = None
+    _min_t = 10  # fallback
+    _is_semi_rm = False
+    for f in farmers:
+        if f.commercial == comm and f.name == agri:
+            _farmer_ref = f
+            _min_t      = _get_min_tons(f)
+            _is_semi_rm = (f.allowed_veh == ["SEMI"] or str(f.access).upper() == "RM")
+            break
+
+    # Appliquer la correction
+    new_val = round(current - diff, 1)
+
+    # ✅ Pour SEMI/RM : arrondir au multiple de 30t le plus proche
+    if _is_semi_rm:
+        new_val = int(round(new_val / 30)) * 30
+        if new_val <= 0:
+            new_val = 30  # minimum 1 Semi
+
+    if new_val >= _min_t:
+        all_days[last_idx]["Tonnes/Jour"] = new_val
+        _corrections += 1
+    elif len(agri_indices) >= 2:
+        # Essayer l'avant-dernier jour
+        prev_idx  = agri_indices[-2]
+        prev_curr = all_days[prev_idx]["Tonnes/Jour"]
+        prev_new  = round(prev_curr - diff, 1)
+        if _is_semi_rm:
+            prev_new = int(round(prev_new / 30)) * 30
+            if prev_new <= 0:
+                prev_new = 30
+        if prev_new >= _min_t:
+            all_days[prev_idx]["Tonnes/Jour"] = prev_new
+            _corrections += 1
 
 print(f"    → {_corrections} ajustement(s) appliqués")
 # Recalculer pour vérifier
