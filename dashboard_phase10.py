@@ -644,6 +644,143 @@ def _build_usine_excel(planning_df, usine_name, agri_df=None):
                 )
             )
 
+        # ══════════════════════════════════════════════════════════
+        # ONGLETS JOURNALIERS : un onglet par jour AVEC des données
+        # Colonnes : Commercial | Région | Agriculteur | Tonnage (t) | Accessibilité | Pic
+        # + Sous-total par commercial + Total général du jour
+        # ══════════════════════════════════════════════════════════
+        days_fr  = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"]
+        PEAK_S   = pd.Timestamp("2026-07-01")
+        PEAK_E   = pd.Timestamp("2026-07-15")
+
+        # Garder seulement les dates qui ont des livraisons réelles
+        dates_with_data = sorted([d for d in date_cols
+                                   if any(r.get(d, 0) > 0 for r in rows_data)])
+
+        col_acc_src  = col_acc  if (col_acc  and col_acc  in df.columns) else None
+        col_reg_src  = col_reg  if (col_reg  and col_reg  in df.columns) else None
+        col_pic_src  = next((c for c in df.columns if "pic" in c.lower()), None)
+
+        for date_val in dates_with_data:
+            # Nom de l'onglet : 01-07 (Mer)
+            try:
+                sheet_d = f"{date_val.day:02d}-{date_val.month:02d} ({days_fr[date_val.weekday()]})"
+            except Exception:
+                sheet_d = str(date_val)[:31]
+
+            # ── Construire les données du jour ─────────────────────
+            day_rows = []
+            for row_d in rows_data:
+                tons_day = row_d.get(date_val, 0)
+                if tons_day <= 0:
+                    continue
+                # Récupérer pic depuis df original
+                sub = df[(df[col_comm] == row_d["Commercial"]) &
+                         (df[col_agri] == row_d["Agriculteur"]) &
+                         (df[col_date] == date_val)]
+                pic_val = ""
+                if col_pic_src and not sub.empty:
+                    pic_val = str(sub[col_pic_src].iloc[0] or "")
+                day_rows.append({
+                    "Commercial":    row_d["Commercial"],
+                    "Région":        row_d["Région"],
+                    "Agriculteur":   row_d["Agriculteur"],
+                    "Tonnage (t)":   round(tons_day, 0),
+                    "Accessibilité": row_d["Accessibilité"],
+                    "Pic":           pic_val,
+                })
+
+            if not day_rows:
+                continue
+
+            day_rows.sort(key=lambda r: (r["Commercial"], r["Agriculteur"]))
+            N_COLS_D = 6  # Commercial | Région | Agriculteur | Tonnage | Accès | Pic
+
+            # Créer feuille
+            dummy_d = pd.DataFrame()
+            dummy_d.to_excel(writer, sheet_name=sheet_d, index=False)
+            wsd = writer.sheets[sheet_d]
+
+            # ── Titre du jour ──────────────────────────────────────
+            wsd.merge_cells(start_row=1, start_column=1,
+                            end_row=1,   end_column=N_COLS_D)
+            td = wsd.cell(1, 1)
+            is_pic_day = (PEAK_S <= date_val <= PEAK_E)
+            try:
+                day_label = date_val.strftime("%A %d/%m/%Y")
+            except Exception:
+                day_label = sheet_d
+            td.value     = f"🏭  {usine_name}  —  {day_label}" + (" ⚡ PIC" if is_pic_day else "")
+            td.font      = bf(white=True, size=12)
+            td.fill      = hf("7D6608" if is_pic_day else HDR_COLOR)
+            td.alignment = CTR
+            wsd.row_dimensions[1].height = 30
+
+            # ── En-têtes ligne 2 ──────────────────────────────────
+            hdrs_d = ["Commercial","Région","Agriculteur","Tonnage (t)","Accessibilité","Pic"]
+            for ci, h in enumerate(hdrs_d, 1):
+                c = wsd.cell(2, ci)
+                c.value     = h
+                c.font      = bf(white=True, size=11)
+                c.fill      = hf("7D6608" if is_pic_day else HDR_COLOR)
+                c.alignment = CTR
+                c.border    = BORDER
+            wsd.row_dimensions[2].height = 26
+
+            # ── Données ────────────────────────────────────────────
+            for ri, row_d in enumerate(day_rows):
+                r_idx = ri + 3
+                comm_u = row_d["Commercial"].strip().upper()
+                fill_c = COMM_FILLS.get(comm_u, ALT_ROW if ri%2==0 else "FFFFFF")
+                vals   = [row_d["Commercial"], row_d["Région"], row_d["Agriculteur"],
+                          row_d["Tonnage (t)"], row_d["Accessibilité"], row_d["Pic"]]
+                for ci, val in enumerate(vals, 1):
+                    c = wsd.cell(r_idx, ci)
+                    c.value     = val
+                    c.border    = BORDER
+                    c.font      = bf(bold=(ci==1), size=10)
+                    c.alignment = RGT if ci == 4 else LEFT
+                    c.fill      = hf(fill_c) if ci == 1 else hf(ALT_ROW if ri%2==0 else "FFFFFF")
+
+            # ── Sous-totaux par commercial ─────────────────────────
+            comms_day = dict()
+            for row_d in day_rows:
+                comms_day.setdefault(row_d["Commercial"], 0)
+                comms_day[row_d["Commercial"]] += row_d["Tonnage (t)"]
+
+            for comm_d, sub_t in sorted(comms_day.items()):
+                rr = wsd.max_row + 1
+                for ci in range(1, N_COLS_D + 1):
+                    c = wsd.cell(rr, ci)
+                    c.value     = None
+                    c.fill      = hf(SUBTOT_CLR)
+                    c.font      = bf(size=10, color="0B4F6C")
+                    c.border    = BORDER
+                    c.alignment = RGT if ci == 4 else LEFT
+                wsd.cell(rr, 1).value = f"Sous-total {comm_d}"
+                wsd.cell(rr, 4).value = round(sub_t, 0)
+                wsd.row_dimensions[rr].height = 20
+
+            # ── Total général du jour ──────────────────────────────
+            last_r = wsd.max_row + 1
+            for ci in range(1, N_COLS_D + 1):
+                c = wsd.cell(last_r, ci)
+                c.value     = None
+                c.fill      = hf(HDR_COLOR)
+                c.font      = bf(white=True, size=11)
+                c.border    = BORDER
+                c.alignment = RGT if ci == 4 else LEFT
+            wsd.merge_cells(start_row=last_r, start_column=1,
+                            end_row=last_r,   end_column=3)
+            wsd.cell(last_r, 1).value = f"TOTAL  {sheet_d}"
+            wsd.cell(last_r, 4).value = round(sum(r["Tonnage (t)"] for r in day_rows), 0)
+            wsd.row_dimensions[last_r].height = 26
+
+            # ── Largeurs ───────────────────────────────────────────
+            for ci, w in enumerate([18, 14, 26, 12, 14, 8], 1):
+                wsd.column_dimensions[get_column_letter(ci)].width = w
+            wsd.freeze_panes = "A3"
+
     buf.seek(0)
     return buf.read()
 
