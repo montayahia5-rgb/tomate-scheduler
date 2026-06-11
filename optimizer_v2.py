@@ -735,11 +735,12 @@ class Farmer:
                 self.end = clamp_date(self.end + datetime.timedelta(days=_extra))
                 n_days = max(1, (self.end - self.start).days + 1)
 
-        # ✅ COURBE DE MATURATION EN CLOCHE (réaliste)
-        #   - DÉBUT (20% du temps)  → 15% du tonnage (montée douce)
-        #   - MILIEU (50% du temps) → 60% du tonnage (pic de maturité)
-        #   - FIN   (30% du temps)  → 25% du tonnage (décrue)
+        # ✅ COURBE DE MATURATION
+        #   - KHALIL seulement (Sidi Bouzid / Bouficha / Kairouan) :
+        #     courbe en cloche 20% / 60% / 20% sur 20% / 50% / 30% du temps
+        #   - Autres commerciaux : distribution UNIFORME (tonnage / ndays)
         def _build_bell_window(start, ndays, tonnage):
+            """Courbe en cloche 20/60/20 — pour KHALIL uniquement"""
             if ndays <= 1:
                 return {start: round(tonnage, 1)}
             n_debut  = max(1, round(ndays * 0.20))
@@ -751,9 +752,10 @@ class Farmer:
                     n_milieu -= 1
                 elif n_debut > 1:
                     n_debut -= 1
-            t_debut  = tonnage * 0.15
+            # ✅ Distribution KHALIL: 20% / 60% / 20%
+            t_debut  = tonnage * 0.20
             t_milieu = tonnage * 0.60
-            t_fin    = tonnage - t_debut - t_milieu   # = 25% (reste exact)
+            t_fin    = tonnage - t_debut - t_milieu   # = 20% (reste exact)
             d_debut  = t_debut  / n_debut
             d_milieu = t_milieu / n_milieu
             d_fin    = t_fin    / n_fin
@@ -767,7 +769,20 @@ class Farmer:
                 win[start + datetime.timedelta(days=idx)] = round(d_fin, 1);    idx += 1
             return win
 
-        self.window = _build_bell_window(self.start, n_days, self.tonnage)
+        def _build_uniform_window(start, ndays, tonnage):
+            """Distribution uniforme — pour tous sauf KHALIL"""
+            if ndays <= 1:
+                return {start: round(tonnage, 1)}
+            d = tonnage / ndays
+            return {start + datetime.timedelta(days=i): round(d, 1)
+                    for i in range(ndays)}
+
+        # ✅ Choix du modèle selon le commercial
+        _is_khalil = str(self.commercial).strip().upper() == "KHALIL"
+        if _is_khalil:
+            self.window = _build_bell_window(self.start, n_days, self.tonnage)
+        else:
+            self.window = _build_uniform_window(self.start, n_days, self.tonnage)
         daily = self.tonnage / n_days   # moyenne (pour stats/affichage)
 
 farmers = [Farmer(row, date_cols) for _, row in df.iterrows()]
