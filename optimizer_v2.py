@@ -692,9 +692,18 @@ class Farmer:
         if pd.isna(raw_start): raw_start = datetime.date(2026, 7, 1)
         if pd.isna(raw_end):   raw_end   = datetime.date(2026, 7, 31)
 
+        # ✅ DATE_FIN EST EXCLUSIVE : 15→19 = jours 15,16,17,18 (le 19 n'est PAS inclus)
+        # Le commercial donne la date où il n'y a PLUS de récolte
+        # → on récolte jusqu'à date_fin - 1
+        raw_end = raw_end - datetime.timedelta(days=1)
+
         self.start  = clamp_date(raw_start)
         self.end    = clamp_date(raw_end)
-        if self.end <= self.start:
+        if self.end < self.start:
+            # Cas pathologique (1 seul jour) → garder au moins 1 jour
+            self.end = self.start
+        if self.end <= self.start and self.tonnage > 100:
+            # Tonnage important sur 1 jour → étendre à 30 jours
             self.end = clamp_date(self.start + datetime.timedelta(days=30))
         
         # ✅ EXTENSION SIMPLE — max 1 à 3 jours seulement
