@@ -729,14 +729,15 @@ class Farmer:
         n_days = max(1, (self.end - self.start).days + 1)
 
         # ✅ EXTENSION SEMI-ONLY (ACHREF Gafsa/Kasserine) :
-        # Pour les agriculteurs accessibles UNIQUEMENT en Semi, plafonner à 30t/jour
-        # (1 Semi = 30t exactement). Si tonnage/jour > 30t → étendre la fenêtre.
-        # Exemple : 600t sur 15j (40t/j) → étendu à 20j (30t/j = 1 Semi plein).
+        # Règle RM progressive : j1=60t, j2=90t, j3+=120t (4 Semi)
+        # La fenêtre doit être calculée sur la base du régime de croisière (120t/j)
+        # pour éviter que OR-Tools ne déborde le tonnage déclaré.
+        # Exemple : 600t → ceil(600/120) = 5 jours minimum nécessaires
         if self.allowed_veh == ["SEMI"]:
-            _max_per_day = 30.0   # 1 Semi par jour exactement
+            _max_per_day_rm = 120.0  # régime croisière j3+ = 4 Semi × 30t
             _daily_check = self.tonnage / n_days
-            if _daily_check > _max_per_day:
-                _days_needed_semi = math.ceil(self.tonnage / _max_per_day)
+            if _daily_check > _max_per_day_rm:
+                _days_needed_semi = math.ceil(self.tonnage / _max_per_day_rm)
                 _extra_semi = _days_needed_semi - n_days
                 if _extra_semi > 0:
                     self.end = clamp_date(self.end + datetime.timedelta(days=_extra_semi))
@@ -919,10 +920,16 @@ for f_idx, farmer in enumerate(farmers):
     _ndays_f   = max(1, len(farmer.window))
     _avg_rate  = farmer.tonnage / _ndays_f
     _ub_scaled = max(int(_avg_rate * SCALE * 3.0), 1)
+    _is_semi   = (farmer.allowed_veh == ["SEMI"] or str(farmer.access).upper() == "RM")
     for d_idx, date in enumerate(all_dates):
         if date in farmer.window:
             target   = int(farmer.window[date] * SCALE)
-            hint_val = max(target, int(_min_tons * SCALE))
+            if _is_semi:
+                # Pour SEMI/RM: hint = avg arrondi au multiple de 30 le plus proche
+                hint_30 = max(30, int(round(_avg_rate / 30)) * 30)
+                hint_val = int(hint_30 * SCALE)
+            else:
+                hint_val = max(target, int(_min_tons * SCALE))
             hint_val = min(hint_val, _ub_scaled)
             model.AddHint(x[(f_idx, d_idx)], hint_val)
 
