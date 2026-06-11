@@ -1365,15 +1365,22 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0, 
         return best
 
     # ── CAS SPÉCIAL : SEMI seul / RM (Gafsa/Kasserine — ACHREF) ─────────────
-    # ✅ Règle Gafsa : TOUJOURS multiple de 30t (1 Semi = 30t physique)
-    # nb_semi calculé depuis le tonnage réel OR-Tools (pas de progression forcée)
-    # La progression 60/90/120t est appliquée dans le post-traitement Tonnes/Jour
+    # Règle RM progressive (demande client) :
+    #   j1 (rm_day_rank=0) : minimum 2 Semi = 60t
+    #   j2 (rm_day_rank=1) : minimum 3 Semi = 90t
+    #   j3+ (rm_day_rank≥2): minimum 4 Semi = 120t
     if allowed == ["SEMI"]:
         SEMI_CAP = 30.0
         if tons <= 0:
             return []
-        # nb_semi = tonnage réel / 30t (arrondi au plus proche)
-        nb_semi = max(1, int(round(tons / SEMI_CAP)))
+        # Minimum selon rang du jour de livraison
+        if rm_day_rank == 0:
+            min_semi = 2   # j1 → min 60t
+        elif rm_day_rank == 1:
+            min_semi = 3   # j2 → min 90t
+        else:
+            min_semi = 4   # j3+ → min 120t
+        nb_semi = max(min_semi, int(round(tons / SEMI_CAP)))
         return [{"vehicle": "SEMI", "trips": nb_semi,
                  "tons_each": SEMI_CAP, "real_cap": SEMI_CAP, "solde": 0.0}]
 
@@ -1393,17 +1400,17 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0, 
             "SICAM":    ["SEMI", "PL",  "PPL"],
             "TUCAL":    ["SEMI", "PL",  "PPL"],
             "COMOCAP":  ["SEMI", "PL",  "PPL"],
-            "ABIDA":    ["PL",   "SEMI","PPL"],   # ABIDA proche de Gafsa → PL ok
-            "ELFALLEH": ["PL",   "SEMI","PPL"],
+            "ABIDA":    ["PL",   "SEMI","PPL"],
+            "ELFALLEH": ["PPL",  "PL",  "SEMI"],  # ✅ ELFALLEH toujours PPL en priorité
         }
     else:
         # Courte distance → PL/PPL en premier (Cap Bon, Nord, Bouficha)
         USINE_PREFS = {
-            "SICAM":    ["PL",   "PPL", "SEMI"],   # ✅ Cap Bon → PL (FEDI)
+            "SICAM":    ["PL",   "PPL", "SEMI"],
             "TUCAL":    ["PL",   "PPL", "SEMI"],
             "COMOCAP":  ["PL",   "PPL", "SEMI"],
             "ABIDA":    ["PL",   "SEMI","PPL"],
-            "ELFALLEH": ["PPL",  "PL",  "SEMI"],
+            "ELFALLEH": ["PPL",  "PL",  "SEMI"],  # ✅ ELFALLEH toujours PPL en priorité
         }
     prefs = USINE_PREFS.get(usine, ["PL", "PPL", "SEMI"])
     # ✅ Filtrer prefs par allowed (accessibilité de l'agriculteur)
@@ -1765,8 +1772,6 @@ for (comm, agri), decl in _decl_by_agri.items():
             _is_semi_rm = (f.allowed_veh == ["SEMI"] or str(f.access).upper() == "RM")
             break
 
-    if not _is_semi_rm:
-        continue
     remaining_diff = diff  # positif = trop planifié, négatif = trop peu
 
     if _is_semi_rm and diff > 0:
@@ -2035,6 +2040,93 @@ COLS6 = ["Commercial","Tonnes Totales Saison","Nb Agriculteurs",
          "Conflits Resolus","Total Jours Double","Statut"]
 style_ws(ws6, COLS6, [18,20,16,16,18,16], "1F4E79")
 write_df(ws6, resume_df[COLS6])
+
+# ── Sheet 7: Planning Horizontal (dates en colonnes) ──────────────────────
+# Format : Commercial | Agriculteur | Usine | Total | 15-juin | 16-juin | ...
+ws7 = wb.create_sheet("Planning Horizontal")
+pivot = result_df.copy()
+pivot["Date"] = pd.to_datetime(pivot["Date"])
+all_pivot_dates = sorted(pivot["Date"].unique())
+
+# Construire le pivot : lignes = (Commercial, Agriculteur, Usine), colonnes = dates
+pivot_data = {}
+for _, row in pivot.iterrows():
+    key = (row["Commercial"], row["Agriculteur"], row["Usine"], row["Region"], row["Accessibilite"])
+    d   = row["Date"]
+    if key not in pivot_data:
+        pivot_data[key] = {}
+    pivot_data[key][d] = pivot_data[key].get(d, 0) + row["Tonnes/Jour"]
+
+# Écrire en-têtes
+h_cols = ["Commercial","Agriculteur","Usine","Region","Accessibilite","Total Saison"]
+date_labels = [d.strftime("%-d/%m") if hasattr(d, 'strftime') else str(d) for d in all_pivot_dates]
+# Windows n'a pas %-d → utiliser %d
+date_labels = []
+for d in all_pivot_dates:
+    try:
+        date_labels.append(d.strftime("%-d/%m"))
+    except Exception:
+        date_labels.append(d.strftime("%d/%m").lstrip("0") or "0")
+
+all_h_headers = h_cols + date_labels
+col_widths_h   = [14, 26, 10, 12, 12, 12] + [7] * len(date_labels)
+
+fill7  = PatternFill("solid", start_color="C55A11")
+font7h = Font(bold=True, color="FFFFFF", name="Calibri", size=9)
+for ci, (h, w) in enumerate(zip(all_h_headers, col_widths_h), 1):
+    c = ws7.cell(row=1, column=ci, value=h)
+    c.font = font7h; c.fill = fill7
+    c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    c.border = border
+    ws7.column_dimensions[get_column_letter(ci)].width = w
+ws7.row_dimensions[1].height = 30
+
+# Trier par Commercial puis Agriculteur
+sorted_keys = sorted(pivot_data.keys(), key=lambda k: (k[0], k[1]))
+fill_alt = PatternFill("solid", start_color="FFF2CC")  # alternance lignes
+
+prev_comm = None
+row_idx   = 2
+for key in sorted_keys:
+    comm, agri, usine, region, acc = key
+    day_dict  = pivot_data[key]
+    total_agri = round(sum(day_dict.values()), 0)
+
+    # Couleur de fond alternée par commercial
+    if comm != prev_comm:
+        use_fill = (prev_comm is not None)
+        prev_comm = comm
+    
+    row_vals = [comm, agri, usine, region, acc, total_agri]
+    for d in all_pivot_dates:
+        v = day_dict.get(d, 0)
+        row_vals.append(int(v) if v > 0 else "")
+
+    for ci, val in enumerate(row_vals, 1):
+        c = ws7.cell(row=row_idx, column=ci, value=val)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = border
+        c.font = Font(name="Calibri", size=8)
+        # Mettre en gras les totaux
+        if ci == 6:
+            c.font = Font(name="Calibri", size=8, bold=True)
+        # Colorier les jours avec valeur
+        if ci > 6 and val != "":
+            c.fill = PatternFill("solid", start_color="E2EFDA")
+    row_idx += 1
+
+# Ligne de TOTAL en bas
+ws7.cell(row=row_idx, column=1, value="TOTAL").font = Font(bold=True, name="Calibri", size=9)
+ws7.cell(row=row_idx, column=6, value=round(result_df["Tonnes/Jour"].sum(), 0)).font = Font(bold=True, name="Calibri", size=9)
+for ci, d in enumerate(all_pivot_dates, 7):
+    day_total = sum(pv_data.get(d, 0) for pv_data in pivot_data.values())
+    c = ws7.cell(row=row_idx, column=ci, value=int(round(day_total, 0)) if day_total > 0 else "")
+    c.font = Font(bold=True, name="Calibri", size=8)
+    c.fill = PatternFill("solid", start_color="BDD7EE")
+    c.border = border
+
+ws7.freeze_panes = "G2"  # Figer les 6 premières colonnes + l'en-tête
+print(f"  Feuille 'Planning Horizontal' : {len(sorted_keys)} agriculteurs × {len(all_pivot_dates)} jours")
 
 wb.save(TEMP_FILE)
 
