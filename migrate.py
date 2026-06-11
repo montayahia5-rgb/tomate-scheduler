@@ -75,18 +75,20 @@ REGION_NORM = {
     "CAPB1":    "CAP BON 1",  "CAP B1":   "CAP BON 1",
     "CAPB2":    "CAP BON 2",  "CAP B2":   "CAP BON 2",
     "CAP BON":  "CAP BON 1",
-    # GAFSA / KASSERINE
+    # GAFSA / KASSERINE → fusionnées
     "GAFSA":    "GAFSA / KASSRINE",
     "KASSRINE": "GAFSA / KASSRINE",
     "KASSERINE":"GAFSA / KASSRINE",
     "KASRINE":  "GAFSA / KASSRINE",
     "KASSARINE":"GAFSA / KASSRINE",
     "SBEITLA":  "GAFSA / KASSRINE",
+    "GAFSA / KASSERINE": "GAFSA / KASSRINE",
+    "GAFSA/KASSRINE":    "GAFSA / KASSRINE",
     # NORD
     "BEJA":     "NORD",       "beja":     "NORD",
     "MANOUBA":  "NORD",       "manouba":  "NORD",
     "BIZERTE":  "NORD",
-    "JENDOUBA": "NORD",
+    "JENDOUBA": "NORD",       "JANDOUBA": "NORD",
     "BIR LAHFAY":"NORD",
     "BOR AMRI": "NORD",       "BORJ AMRI":"NORD",
     "MEDJEZ EL BAB":"NORD",   "MEJEZ EL BAB":"NORD",   "MEDJEZ BEB":"NORD",
@@ -97,7 +99,7 @@ REGION_NORM = {
     # SIDI BOUZID
     "SIDIBOUZID":"SIDI BOUZID",
     "SIDI BOU ZID":"SIDI BOUZID",
-    # BOUFICHA
+    # BOUFICHA = région séparée
     "BOUFICHA": "BOUFICHA",
     "SOUSSE":   "BOUFICHA",
     "ENFIDHA":  "BOUFICHA",
