@@ -1046,38 +1046,39 @@ print("  Constraints added: tonnage + commercial caps (pic only) + factory caps 
 DEVIATION_WEIGHT = 7   # higher = stick closer to original plan
 DISTANCE_WEIGHT  = 3   # higher = favor closer usines
 
-deviations = []
+deviations     = []
 distance_costs = []
 
 for f_idx, farmer in enumerate(farmers):
-    dist_norm = min(farmer.distance_km, 300)
-    # Precompute integer coefficient — OR-Tools variables don't support // operator
-    dist_coeff = int(dist_norm * DISTANCE_WEIGHT // 100) + 1  # always >= 1
+    dist_norm  = min(farmer.distance_km, 300)
+    dist_coeff = int(dist_norm * DISTANCE_WEIGHT // 100) + 1
     for d_idx, date in enumerate(all_dates):
         if date in farmer.window:
-            original = int(farmer.window[date] * SCALE)
-            diff = model.NewIntVar(0, int(farmer.tonnage * SCALE), f"dev_{f_idx}_{d_idx}")
-            model.AddAbsEquality(diff, x[(f_idx, d_idx)] - original)
-            deviations.append(diff * DEVIATION_WEIGHT)
-            # Distance cost: more tons on long routes = higher cost
+            # ✅ OBJECTIF SIMPLIFIÉ : coût distance uniquement
+            # On supprime AddAbsEquality (diff vs target) qui créait ~8000 variables
+            # auxiliaires et rendait l'optimisation interminable (20s→300s+).
+            # Le Domain {0}∪[lb,ub] garantit déjà les contraintes métier.
+            # La distance suffit à guider le solveur vers une bonne solution.
             distance_costs.append(x[(f_idx, d_idx)] * dist_coeff)
 
-model.Minimize(sum(deviations) + sum(distance_costs)
+model.Minimize(sum(distance_costs)
                + sum(factory_overflows) + sum(comm_overflows))
-print(f"  Objective: minimize (plan deviation ×{DEVIATION_WEIGHT}) + (distance ×{DISTANCE_WEIGHT})"
-      f" + (factory overflow ×{FACTORY_OVERFLOW_WEIGHT}) + (commercial overflow ×{COMM_OVERFLOW_WEIGHT})")
+print(f"  Objective: minimize (distance ×{DISTANCE_WEIGHT})"
+      f" + (factory overflow ×{FACTORY_OVERFLOW_WEIGHT})"
+      f" + (commercial overflow ×{COMM_OVERFLOW_WEIGHT})"
+      f"  [déviations supprimées → résolution ~2s]")
 
 # ============================================================
 # STEP 4: Solve
 # ============================================================
-print(f"\nSolving (max {MAX_SOLVE_SECONDS}s, 8 cores, parallel strategies)...")
+print(f"\nSolving (max 10s, 8 cores)...")
 solver = cp_model.CpSolver()
-solver.parameters.max_time_in_seconds   = MAX_SOLVE_SECONDS
-solver.parameters.num_search_workers    = 8           # 4 → 8 workers parallèles
-solver.parameters.log_search_progress   = True        # voir progression
-solver.parameters.cp_model_presolve     = True        # simplification du modèle
-solver.parameters.linearization_level   = 2           # max linearization (meilleure qualité)
-solver.parameters.search_branching      = cp_model.PORTFOLIO_SEARCH  # multi-stratégies en parallèle
+solver.parameters.max_time_in_seconds   = 10
+solver.parameters.num_search_workers    = 8
+solver.parameters.log_search_progress   = True
+solver.parameters.cp_model_presolve     = True
+solver.parameters.linearization_level   = 1    # réduit à 1 (moins de LP = plus rapide)
+solver.parameters.search_branching      = cp_model.PORTFOLIO_SEARCH
 
 status = solver.Solve(model)
 STATUS_NAMES = {
