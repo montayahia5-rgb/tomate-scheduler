@@ -1546,9 +1546,11 @@ for (nom, usine, date), data in consolidated.items():
     
     # ✅ ARRONDI à la DIZAINE la plus proche MAIS pour RM → multiple de 30t obligatoire
     if farmer.allowed_veh == ["SEMI"] or str(farmer.access).upper() == "RM":
-        # RM/SEMI : arrondir au multiple de 30t le plus proche (pas 10t)
-        tons = int(round(tons_brut / 30)) * 30
-        if tons == 0 and tons_brut > 0:
+        # RM/SEMI : arrondir au multiple de 30t INFÉRIEUR (floor, pas round)
+        # → évite d'ajouter des tonnes systématiquement (ex: 28t → 30t × 62 agri = +124t)
+        # Le déficit résiduel est comblé par le post-traitement (augmenter le dernier jour)
+        tons = int(tons_brut / 30) * 30   # floor division → toujours ≤ tons_brut
+        if tons == 0 and tons_brut >= 15:  # au moins un demi-Semi → arrondir à 30t
             tons = 30
     else:
         tons = int(round(round(tons_brut, 1) / 10)) * 10
