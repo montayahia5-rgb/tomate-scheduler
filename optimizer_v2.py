@@ -896,41 +896,26 @@ model = cp_model.CpModel()
 
 x = {}
 for f_idx, farmer in enumerate(farmers):
-    _ndays_f  = max(1, len(farmer.window))
-    _avg_rate = farmer.tonnage / _ndays_f
-    _ub_day   = int(_avg_rate * SCALE * 3.0)
-    _min_tons = _get_min_tons(farmer)
-    _lb_day   = int(_min_tons * SCALE)   # borne basse = minimum selon accessibilité
+    _ndays_f   = max(1, len(farmer.window))
+    _avg_rate  = farmer.tonnage / _ndays_f
+    _min_tons  = _get_min_tons(farmer)
+    _lb_scaled = int(_min_tons * SCALE)
+    _ub_scaled = max(int(_avg_rate * SCALE * 3.0), _lb_scaled * 2, 1)
 
     for d_idx, date in enumerate(all_dates):
         if date in farmer.window:
-            # ✅ BORNE BASSE > 0 : force au moins _min_tons si le jour est actif
-            # Mais on ne peut pas forcer un LB > 0 sur toutes les variables car
-            # OR-Tools doit pouvoir mettre 0 si la contrainte tonnage total l'exige
-            # → on utilise NewIntVar(0, ...) mais on ajoute une contrainte "ou 0 ou ≥ min"
-            x[(f_idx, d_idx)] = model.NewIntVar(0, max(_lb_day, _ub_day), f"x_{f_idx}_{d_idx}")
+            # ✅ DOMAINE SEMI-CONTINU : {0} ∪ [lb, ub]
+            # Technique OR-Tools légère : on déclare le domaine directement
+            # → la variable ne peut prendre que la valeur 0 OU une valeur ≥ lb
+            # → élimine les trous (valeur 0 isolée entre deux jours actifs)
+            #   ET les valeurs trop petites (ex: 5t pour un PL qui exige ≥15t)
+            # COÛT: identique à un NewIntVar classique (pas de BoolVar supplémentaire)
+            domain = cp_model.Domain.FromIntervals([[0, 0], [_lb_scaled, _ub_scaled]])
+            x[(f_idx, d_idx)] = model.NewIntVarFromDomain(
+                domain, f"x_{f_idx}_{d_idx}"
+            )
         else:
             x[(f_idx, d_idx)] = model.NewConstant(0)
-
-# ✅ CONTRAINTE : pour chaque agriculteur et chaque jour de sa fenêtre,
-# la livraison est soit 0, soit ≥ minimum selon l'accessibilité
-# (évite les trous vides ET les valeurs trop petites comme 5t pour un PL)
-for f_idx, farmer in enumerate(farmers):
-    _min_tons_f  = _get_min_tons(farmer)
-    _lb_scaled_f = int(_min_tons_f * SCALE)
-    _ndays_f2    = max(1, len(farmer.window))
-    _avg_rate_f  = farmer.tonnage / _ndays_f2
-    _ub_f        = max(int(_avg_rate_f * SCALE * 3.0), _lb_scaled_f * 2, 1)
-
-    for d_idx, date in enumerate(all_dates):
-        if date not in farmer.window:
-            continue
-        var = x[(f_idx, d_idx)]
-        # Contrainte "ou 0 ou ≥ min" (contrainte semi-continue OR-Tools)
-        b = model.NewBoolVar(f"active_{f_idx}_{d_idx}")
-        model.Add(var >= _lb_scaled_f).OnlyEnforceIf(b)
-        model.Add(var == 0).OnlyEnforceIf(b.Not())
-        model.Add(var <= _ub_f).OnlyEnforceIf(b)
 
 # Constraint 1: Tonnage per farmer (±5%)
 for f_idx, farmer in enumerate(farmers):
