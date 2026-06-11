@@ -221,14 +221,26 @@ def dfs_to_excel(sheets: dict) -> bytes:
                 # Identifier colonnes spéciales
                 comm_col_idx = None
                 pic_col_idx  = None
+                manquants_col_idx = None
+                dispo_col_idx = None
                 for i, col in enumerate(df_clean.columns, start=1):
                     col_str = str(col).strip().lower()
                     if col_str == "commercial":
                         comm_col_idx = i
                     if "pic" in col_str:
                         pic_col_idx = i
+                    if "manquant" in col_str or "à louer" in col_str:
+                        manquants_col_idx = i
+                    if "disponible" in col_str:
+                        dispo_col_idx = i
 
                 # Style cellules
+                from openpyxl.styles import PatternFill as _PF, Font as _F
+                RED_FILL = _PF("solid", start_color="FFC7CE", end_color="FFC7CE")
+                RED_FONT = _F(bold=True, color="9C0006", name="Calibri", size=10)
+                GREEN_FILL = _PF("solid", start_color="C6EFCE", end_color="C6EFCE")
+                GREEN_FONT = _F(bold=True, color="006100", name="Calibri", size=10)
+                
                 for r in range(2, n_rows + 2):
                     for c in range(1, n_cols + 1):
                         cell = ws.cell(row=r, column=c)
@@ -248,6 +260,21 @@ def dfs_to_excel(sheets: dict) -> bytes:
                         if "PIC" in pic_val.upper():
                             ws.cell(row=r, column=pic_col_idx).fill = PIC_FILL
                             ws.cell(row=r, column=pic_col_idx).font = Font(bold=True, color="996600")
+                    
+                    # ✅ Colorer ROUGE la colonne "Manquants" si valeur > 0
+                    if manquants_col_idx:
+                        m_cell = ws.cell(row=r, column=manquants_col_idx)
+                        try:
+                            v = float(m_cell.value) if m_cell.value not in (None, "") else 0
+                            if v > 0:
+                                m_cell.fill = RED_FILL
+                                m_cell.font = RED_FONT
+                            elif v == 0 and dispo_col_idx:
+                                # 0 manquant = OK → vert subtil
+                                m_cell.fill = GREEN_FILL
+                                m_cell.font = GREEN_FONT
+                        except (ValueError, TypeError):
+                            pass
 
                 # Largeur colonnes
                 for col_idx, col in enumerate(df_clean.columns, start=1):
@@ -1721,6 +1748,58 @@ with tab1:
                                 "Pic de Récolte","Note"] if c in p.columns]
     p_display = p[display_cols].sort_values("Date").reset_index(drop=True)
     
+    # ✅ NOUVEAU : Ajouter colonnes "Disponibles" et "Manquants" pour chaque ligne
+    # Permet de voir d'un coup d'œil combien de véhicules manquent à louer
+    _FLEET_AVAILABILITY = {
+        # Source: transport_etat_final.xlsx (nb de véhicules confirmés par usine)
+        "SICAM":    {"PL":48, "PPL":6,  "SEMI":13, "TRACTEUR":0},
+        "TUCAL":    {"PL":17, "PPL":0,  "SEMI":2,  "TRACTEUR":0, "PL_bourak":6},   # +6 PL via BOURAK
+        "COMOCAP":  {"PL":6,  "PPL":14, "SEMI":3,  "TRACTEUR":10, "PL_luimeme":3, "PPL_luimeme":4},  # +3PL +4PPL via LUIMEME
+        "ABIDA":    {"PL":1,  "PPL":0,  "SEMI":2,  "TRACTEUR":0},
+        "ELFALLEH": {"PL":0,  "PPL":2,  "SEMI":0,  "TRACTEUR":0},
+    }
+    
+    def _compute_availability(row):
+        """Calcule disponibles + manquants pour une ligne du planning."""
+        usine = str(row.get("Usine","")).upper().strip()
+        veh_type = str(row.get("Type Véhicule","")).upper().strip()
+        requis = pd.to_numeric(row.get("Véhicules Requis", 0), errors="coerce")
+        if pd.isna(requis):
+            requis = 0
+        requis = int(requis)
+        
+        # Récupérer la dispo pour cette usine + ce véhicule
+        fleet = _FLEET_AVAILABILITY.get(usine, {})
+        dispo = fleet.get(veh_type, 0)
+        # Ajouter les jokers selon le véhicule
+        if veh_type == "PL":
+            dispo += fleet.get("PL_bourak", 0) + fleet.get("PL_luimeme", 0)
+        elif veh_type == "PPL":
+            dispo += fleet.get("PPL_luimeme", 0)
+        
+        manque = max(0, requis - dispo)
+        return pd.Series({
+            "Disponibles": dispo if requis > 0 else 0,
+            "Manquants (à louer)": manque,
+        })
+    
+    # Appliquer le calcul si les colonnes existent
+    if "Véhicules Requis" in p_display.columns and "Type Véhicule" in p_display.columns and "Usine" in p_display.columns:
+        _availability = p_display.apply(_compute_availability, axis=1)
+        p_display["Disponibles"] = _availability["Disponibles"].astype(int)
+        p_display["Manquants (à louer)"] = _availability["Manquants (à louer)"].astype(int)
+        # Réordonner les colonnes : placer Disponibles + Manquants juste après "Véhicules Requis"
+        new_order = []
+        for c in p_display.columns:
+            new_order.append(c)
+            if c == "Véhicules Requis":
+                if "Disponibles" not in new_order:
+                    new_order.extend(["Disponibles", "Manquants (à louer)"])
+        # Dédoublonner en gardant l'ordre
+        seen = set()
+        new_order = [c for c in new_order if not (c in seen or seen.add(c))]
+        p_display = p_display[new_order]
+    
     # Appliquer le filtre de recherche
     if search_farmer.strip():
         mask = p_display["Agriculteur"].astype(str).str.upper().str.contains(
@@ -1738,7 +1817,8 @@ with tab1:
         p_display,
         use_container_width=True, height=280,
     )
-    _planning_export = p[display_cols].sort_values("Date").reset_index(drop=True)
+    # ✅ Exporter p_display (qui contient Disponibles + Manquants), pas l'original
+    _planning_export = p_display.copy()
     col_dl1, col_dl2, col_dl3 = st.columns(3)
     with col_dl1:
         st.download_button(
