@@ -1765,6 +1765,8 @@ for (comm, agri), decl in _decl_by_agri.items():
             _is_semi_rm = (f.allowed_veh == ["SEMI"] or str(f.access).upper() == "RM")
             break
 
+    if not _is_semi_rm:
+        continue
     remaining_diff = diff  # positif = trop planifié, négatif = trop peu
 
     if _is_semi_rm and diff > 0:
