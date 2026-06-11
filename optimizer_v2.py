@@ -1215,64 +1215,54 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0):
         if not real_caps:
             return _alloc_theory(veh, qty)
         
-        result   = []
-        remaining = qty
-        
-        for cap in real_caps:   # triées décroissant
+        # ✅ ALGORITHME SOLDE DYNAMIQUE — ZÉRO BENNE FICTIVE
+        # Si le reste ne peut pas remplir une vraie benne du tableau → annoter comme solde
+        # Affichage : PL(25t)+1.5 solde | PL(25t)+1.5 solde
+        # MAX_SOLDE = 4t fixe OU dynamique si reste < plus petite benne non utilisée
+
+        if not real_caps:
+            return _alloc_theory(veh, qty)
+
+        MAX_SOLDE_FIXE = 4.0   # solde max fixe annoté sur bennes existantes
+
+        result    = []
+        remaining = round(qty, 1)
+
+        for idx, cap in enumerate(real_caps):
             if remaining <= 0:
                 break
+            # ✅ CLE : calculer la plus petite benne ENCORE DISPONIBLE (non utilisée)
+            # Si le reste est trop petit pour remplir cette benne → l'annoter comme solde
+            used = len(result)
+            caps_restantes = real_caps[used:]
+            min_dispo = min(caps_restantes) if caps_restantes else cap
+
+            # Annoter comme solde si :
+            # - Solde fixe ≤ 4t, OU
+            # - Reste < min benne disponible (impossible de remplir une vraie benne)
+            if result and (remaining <= MAX_SOLDE_FIXE or remaining < min_dispo * 0.5):
+                break   # garder remaining comme solde
+
             actual_load = min(cap, remaining)
-            # ✅ CORRECTION Bug 1: ne jamais abandonner des tonnes restantes
-            # Avant: si remaining < mn_veh → break → tonnes perdues
-            # Ex: 40t en PL → PL(25t) | PL(22t) = 47t alors qu'il faut PL(25t) | PL(15t) = 40t
-            # Après: on charge toujours le reste réel même si < capacité min théorique
-            result.append({"vehicle": veh, "trips": 1,
-                           "tons_each": round(actual_load, 1),
-                           "real_cap": round(cap, 1)})
+            result.append({
+                "vehicle":  veh,
+                "trips":    1,
+                "tons_each": round(actual_load, 1),
+                "real_cap": round(cap, 1),
+                "solde":    0.0,
+            })
             remaining = round(remaining - actual_load, 1)
-        
-        # ✅ Gérer le reste < mn_veh avec un véhicule plus petit
-        # IMPORTANT: respecter l'accessibilité — ne PAS passer en PPL si non autorisé
-        if remaining > 0.1:
-            # Mapping véhicule plus petit
-            SMALLER_DEFAULT = {"SEMI": "PL", "PL": "PPL", "PPL": "PPL"}
-            small_veh = SMALLER_DEFAULT.get(veh, "PPL")
-            
-            # ✅ VÉRIFIER que small_veh est dans allowed (accessibilité)
-            if small_veh not in allowed:
-                # PL non autorisé → essayer SEMI (si dispo) ou rester sur véhicule courant
-                # PPL non autorisé → essayer PL puis SEMI
-                if veh == "PL" and "SEMI" in allowed:
-                    small_veh = "SEMI"
-                elif veh == "PPL" and "PL" in allowed:
-                    small_veh = "PL"
-                elif "PL" in allowed:
-                    small_veh = "PL"
-                elif "SEMI" in allowed:
-                    small_veh = "SEMI"
-                else:
-                    # Aucune alternative valide → rester sur le véhicule courant
-                    # même si la dernière benne n'est pas pleine
-                    small_veh = veh
-            
-            small_caps = []
-            if usine_name and usine_name in REAL_FLEET:
-                small_caps = list(REAL_FLEET[usine_name].get(small_veh, []))
-            if small_caps:
-                for scap in small_caps:
-                    if remaining <= 0: break
-                    sload = min(scap, remaining)
-                    result.append({"vehicle": small_veh, "trips": 1,
-                                   "tons_each": round(sload, 1),
-                                   "real_cap": round(scap, 1)})
-                    remaining = round(remaining - sload, 1)
-            else:
-                # Fallback: forcer dans small_veh (qui est maintenant dans allowed)
-                mn_s, mx_s = FLEET_CAPACITY.get(small_veh, (6, 14))
-                n = max(1, math.ceil(remaining / mx_s))
-                each = round(remaining / n, 1)
-                result.append({"vehicle": small_veh, "trips": n,
-                               "tons_each": each, "real_cap": None})
+
+        # Distribuer le solde sur les bennes existantes
+        if remaining > 0.05 and result:
+            nb = len(result)
+            solde_base = math.floor(remaining / nb * 10) / 10
+            solde_last = round(remaining - solde_base * (nb - 1), 1)
+            for i in range(nb):
+                result[i]["solde"] = solde_last if i == nb - 1 else solde_base
+            remaining = 0
+
+        return result if result else _alloc_theory(veh, qty)
         
         return result if result else _alloc_theory(veh, qty)
     
@@ -1514,22 +1504,28 @@ for (nom, usine, date), data in consolidated.items():
     for v in vehicles:
         if v.get('tons_each', 0) <= 0:
             continue
-        veh  = v['vehicle']
-        load = v.get('tons_each', 0)
-        cap  = v.get('real_cap', None)   # capacité réelle du camion dans le tableau
-        n    = v.get('trips', 1)
-        
-        # ✅ CORRECTION Bug 2: toujours afficher la charge réelle livrée (tons_each)
-        # et NON la capacité physique du camion (real_cap).
-        # PL(15t) = ce camion livre 15t aujourd'hui, même si sa capacité max est 22t.
-        # C'est la seule valeur cohérente avec la colonne Tonnes/Jour du planning.
-        # Avant: PL(22t) affiché même si le camion ne livre que 15t → incohérence
-        # Après: PL(15t) → total affiché = total livré ✅
+        veh   = v['vehicle']
+        load  = v.get('tons_each', 0)
+        n     = v.get('trips', 1)
+        solde = v.get('solde', 0.0)  # ✅ solde additionnel à afficher
+
+        # ✅ Afficher la charge réelle livrée (tons_each) + solde si > 0
+        # Exemples d'affichage :
+        #   PL(25t)          → charge normale, benne du tableau
+        #   PL(25t)+1.5 solde → benne du tableau + 1.5t de solde réparti
         disp_load = int(load) if float(load) == int(float(load)) else round(float(load), 1)
+
         if n > 1:
-            veh_parts.append(f"{veh} x{n}({disp_load}t)")
+            part = f"{veh} x{n}({disp_load}t)"
         else:
-            veh_parts.append(f"{veh}({disp_load}t)")
+            part = f"{veh}({disp_load}t)"
+
+        # Ajouter annotation solde si non nul
+        if solde and solde > 0.05:
+            disp_solde = int(solde) if float(solde) == int(float(solde)) else round(float(solde), 1)
+            part = f"{part}+{disp_solde} solde"
+
+        veh_parts.append(part)
     
     # ✅ Fallback intelligent : utiliser le PREMIER véhicule AUTORISÉ
     # (pas un POILOUR hardcodé qui violerait l'accessibilité de l'agriculteur)
