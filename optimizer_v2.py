@@ -61,11 +61,21 @@ COMMERCIAL_CAPS_DOUBLE = {
     "JILANI OBAY":       150,
 }
 FACTORY_CAPS = {
-    "SICAM":    1500,   # cap officiel
-    "TUCAL":     800,   # cap officiel
-    "COMOCAP":   800,   # cap officiel (corrigé de 850)
-    "ABIDA":     200,   # cap officiel (corrigé de 170)
-    "ELFALLEH":  150,   # cap officiel
+    # ✅ CAP = capacité PHYSIQUE max de l'usine (info, jamais utilisé comme contrainte)
+    "SICAM":    1500,
+    "TUCAL":     800,
+    "COMOCAP":   800,
+    "ABIDA":     200,
+    "ELFALLEH":  150,
+}
+FACTORY_LIMITS = {
+    # ✅ LIMITE = ce qu'on AUTORISE à envoyer (toujours < CAP pour marge de sécurité)
+    # C'est CETTE valeur qui sert de contrainte dure dans l'optimizer
+    "SICAM":    1300,   # 200t de marge sous cap 1500
+    "TUCAL":     700,   # 100t de marge sous cap 800
+    "COMOCAP":   700,   # 100t de marge sous cap 800
+    "ABIDA":     200,   # marge 0 (limite = cap)
+    "ELFALLEH":  150,   # marge 0 (limite = cap)
 }
 
 # ✅ MARGE pour absorber l'arrondi à la dizaine
@@ -890,15 +900,15 @@ def get_real_cap(usine):
     Plancher = cap_théorique/2 pour éviter INFEASIBLE si transport très bas.
     Si transport non encore complété, on autorise jusqu'au cap théorique.
     """
-    cap_theorique  = FACTORY_CAPS.get(usine, 2000)
+    # ✅ Utiliser FACTORY_LIMITS (limite planification) au lieu de FACTORY_CAPS
+    cap_theorique  = FACTORY_LIMITS.get(usine, FACTORY_CAPS.get(usine, 2000))
     transport_conf = TRANSPORT_CONFIRMED.get(usine, {}).get("total", cap_theorique)
     joker_pl       = JOKER_ALLOC.get(usine, {}).get("PL_joker", 0)
     joker_ppl      = JOKER_ALLOC.get(usine, {}).get("PPL_joker", 0)
     cap_transport  = transport_conf + joker_pl + joker_ppl
-    # Plancher = cap_théorique pour garantir la faisabilité
-    # (le transport est en cours de confirmation — on ne bloque pas le plan)
+    # Plancher = limite_planification pour garantir la faisabilité
     cap_reel = min(cap_theorique, max(cap_transport, cap_theorique))
-    return cap_reel  # = cap_theorique tant que transport < théorique
+    return cap_reel  # = limite tant que transport < limite
 
 # Factory caps — SOUPLE (pénalité) appliqué TOUTE LA SAISON
 # ✅ Une usine ne devrait jamais dépasser sa capacité, MAIS certaines usines
@@ -928,15 +938,16 @@ for d_idx, date in enumerate(all_dates):
         model.Add(overflow >= 0)
         factory_overflows.append(overflow * FACTORY_OVERFLOW_WEIGHT)
 
-print("  Caps journaliers (transport confirmé vs cap théorique):")
-for usine in FACTORY_CAPS:
-    cap_th  = FACTORY_CAPS[usine]
+print("  Limites planification vs cap usine (transport confirmé):")
+for usine in FACTORY_LIMITS:
+    cap_th  = FACTORY_CAPS[usine]        # cap physique (info)
+    lim     = FACTORY_LIMITS[usine]      # limite planification (contrainte)
     cap_tr  = TRANSPORT_CONFIRMED.get(usine, {}).get("total", cap_th)
     jok     = JOKER_ALLOC.get(usine, {}).get("PL_joker", 0) + JOKER_ALLOC.get(usine, {}).get("PPL_joker", 0)
     cap_r   = get_real_cap(usine)
-    manque  = cap_th - cap_tr - jok
-    status  = f"✅ complet" if manque <= 0 else f"⚠️ manque {manque}t/j de bennes"
-    print(f"    {usine:<12}: théorique={cap_th} | confirmé={cap_tr}+{jok}j | utilisé={cap_r} | {status}")
+    manque  = lim - cap_tr - jok
+    status  = f"✅ transport OK" if manque <= 0 else f"⚠️ manque {manque}t/j de bennes"
+    print(f"    {usine:<12}: CAP={cap_th} | LIMITE={lim} | transport_dispo={cap_tr}+{jok}j | utilisé={cap_r} | {status}")
 
 # Constraint 4 SUPPRIMÉE (peak avg cap) — cause INFEASIBLE
 # Constraint 5 SUPPRIMÉE (lissage) — cause INFEASIBLE avec ub=1.0
@@ -1917,17 +1928,18 @@ for comm in COMMERCIAL_CAPS:
     print(f"    {comm:<20}: max PIC={mx_pic:.0f}t/j | max hors-pic={mx_all:.0f}t/j | "
           f"limite={cap}t {ok_pic} | 🚛 max véhicules/jour={max_veh_day} ({max_veh_date})")
 print()
-print("  Factory caps (vérification PIC UNIQUEMENT 1-15 Juillet):")
+print("  Vérification LIMITES usine (PIC UNIQUEMENT 1-15 Juillet):")
 factory_start_ts = pd.Timestamp(FACTORY_CAP_START)
 factory_end_ts   = pd.Timestamp(FACTORY_CAP_END)
-for fact, cap in FACTORY_CAPS.items():
+for fact, lim in FACTORY_LIMITS.items():
     sub = result_df[result_df["Usine"]==fact].copy()
     if sub.empty: continue
     sub_pic = sub[(sub["Date"] >= factory_start_ts) & (sub["Date"] <= factory_end_ts)]
     mx_pic  = sub_pic.groupby("Date")["Tonnes/Jour"].sum().max() if not sub_pic.empty else 0
     mx_all  = sub.groupby("Date")["Tonnes/Jour"].sum().max()
-    ok_pic  = "✅" if mx_pic <= cap else "❌ DEPASSE PENDANT PIC"
-    print(f"    {fact:<12}: max PIC={mx_pic:.0f}t/j | max hors-pic={mx_all:.0f}t/j | limite={cap}t {ok_pic}")
+    cap_phys = FACTORY_CAPS[fact]
+    ok_pic  = "✅" if mx_pic <= lim else f"❌ DEPASSE LIMITE (cap={cap_phys})"
+    print(f"    {fact:<12}: max PIC={mx_pic:.0f}t/j | max hors-pic={mx_all:.0f}t/j | LIMITE={lim}t / cap={cap_phys}t  {ok_pic}")
 print()
 print("  Next: python migrate.py")
 print(f"{'='*60}")
