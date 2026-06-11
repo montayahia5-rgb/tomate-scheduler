@@ -733,7 +733,9 @@ class Farmer:
         # dans la fenêtre → OR-Tools peut distribuer sur plus de jours.
         # choose_vehicles applique ensuite la règle progressive (60/90/120t).
         if self.allowed_veh == ["SEMI"]:
-            _max_per_day = 30.0
+            # Règle RM progressive : minimum 60t/j (2 Semi) dès le 1er jour
+            # → la fenêtre est calculée sur 60t/j pour que OR-Tools distribue correctement
+            _max_per_day = 60.0
             _daily_check = self.tonnage / n_days
             if _daily_check > _max_per_day:
                 _days_needed_semi = math.ceil(self.tonnage / _max_per_day)
@@ -1365,22 +1367,14 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0, 
         return best
 
     # ── CAS SPÉCIAL : SEMI seul / RM (Gafsa/Kasserine — ACHREF) ─────────────
-    # Règle RM progressive (demande client) :
-    #   j1 (rm_day_rank=0) : minimum 2 Semi = 60t
-    #   j2 (rm_day_rank=1) : minimum 3 Semi = 90t
-    #   j3+ (rm_day_rank≥2): minimum 4 Semi = 120t
+    # Règle RM progressive : le tonnage OR-Tools détermine le nb de Semi.
+    # Min 60t/j (2 Semi) appliqué dans la fenêtre de maturation de l'agriculteur.
+    # choose_vehicles affiche simplement nb = round(tons/30).
     if allowed == ["SEMI"]:
         SEMI_CAP = 30.0
         if tons <= 0:
             return []
-        # Minimum selon rang du jour de livraison
-        if rm_day_rank == 0:
-            min_semi = 2   # j1 → min 60t
-        elif rm_day_rank == 1:
-            min_semi = 3   # j2 → min 90t
-        else:
-            min_semi = 4   # j3+ → min 120t
-        nb_semi = max(min_semi, int(round(tons / SEMI_CAP)))
+        nb_semi = max(1, int(round(tons / SEMI_CAP)))
         return [{"vehicle": "SEMI", "trips": nb_semi,
                  "tons_each": SEMI_CAP, "real_cap": SEMI_CAP, "solde": 0.0}]
 
@@ -2059,14 +2053,11 @@ for _, row in pivot.iterrows():
 
 # Écrire en-têtes
 h_cols = ["Commercial","Agriculteur","Usine","Region","Accessibilite","Total Saison"]
-date_labels = [d.strftime("%-d/%m") if hasattr(d, 'strftime') else str(d) for d in all_pivot_dates]
-# Windows n'a pas %-d → utiliser %d
+# Format date Windows-compatible (pas de %-d)
 date_labels = []
 for d in all_pivot_dates:
-    try:
-        date_labels.append(d.strftime("%-d/%m"))
-    except Exception:
-        date_labels.append(d.strftime("%d/%m").lstrip("0") or "0")
+    label = d.strftime("%d/%m").lstrip("0") if d.strftime("%d/%m")[0] == "0" else d.strftime("%d/%m")
+    date_labels.append(label)
 
 all_h_headers = h_cols + date_labels
 col_widths_h   = [14, 26, 10, 12, 12, 12] + [7] * len(date_labels)
