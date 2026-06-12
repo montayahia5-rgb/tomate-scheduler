@@ -849,17 +849,107 @@ for region, dists in sorted(by_region.items()):
         print(f"    {region:<15}: avg {sum(valid)/len(valid):.0f}km to assigned usine")
 
 # ============================================================
+# P1 FIX — Pré-allocation RM : séquence 60/90/120t exacte
+# ============================================================
+def build_rm_schedule(tonnage: float) -> list:
+    """
+    Calcule la séquence exacte de livraisons pour un agriculteur RM/SEMI.
+    Règle: j1=60t, j2=90t, j3+=120t, dernier jour = reste exact.
+    Total == tonnage déclaré (écart=0).
+    Exemples:
+      250t → [60, 90, 100]   total=250 ✅
+      300t → [60, 90, 120, 30] total=300 ✅
+      600t → [60, 90, 120, 120, 120, 90] total=600 ✅
+       60t → [60]            total=60  ✅
+    """
+    sequence  = []
+    remaining = round(float(tonnage), 1)
+    if remaining <= 0:
+        return sequence
+    # Jour 1 : min 60t
+    j1 = min(60.0, remaining)
+    sequence.append(round(j1, 1))
+    remaining = round(remaining - j1, 1)
+    if remaining <= 0:
+        return sequence
+    # Jour 2 : min 90t
+    j2 = min(90.0, remaining)
+    sequence.append(round(j2, 1))
+    remaining = round(remaining - j2, 1)
+    # Jours suivants : 120t ou reste
+    while remaining > 0.1:
+        if remaining <= 120.0:
+            sequence.append(round(remaining, 1))
+            remaining = 0.0
+        else:
+            sequence.append(120.0)
+            remaining = round(remaining - 120.0, 1)
+    return sequence
+
+def is_rm_farmer(farmer) -> bool:
+    return farmer.allowed_veh == ["SEMI"] or str(farmer.access).strip().upper() == "RM"
+
+# ============================================================
 # STEP 3: OR-Tools model with distance objective
 # ============================================================
-print("\nBuilding OR-Tools model with distance optimization...")
+print("\nP1 Fix: Pré-allocation RM (règle 60/90/120t)...")
+
+# Séparer RM (pré-alloués) et non-RM (OR-Tools)
+rm_farmers    = [f for f in farmers if is_rm_farmer(f)]
+nonrm_farmers = [f for f in farmers if not is_rm_farmer(f)]
+
+# Pré-calculer les jours de livraison RM
+rm_fixed_days = []
+for farmer in rm_farmers:
+    sequence    = build_rm_schedule(farmer.tonnage)
+    dates_avail = sorted(farmer.window.keys())
+    # Étendre la fenêtre si pas assez de jours pour la séquence
+    if len(sequence) > len(dates_avail):
+        last_d = dates_avail[-1]
+        while len(dates_avail) < len(sequence):
+            last_d = clamp_date(last_d + datetime.timedelta(days=1))
+            if last_d not in dates_avail:
+                dates_avail.append(last_d)
+        print(f"    ⚠️ {farmer.name}: fenêtre étendue à {len(dates_avail)}j pour séquence {sequence}")
+    for i, tons in enumerate(sequence):
+        if i >= len(dates_avail):
+            break
+        date    = dates_avail[i]
+        nb_semi = max(1, int(round(tons / 30.0)))
+        veh_str = f"SEMI x{nb_semi}(30t)" if nb_semi > 1 else "SEMI(30t)"
+        rm_fixed_days.append({
+            "Commercial":    farmer.commercial,
+            "Agriculteur":   farmer.name,
+            "Usine":         farmer.usine,
+            "Region":        farmer.geo_region,
+            "Zone":          farmer.zone,
+            "Accessibilite": farmer.access,
+            "Date":          date,
+            "Tonnes/Jour":   round(tons, 1),
+            "Type Vehicule": "SEMI",
+            "Vehicules":     veh_str,
+            "Nb Voyages":    nb_semi,
+            "Distance km":   farmer.distance_km if farmer.distance_km < 999 else 0,
+            "Date Debut":    farmer.start,
+            "Date Fin":      farmer.end,
+            "Total Tonnes":  farmer.tonnage,
+            "Pic de Recolte": "PIC" if PEAK_START <= date <= PEAK_END else "",
+            "Note":          "RM-pre-alloc",
+        })
+
+rm_total_decl = sum(f.tonnage for f in rm_farmers)
+rm_total_plan = sum(r["Tonnes/Jour"] for r in rm_fixed_days)
+print(f"  RM: {len(rm_farmers)} farmers | déclaré={rm_total_decl:.0f}t | planifié={rm_total_plan:.0f}t | écart={rm_total_plan-rm_total_decl:+.1f}t")
+print(f"  Non-RM: {len(nonrm_farmers)} farmers → OR-Tools")
+print("\nBuilding OR-Tools model (non-RM uniquement)...")
 
 SCALE = 10
-MAX_SOLVE_SECONDS = 300  # 5 minutes solver pour trouver vraie solution optimale
+MAX_SOLVE_SECONDS = 300
 
-all_dates   = sorted({d for f in farmers for d in f.window.keys()})
+all_dates   = sorted({d for f in nonrm_farmers for d in f.window.keys()})
 date_to_idx = {d: i for i, d in enumerate(all_dates)}
 N_DATES     = len(all_dates)
-N_FARM      = len(farmers)
+N_FARM      = len(nonrm_farmers)
 
 # ✅ Minimum journalier selon l'accessibilité du véhicule
 # Un agriculteur PL ne peut pas avoir 5t/jour → minimum = capacité min du véhicule
@@ -897,24 +987,19 @@ def _get_min_tons(farmer):
 model = cp_model.CpModel()
 
 x = {}
-for f_idx, farmer in enumerate(farmers):
+for f_idx, farmer in enumerate(nonrm_farmers):
     _ndays_f   = max(1, len(farmer.window))
     _avg_rate  = farmer.tonnage / _ndays_f
     _ub_scaled = max(int(_avg_rate * SCALE * 3.0), 1)
 
     for d_idx, date in enumerate(all_dates):
         if date in farmer.window:
-            # ✅ NewIntVar classique [0, ub] — pas de Domain semi-continu
-            # Le Domain {0}∪[lb,ub] forçait OR-Tools à concentrer les tonnes
-            # sur peu de jours (1226 lignes au lieu de 3152) car il préférait
-            # mettre 0 plutôt que de satisfaire lb=60t sur chaque jour.
-            # Le minimum par accessibilité est géré en post-traitement.
             x[(f_idx, d_idx)] = model.NewIntVar(0, _ub_scaled, f"x_{f_idx}_{d_idx}")
         else:
             x[(f_idx, d_idx)] = model.NewConstant(0)
 
-# Constraint 1: Tonnage per farmer (±5%)
-for f_idx, farmer in enumerate(farmers):
+# Constraint 1: Tonnage per farmer (±2%)
+for f_idx, farmer in enumerate(nonrm_farmers):
     total_scaled   = int(farmer.tonnage * SCALE)
     window_max     = int(sum(farmer.window.values()) * SCALE)
     effective      = min(total_scaled, window_max)
@@ -926,7 +1011,7 @@ for f_idx, farmer in enumerate(farmers):
 # ── Pré-calcul des caps effectifs (UNE seule fois, avant les boucles) ──────
 # Évite le spam ⚠️ × N_DATES et calcule correctement le besoin réel
 comm_effective_caps = {}
-for comm in set(f.commercial for f in farmers):
+for comm in set(f.commercial for f in nonrm_farmers):
     cap_declared  = COMMERCIAL_CAPS.get(comm, 1200)
     total_comm_t  = sum(f.tonnage for f in farmers if f.commercial == comm)
     cap_needed    = math.ceil(total_comm_t / N_DATES) if N_DATES > 0 else cap_declared
@@ -944,17 +1029,15 @@ CAP_PERIOD_SPECIAL = {
     "JILANI OBAY": (datetime.date(2026, 7, 1), datetime.date(2026, 7, 12)),
     "KHALIL":      (datetime.date(2026, 7, 1), datetime.date(2026, 7, 12)),
 }
-COMM_OVERFLOW_WEIGHT = 30   # pénalité par tonne au-dessus du cap double commercial
+COMM_OVERFLOW_WEIGHT = 30
 comm_overflows = []
 for d_idx, date in enumerate(all_dates):
     by_comm = defaultdict(list)
-    for f_idx, f in enumerate(farmers):
+    for f_idx, f in enumerate(nonrm_farmers):
         by_comm[f.commercial].append(x[(f_idx, d_idx)])
     for comm, vs in by_comm.items():
         cap_double = COMMERCIAL_CAPS_DOUBLE.get(comm, comm_effective_caps.get(comm, 1200))
         cap_scaled = int(cap_double * SCALE)
-        # Cap commercial SOUPLE: dépassement du cap double pénalisé
-        # (le cap double est déjà un plafond généreux = jours doubles)
         c_total = model.NewIntVar(0, int(cap_double * SCALE * 5), f"comm_{d_idx}_{hash(comm)%10000}")
         model.Add(c_total == sum(vs))
         c_ovf = model.NewIntVar(0, int(cap_double * SCALE * 5), f"comm_ovf_{d_idx}_{hash(comm)%10000}")
@@ -990,11 +1073,11 @@ def get_real_cap(usine):
 # jours au lieu de bloquer), et le plan reste réalisable.
 FACTORY_CAP_START = datetime.date(2026, 7, 1)
 FACTORY_CAP_END   = datetime.date(2026, 7, 15)
-FACTORY_OVERFLOW_WEIGHT = 500   # pénalité TRÈS FORTE par tonne au-dessus de LIMITE (était 50)
+FACTORY_OVERFLOW_WEIGHT = 500
 factory_overflows = []
 for d_idx, date in enumerate(all_dates):
     by_fact = defaultdict(list)
-    for f_idx, f in enumerate(farmers):
+    for f_idx, f in enumerate(nonrm_farmers):
         by_fact[f.usine].append(x[(f_idx, d_idx)])
     for fact, vs in by_fact.items():
         # ✅ Utiliser LIMITE (pas CAP physique) comme contrainte
@@ -1044,7 +1127,7 @@ DISTANCE_WEIGHT  = 3   # higher = favor closer usines
 deviations = []
 distance_costs = []
 
-for f_idx, farmer in enumerate(farmers):
+for f_idx, farmer in enumerate(nonrm_farmers):
     dist_norm = min(farmer.distance_km, 300)
     dist_coeff = int(dist_norm * DISTANCE_WEIGHT // 100) + 1
     for d_idx, date in enumerate(all_dates):
@@ -1091,7 +1174,7 @@ if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
     daily_comm  = defaultdict(lambda: defaultdict(float))   # [date][commercial]
     daily_fact  = defaultdict(lambda: defaultdict(float))   # [date][usine]
 
-    for fi, farmer in enumerate(farmers):
+    for fi, farmer in enumerate(nonrm_farmers):
         remaining = farmer.tonnage
         # Distribution uniforme sur toute la fenêtre (pas concentrée sur premiers jours)
         # Chaque jour de la fenêtre reçoit le taux journalier naturel
@@ -1502,7 +1585,7 @@ all_days = []
 # (ex: 2 parcelles HAFEDH MOSBE × 10t = 1 voyage PL de 20t au lieu de 2)
 from collections import defaultdict as _dd_cons
 consolidated = _dd_cons(lambda: {"tons": 0, "farmer": None, "parcelles": []})
-for f_idx, farmer in enumerate(farmers):
+for f_idx, farmer in enumerate(nonrm_farmers):
     for d_idx, date in enumerate(all_dates):
         tons = solution[(f_idx, d_idx)]
         if tons <= 0.5: continue
@@ -1664,6 +1747,10 @@ for (nom, usine, date), data in consolidated.items():
         "Note":          note,
     })
 
+# ✅ FUSION RM pré-alloués + non-RM OR-Tools
+all_days.extend(rm_fixed_days)
+print(f"  Lignes: {len(all_days)-len(rm_fixed_days)} non-RM + {len(rm_fixed_days)} RM = {len(all_days)} total")
+
 # ── POST-TRAITEMENT TONNAGE: récupérer les tonnes perdues par l'arrondi ─
 # Si total planifié d'un agriculteur < total déclaré × 98%,
 # augmenter certains jours de 10t pour combler le manque
@@ -1751,28 +1838,25 @@ for comm, decl in _decl_by_comm.items():
 # → recalcul en direct depuis all_days pour éviter les effets de bord
 _corrections = 0
 for (comm, agri), decl in _decl_by_agri.items():
-    # ✅ RECALCUL EN TEMPS RÉEL depuis all_days (pas depuis _plan_by_agri figé)
-    # Évite la sur-correction : si on a déjà modifié des jours, on prend en compte
+    # ✅ SKIP correction pour les RM — tonnage exact garanti par pré-allocation
+    _farmer_ref = next((f for f in farmers if f.commercial == comm and f.name == agri), None)
+    if _farmer_ref and is_rm_farmer(_farmer_ref):
+        continue  # RM exact → pas de correction nécessaire
+
     plan = sum(r["Tonnes/Jour"] for r in all_days
                if r["Commercial"] == comm and r["Agriculteur"] == agri)
     diff = round(plan - decl, 1)
     if abs(diff) < 0.5:
         continue
     agri_indices = [i for i, r in enumerate(all_days)
-                    if r["Commercial"] == comm and r["Agriculteur"] == agri]
+                    if r["Commercial"] == comm and r["Agriculteur"] == agri
+                    and r.get("Note") != "RM-pre-alloc"]
     if not agri_indices:
         continue
     agri_indices.sort(key=lambda i: all_days[i]["Date"])
 
-    _farmer_ref = None
-    _min_t = 10
-    _is_semi_rm = False
-    for f in farmers:
-        if f.commercial == comm and f.name == agri:
-            _farmer_ref = f
-            _min_t      = _get_min_tons(f)
-            _is_semi_rm = (f.allowed_veh == ["SEMI"] or str(f.access).upper() == "RM")
-            break
+    _min_t = _get_min_tons(_farmer_ref) if _farmer_ref else 10
+    _is_semi_rm = False  # déjà skipé au dessus pour les vrais RM
 
     remaining_diff = diff  # positif = trop planifié, négatif = trop peu
 
