@@ -1870,8 +1870,7 @@ for (comm, agri), decl in _decl_by_agri.items():
         continue
     agri_indices.sort(key=lambda i: all_days[i]["Date"])
 
-    _min_t = _get_min_tons(_farmer_ref) if _farmer_ref else 10
-    _is_semi_rm = False  # déjà skipé au dessus pour les vrais RM
+    continue  # SKIP correction non-SEMI
 
     remaining_diff = diff  # positif = trop planifié, négatif = trop peu
 
