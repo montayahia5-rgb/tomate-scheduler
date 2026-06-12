@@ -2101,7 +2101,8 @@ COLS1 = ["Commercial","Agriculteur","Usine","Region","Zone","Accessibilite",
          "Date","Tonnes/Jour","Type Vehicule","Vehicules","Nb Voyages",
          "Distance km","Date Debut","Date Fin","Total Tonnes","Pic de Recolte","Note"]
 W1 = [15,24,10,12,14,11,12,10,13,38,9,11,12,12,12,10,14]
-disp = result_df.copy(); disp.columns = COLS1
+# ✅ Supprimer la colonne _is_rm (interne) avant l'export Excel
+disp = result_df[COLS1].copy()
 style_ws(ws1, COLS1, W1, "1F4E79")
 write_df(ws1, disp)
 
