@@ -1015,8 +1015,9 @@ for f_idx, farmer in enumerate(nonrm_farmers):
             # × 1.5 = tolérance modérée (un jour "double" = 1.5× la courbe naturelle)
             # ce qui empêche OR-Tools de mettre 100t là où la courbe prévoit 35t
             day_planned = farmer.window[date]
-            _ub_day = max(int(day_planned * SCALE * 1.5), int(_get_min_tons(farmer) * SCALE))
+            _ub_day = max(int(day_planned * SCALE * 2.0), int(_get_min_tons(farmer) * SCALE))
             x[(f_idx, d_idx)] = model.NewIntVar(0, _ub_day, f"x_{f_idx}_{d_idx}")
+
         else:
             x[(f_idx, d_idx)] = model.NewConstant(0)
 
@@ -1285,7 +1286,9 @@ if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
                 solution[(fi, di)] = 0.0
 else:
     solution = {(fi, di): solver.Value(x[(fi, di)]) / SCALE
-                for fi in range(N_FARM) for di in range(N_DATES)}
+                    for fi in range(N_FARM) for di in range(N_DATES)}
+
+
 
 # ============================================================
 # STEP 5: Build output
