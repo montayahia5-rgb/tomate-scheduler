@@ -1009,17 +1009,26 @@ for f_idx, farmer in enumerate(nonrm_farmers):
     model.Add(sum(x[(f_idx, d)] for d in range(N_DATES)) <= effective + tolerance)
 
 # ── Pré-calcul des caps effectifs (UNE seule fois, avant les boucles) ──────
-# Évite le spam ⚠️ × N_DATES et calcule correctement le besoin réel
 comm_effective_caps = {}
 for comm in set(f.commercial for f in nonrm_farmers):
     cap_declared  = COMMERCIAL_CAPS.get(comm, 1200)
-    total_comm_t  = sum(f.tonnage for f in farmers if f.commercial == comm)
+    total_comm_t  = sum(f.tonnage for f in nonrm_farmers if f.commercial == comm)
     cap_needed    = math.ceil(total_comm_t / N_DATES) if N_DATES > 0 else cap_declared
     cap_effective = max(cap_declared, cap_needed)
     comm_effective_caps[comm] = cap_effective
     if cap_effective > cap_declared:
         print(f"    ⚠️  {comm}: cap ajusté {cap_declared}→{cap_effective}t/j "
               f"(tonnage={total_comm_t:,.0f}t / {N_DATES}j = {cap_needed}t/j requis)")
+
+# ✅ Pré-calcul des livraisons RM par (date, commercial) et (date, usine)
+# OR-Tools doit soustraire ces tonnages des caps pour ne pas surcharger
+_rm_by_date_comm = defaultdict(lambda: defaultdict(float))
+_rm_by_date_usine = defaultdict(lambda: defaultdict(float))
+for row in rm_fixed_days:
+    d = row["Date"]
+    _rm_by_date_comm[d][row["Commercial"]]  += row["Tonnes/Jour"]
+    _rm_by_date_usine[d][row["Usine"]]      += row["Tonnes/Jour"]
+print(f"  RM offset: {len(rm_fixed_days)} livraisons pré-allouées incluses dans les caps OR-Tools")
 
 # Constraint 2: Commercial daily cap — UNIQUEMENT pendant le pic
 # Caps s'appliquent du 1-15 juillet pour tous les commerciaux
@@ -1036,8 +1045,11 @@ for d_idx, date in enumerate(all_dates):
     for f_idx, f in enumerate(nonrm_farmers):
         by_comm[f.commercial].append(x[(f_idx, d_idx)])
     for comm, vs in by_comm.items():
-        cap_double = COMMERCIAL_CAPS_DOUBLE.get(comm, comm_effective_caps.get(comm, 1200))
-        cap_scaled = int(cap_double * SCALE)
+        cap_double  = COMMERCIAL_CAPS_DOUBLE.get(comm, comm_effective_caps.get(comm, 1200))
+        # ✅ Soustraire les tonnes RM déjà planifiées ce jour pour ce commercial
+        rm_offset   = _rm_by_date_comm[date].get(comm, 0.0)
+        cap_restant = max(0.0, cap_double - rm_offset)
+        cap_scaled  = int(cap_restant * SCALE)
         c_total = model.NewIntVar(0, int(cap_double * SCALE * 5), f"comm_{d_idx}_{hash(comm)%10000}")
         model.Add(c_total == sum(vs))
         c_ovf = model.NewIntVar(0, int(cap_double * SCALE * 5), f"comm_ovf_{d_idx}_{hash(comm)%10000}")
@@ -1080,18 +1092,16 @@ for d_idx, date in enumerate(all_dates):
     for f_idx, f in enumerate(nonrm_farmers):
         by_fact[f.usine].append(x[(f_idx, d_idx)])
     for fact, vs in by_fact.items():
-        # ✅ Utiliser LIMITE (pas CAP physique) comme contrainte
+        # ✅ Soustraire les tonnes RM déjà planifiées ce jour pour cette usine
         cap_reel_brut = FACTORY_LIMITS.get(fact, get_real_cap(fact))
         cap_reel = max(20, cap_reel_brut)
-        cap_scaled = int(cap_reel * SCALE)
-        # ✅ CONTRAINTE DURE : on autorise petit dépassement (~5%) pour faisabilité
-        # mais on pénalise FORTEMENT pour forcer le solveur à étaler
-        cap_dur = int(cap_reel * SCALE * 1.05)   # marge 5% pour faisabilité
+        rm_offset_f  = _rm_by_date_usine[date].get(fact, 0.0)
+        cap_net      = max(10, cap_reel - rm_offset_f)
+        cap_scaled   = int(cap_net * SCALE)
+        cap_dur      = int(cap_net * SCALE * 1.05)
         total_day = model.NewIntVar(0, cap_dur, f"fact_{fact}_{d_idx}")
         model.Add(total_day == sum(vs))
-        # ✅ CONTRAINTE DURE : total ≤ LIMITE + 5%
         model.Add(total_day <= cap_dur)
-        # Pénalité forte sur tout dépassement de LIMITE pure
         overflow = model.NewIntVar(0, int(cap_reel * SCALE * 0.1), f"ovf_{fact}_{d_idx}")
         model.Add(overflow >= total_day - cap_scaled)
         model.Add(overflow >= 0)
