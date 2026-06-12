@@ -1009,13 +1009,14 @@ model = cp_model.CpModel()
 
 x = {}
 for f_idx, farmer in enumerate(nonrm_farmers):
-    _ndays_f   = max(1, len(farmer.window))
-    _avg_rate  = farmer.tonnage / _ndays_f
-    _ub_scaled = max(int(_avg_rate * SCALE * 3.0), 1)
-
     for d_idx, date in enumerate(all_dates):
         if date in farmer.window:
-            x[(f_idx, d_idx)] = model.NewIntVar(0, _ub_scaled, f"x_{f_idx}_{d_idx}")
+            # ✅ Borne supérieure JOURNALIÈRE basée sur la COURBE de maturation
+            # × 1.5 = tolérance modérée (un jour "double" = 1.5× la courbe naturelle)
+            # ce qui empêche OR-Tools de mettre 100t là où la courbe prévoit 35t
+            day_planned = farmer.window[date]
+            _ub_day = max(int(day_planned * SCALE * 1.5), int(_get_min_tons(farmer) * SCALE))
+            x[(f_idx, d_idx)] = model.NewIntVar(0, _ub_day, f"x_{f_idx}_{d_idx}")
         else:
             x[(f_idx, d_idx)] = model.NewConstant(0)
 
