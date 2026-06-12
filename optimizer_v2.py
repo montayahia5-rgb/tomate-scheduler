@@ -1870,14 +1870,20 @@ for comm, decl in _decl_by_comm.items():
     print(f"      {comm:<20}: déclaré={decl:>8.0f}t | planifié={plan:>8.0f}t | diff={diff:+.0f}t")
 
 # Correction par AGRICULTEUR sur son DERNIER JOUR
-# → recalcul en direct depuis all_days pour éviter les effets de bord
+# → DÉSACTIVÉE pour non-SEMI : la correction empire systématiquement
+#   les résultats (transforme -94t en +798t). On garde uniquement les RM
+#   qui sont déjà exacts par pré-allocation.
 _corrections = 0
 for (comm, agri), decl in _decl_by_agri.items():
-    # ✅ SKIP correction pour les RM — tonnage exact garanti par pré-allocation
+    # ✅ SKIP correction pour TOUS — la correction empire les résultats
+    # Les RM sont déjà exacts par pré-allocation
+    # Les non-RM gardent les valeurs OR-Tools (écart total < 0.3%)
+    continue
+
+    # --- Code mort ci-dessous, conservé pour référence ---
     _farmer_ref = next((f for f in farmers if f.commercial == comm and f.name == agri), None)
     if _farmer_ref and is_rm_farmer(_farmer_ref):
-        continue  # RM exact → pas de correction nécessaire
-
+        continue
     plan = sum(r["Tonnes/Jour"] for r in all_days
                if r["Commercial"] == comm and r["Agriculteur"] == agri)
     diff = round(plan - decl, 1)
