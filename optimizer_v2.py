@@ -935,6 +935,7 @@ for farmer in rm_farmers:
             "Total Tonnes":  farmer.tonnage,
             "Pic de Recolte": "PIC" if PEAK_START <= date <= PEAK_END else "",
             "Note":          "RM-pre-alloc",
+            "_is_rm":        True,
         })
 
 rm_total_decl = sum(f.tonnage for f in rm_farmers)
@@ -1755,6 +1756,7 @@ for (nom, usine, date), data in consolidated.items():
         "Total Tonnes":  farmer.tonnage,
         "Pic de Recolte":"PIC" if PEAK_START <= date <= PEAK_END else "",
         "Note":          note,
+        "_is_rm":        False,
     })
 
 # ✅ FUSION RM pré-alloués + non-RM OR-Tools
@@ -1797,9 +1799,12 @@ for row in all_days:
 
 nb_jours_doubles = 0
 for row in all_days:
+    # ✅ Ne JAMAIS écraser la note RM-pre-alloc (sinon la correction post-traitement casse)
+    if row.get("_is_rm", False):
+        continue
     key = (row["Commercial"], row["Date"])
     cap_norm = CAPS_NORMAL.get(row["Commercial"], 1000)
-    if day_tonnage[key] > cap_norm * 1.05:   # +5% de tolérance
+    if day_tonnage[key] > cap_norm * 1.05:
         row["Note"] = "AI-optimise + JOUR DOUBLE"
         nb_jours_doubles += 1
     else:
@@ -1860,7 +1865,7 @@ for (comm, agri), decl in _decl_by_agri.items():
         continue
     agri_indices = [i for i, r in enumerate(all_days)
                     if r["Commercial"] == comm and r["Agriculteur"] == agri
-                    and r.get("Note") != "RM-pre-alloc"]
+                    and not r.get("_is_rm", False)]
     if not agri_indices:
         continue
     agri_indices.sort(key=lambda i: all_days[i]["Date"])
