@@ -761,32 +761,47 @@ class Farmer:
                 self.end = clamp_date(self.end + datetime.timedelta(days=_extra))
                 n_days = max(1, (self.end - self.start).days + 1)
 
-        # ✅ COURBE DE MATURATION
-        #   - KHALIL seulement (Sidi Bouzid / Bouficha / Kairouan) :
-        #     courbe en cloche 20% / 60% / 20% sur 20% / 50% / 30% du temps
-        #   - Autres commerciaux : distribution UNIFORME (tonnage / ndays)
-        def _build_bell_window(start, ndays, tonnage):
-            """Courbe en cloche 20/60/20 — pour KHALIL uniquement"""
-            if ndays <= 1:
+        # ✅ COURBE DE MATURATION — basée sur la réalité agronomique
+        # La tomate NE MÛRIT PAS uniformément :
+        #   - Début de fenêtre : lente montée (plant en maturation)
+        #   - Milieu de fenêtre : PIC de récolte (tomate prête = jours doubles ici)
+        #   - Fin de fenêtre : déclin progressif (fin de récolte)
+        #
+        # Courbes par commercial/région :
+        #   KHALIL (Kairouan/Bouficha/Sidi Bouzid) : 15% / 65% / 20%
+        #     sur 20% / 55% / 25% du temps
+        #   TOUS AUTRES (FEDI, MAKKI, JILANI, ACHREF hors RM) : 10% / 70% / 20%
+        #     sur 15% / 60% / 25% du temps
+        #   → Les jours doubles tombent au milieu (70% du tonnage) pas au début
+
+        def _build_maturation_window(start, ndays, tonnage, pct_debut, pct_milieu,
+                                     time_debut, time_milieu):
+            """
+            Courbe de maturation réaliste.
+            pct_debut/milieu/fin = % du tonnage sur chaque phase
+            time_debut/milieu = % du temps sur chaque phase (le reste = fin)
+            """
+            if ndays <= 2:
                 return {start: round(tonnage, 1)}
-            n_debut  = max(1, round(ndays * 0.20))
-            n_milieu = max(1, round(ndays * 0.50))
+
+            n_debut  = max(1, round(ndays * time_debut))
+            n_milieu = max(1, round(ndays * time_milieu))
             n_fin    = ndays - n_debut - n_milieu
             if n_fin < 1:
                 n_fin = 1
-                if n_milieu > 1:
-                    n_milieu -= 1
-                elif n_debut > 1:
-                    n_debut -= 1
-            # ✅ Distribution KHALIL: 20% / 60% / 20%
-            t_debut  = tonnage * 0.20
-            t_milieu = tonnage * 0.60
-            t_fin    = tonnage - t_debut - t_milieu   # = 20% (reste exact)
+                if n_milieu > 1: n_milieu -= 1
+                else:            n_debut  = max(1, n_debut - 1)
+
+            pct_fin = 1.0 - pct_debut - pct_milieu
+            t_debut  = tonnage * pct_debut
+            t_milieu = tonnage * pct_milieu
+            t_fin    = tonnage - t_debut - t_milieu   # = exact, pas de perte d'arrondi
+
             d_debut  = t_debut  / n_debut
             d_milieu = t_milieu / n_milieu
-            d_fin    = t_fin    / n_fin
-            win = {}
-            idx = 0
+            d_fin    = t_fin    / max(1, n_fin)
+
+            win = {}; idx = 0
             for _ in range(n_debut):
                 win[start + datetime.timedelta(days=idx)] = round(d_debut, 1);  idx += 1
             for _ in range(n_milieu):
@@ -795,21 +810,26 @@ class Farmer:
                 win[start + datetime.timedelta(days=idx)] = round(d_fin, 1);    idx += 1
             return win
 
-        def _build_uniform_window(start, ndays, tonnage):
-            """Distribution uniforme — pour tous sauf KHALIL"""
-            if ndays <= 1:
-                return {start: round(tonnage, 1)}
-            d = tonnage / ndays
-            return {start + datetime.timedelta(days=i): round(d, 1)
-                    for i in range(ndays)}
-
-        # ✅ Choix du modèle selon le commercial
         _is_khalil = str(self.commercial).strip().upper() == "KHALIL"
+
         if _is_khalil:
-            self.window = _build_bell_window(self.start, n_days, self.tonnage)
+            # KHALIL — Kairouan / Bouficha / Sidi Bouzid (climat continental)
+            # Maturité plus longue, pic plus tardif :
+            # 20% / 60% / 20% du tonnage sur 20% / 50% / 30% du temps
+            self.window = _build_maturation_window(
+                self.start, n_days, self.tonnage,
+                pct_debut=0.20, pct_milieu=0.60,
+                time_debut=0.20, time_milieu=0.50,
+            )
         else:
-            self.window = _build_uniform_window(self.start, n_days, self.tonnage)
-        daily = self.tonnage / n_days   # moyenne (pour stats/affichage)
+            # FEDI / MAKKI / JILANI / ACHREF (non-RM) — Cap Bon / Nord
+            # Maturité plus rapide, pic au tiers :
+            # 20% / 60% / 20% du tonnage sur 30% / 50% / 20% du temps
+            self.window = _build_maturation_window(
+                self.start, n_days, self.tonnage,
+                pct_debut=0.20, pct_milieu=0.60,
+                time_debut=0.30, time_milieu=0.50,
+            )
 
 farmers = [Farmer(row, date_cols) for _, row in df.iterrows()]
 
@@ -1870,7 +1890,8 @@ for (comm, agri), decl in _decl_by_agri.items():
         continue
     agri_indices.sort(key=lambda i: all_days[i]["Date"])
 
-    continue  # SKIP correction non-SEMI
+    _min_t = _get_min_tons(_farmer_ref) if _farmer_ref else 10
+    _is_semi_rm = False  # déjà skipé au dessus pour les vrais RM
 
     remaining_diff = diff  # positif = trop planifié, négatif = trop peu
 
