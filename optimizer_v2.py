@@ -1670,7 +1670,7 @@ for (nom, usine, date), data in consolidated.items():
         if tons == 0 and tons_brut >= 15:
             tons = 30
     else:
-        tons = int(round(round(tons_brut, 1) / 5)) * 5
+        tons = int(round(round(tons_brut, 1) / 10)) * 10
         _min_t_agri = _get_min_tons(farmer)
         if tons == 0 and tons_brut > 0:
             tons = _min_t_agri
