@@ -1108,7 +1108,7 @@ def get_real_cap(usine):
 # jours au lieu de bloquer), et le plan reste réalisable.
 FACTORY_CAP_START = datetime.date(2026, 7, 1)
 FACTORY_CAP_END   = datetime.date(2026, 7, 15)
-FACTORY_OVERFLOW_WEIGHT = 500
+FACTORY_OVERFLOW_WEIGHT = 2000
 factory_overflows = []
 for d_idx, date in enumerate(all_dates):
     by_fact = defaultdict(list)
@@ -1670,7 +1670,7 @@ for (nom, usine, date), data in consolidated.items():
         if tons == 0 and tons_brut >= 15:
             tons = 30
     else:
-        tons = int(round(round(tons_brut, 1) / 10)) * 10
+        tons = int(round(round(tons_brut, 1) / 5)) * 5
         _min_t_agri = _get_min_tons(farmer)
         if tons == 0 and tons_brut > 0:
             tons = _min_t_agri
