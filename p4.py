@@ -1,0 +1,6 @@
+﻿f=open('optimizer_v2.py','r',encoding='utf-8')
+c=f.read()
+f.close()
+c=c.replace('and r.get("Note") != "RM-pre-alloc"]','and not r.get("_is_rm", False)]',1)
+open('optimizer_v2.py','w',encoding='utf-8').write(c)
+print('OK 4')

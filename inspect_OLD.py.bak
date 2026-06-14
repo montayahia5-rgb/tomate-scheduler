@@ -1,0 +1,23 @@
+﻿# Lire le fichier optimizer_v2.py du PC et trouver le code REEL
+c = open('optimizer_v2.py','r',encoding='utf-8').read()
+lines = c.split(chr(10))
+
+# 1. Verifier la creation de variable
+print('=== 1. Creation variable OR-Tools (lignes 1010-1025) ===')
+for i in range(1010, 1025):
+    if i < len(lines):
+        print(str(i+1) + ': ' + lines[i])
+
+# 2. Chercher si un fallback existe
+print()
+print('=== 2. Code fallback (si OR-Tools echoue) ===')
+for i, line in enumerate(lines):
+    if 'fallback' in line.lower() or 'INFEASIBLE' in line or 'No solution' in line:
+        print(str(i+1) + ': ' + line)
+
+# 3. Verifier le status apres solver
+print()
+print('=== 3. Status apres solve ===')
+for i, line in enumerate(lines):
+    if 'solver.Solve' in line or 'status' in line.lower() and i < 1300 and i > 1100:
+        print(str(i+1) + ': ' + line.strip()[:120])

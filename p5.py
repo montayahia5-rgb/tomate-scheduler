@@ -1,0 +1,6 @@
+﻿f=open('optimizer_v2.py','r',encoding='utf-8')
+c=f.read()
+f.close()
+c=c.replace('disp = result_df.copy(); disp.columns = COLS1','disp = result_df[COLS1].copy()',1)
+open('optimizer_v2.py','w',encoding='utf-8').write(c)
+print('OK 5')
