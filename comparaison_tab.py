@@ -162,10 +162,12 @@ def _build_entity_sheet(ws, name, man_dict, ort_dict, cap, hex_color):
 
     # Lignes de données
     data_rows = []
+    _man_str = {str(k):v for k,v in man_dict.items()}
+    _ort_str = {str(k):v for k,v in ort_dict.items()}
     for d in SEASON:
         dk = d.date()
-        mv = man_dict.get(dk, 0)
-        ov = ort_dict.get(dk, 0)
+        mv = _man_str.get(str(dk), 0)
+        ov = _ort_str.get(str(dk), 0)
         if mv == 0 and ov == 0:
             continue
         data_rows.append((d, dk, mv, ov))
@@ -338,8 +340,8 @@ def _build_synthese_sheet(ws, all_man_comm, all_ort_comm, all_man_usine, all_ort
     usine_order= ["SICAM","TUCAL","COMOCAP","ELFALLEH","ABIDA"]
 
     for ci, comm in enumerate(comm_order):
-        man  = all_man_comm.get(comm, {})
-        ort  = all_ort_comm.get(comm, {})
+        man  = {str(k):v for k,v in all_man_comm.get(comm, {}).items()}
+        ort  = {str(k):v for k,v in all_ort_comm.get(comm, {}).items()}
         alld = sorted(set(list(man.keys())+list(ort.keys())))
         mt   = sum(man.get(d,0) for d in alld); ot = sum(ort.get(d,0) for d in alld)
         ec   = mt-ot; pct = round(ec/ot*100,1) if ot>0 else 0
@@ -368,8 +370,8 @@ def _build_synthese_sheet(ws, all_man_comm, all_ort_comm, all_man_usine, all_ort
     ws.row_dimensions[row].height = 16; row += 1
 
     for ui, usine in enumerate(usine_order):
-        man  = all_man_usine.get(usine, {})
-        ort  = all_ort_usine.get(usine, {})
+        man  = {str(k):v for k,v in all_man_usine.get(usine, {}).items()}
+        ort  = {str(k):v for k,v in all_ort_usine.get(usine, {}).items()}
         alld = sorted(set(list(man.keys())+list(ort.keys())))
         mt   = sum(man.get(d,0) for d in alld); ot = sum(ort.get(d,0) for d in alld)
         ec   = mt-ot; pct = round(ec/ot*100,1) if ot>0 else 0
@@ -420,13 +422,13 @@ def _build_synthese_sheet(ws, all_man_comm, all_ort_comm, all_man_usine, all_ort
         row_vals = [d.strftime("%d/%m/%Y"), DAYS_FR[d.weekday()]]
         tot_m = 0; tot_o = 0
         for comm in comm_order:
-            mv = all_man_comm.get(comm,{}).get(dk,0)
-            ov = all_ort_comm.get(comm,{}).get(dk,0)
+            mv = {str(k):v for k,v in all_man_comm.get(comm,{}).items()}.get(str(dk),0)
+            ov = {str(k):v for k,v in all_ort_comm.get(comm,{}).items()}.get(str(dk),0)
             tot_m += mv; tot_o += ov
             row_vals += [int(mv) if mv>0 else "", int(ov) if ov>0 else ""]
         for usine in usine_order:
-            mv = all_man_usine.get(usine,{}).get(dk,0)
-            ov = all_ort_usine.get(usine,{}).get(dk,0)
+            mv = {str(k):v for k,v in all_man_usine.get(usine,{}).items()}.get(str(dk),0)
+            ov = {str(k):v for k,v in all_ort_usine.get(usine,{}).items()}.get(str(dk),0)
             tot_m += mv; tot_o += ov
             row_vals += [int(mv) if mv>0 else "", int(ov) if ov>0 else ""]
         ec_d = tot_m - tot_o
