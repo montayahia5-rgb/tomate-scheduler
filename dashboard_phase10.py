@@ -2134,6 +2134,7 @@ else:
         "📊 Prévisions Déc→Mai→Juin",
         "🌾 Gestion Agriculteurs",
         "📤 Upload Planning",
+        "📊 Comparaison Plans",
     ])
 
 # ── TAB 1: DAILY PLANNING ────────────────────────────────────
