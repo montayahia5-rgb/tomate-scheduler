@@ -670,7 +670,12 @@ def _kpi_row(name, man_dict, ort_dict, cap):
 
 
 def _build_chart(name, man_dict, ort_dict, color, cap):
-    all_d = sorted(set(list(man_dict.keys())+list(ort_dict.keys())))
+    # Normaliser toutes les cles en string pour eviter TypeError
+    man_str = {str(k): v for k, v in man_dict.items()}
+    ort_str = {str(k): v for k, v in ort_dict.items()}
+    all_d = sorted(set(list(man_str.keys())+list(ort_str.keys())))
+    man_dict = man_str
+    ort_dict = ort_str
     dates = [pd.Timestamp(d) for d in all_d]
     mv    = [man_dict.get(d,0) for d in all_d]
     ov    = [ort_dict.get(d,0) for d in all_d]
