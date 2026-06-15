@@ -47,7 +47,18 @@ MANUAL_STATS = {
     "ACHREF AJLANI":  {"total":17486,"max_j":570, "n_jours":61,"cap":700},
     "JILANI OBAY":    {"total":7000, "max_j":450, "n_jours":25,"cap":150},
 }
+USINE_STATS = {
+    "SICAM":   {"total":44871,"max_j":1650,"n_jours":67,"cap_officiel":1300},
+    "TUCAL":   {"total":20525,"max_j":700, "n_jours":52,"cap_officiel":700},
+    "COMOCAP": {"total":20391,"max_j":875, "n_jours":50,"cap_officiel":700},
+    "ELFALLEH":{"total":5190, "max_j":240, "n_jours":38,"cap_officiel":150},
+    "ABIDA":   {"total":8010, "max_j":320, "n_jours":55,"cap_officiel":200},
+}
 USINE_CAPS = {"SICAM":1300,"TUCAL":700,"COMOCAP":700,"ELFALLEH":150,"ABIDA":200}
+# Caps officiels (limites de l'usine) — le plan rectifie peut les depasser
+# ELFALLEH cap=150t/j mais le plan manuel monte jusqu'a 240t/j (jours doubles autorises)
+# ABIDA cap=200t/j mais le plan monte jusqu'a 320t/j (depassement connu)
+USINE_CAPS_PLAN = {"SICAM":1300,"TUCAL":700,"COMOCAP":700,"ELFALLEH":240,"ABIDA":320}
 
 USINE_DAILY_PDF = {
     "SICAM":[0,0,140,170,220,220,260,320,320,415,515,625,560,910,1090,1170,1285,
@@ -62,12 +73,15 @@ USINE_DAILY_PDF = {
                760,760,755,785,775,785,826,875,805,760,755,625,610,650,595,540,500,
                490,490,455,455,390,340,280,200,150,100,100,100,80,80,80,80,70,40,
                0,0,0,0,0,0,0,0,0,0,0],
-    "ELFALLEH":[0,0,0,0,0,0,0,0,0,20,50,50,40,40,30,40,60,60,60,60,60,60,60,60,
-                40,40,40,40,40,50,40,50,75,60,60,60,60,80,80,80,80,80,80,70,70,60,
-                20,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    "ABIDA":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,50,100,150,200,200,210,
-             220,230,240,250,260,270,280,290,300,300,310,310,315,315,320,310,300,280,
-             260,230,200,170,140,110,80,60,40,30,20,0,0,0,0,0,0,0,0,0,0],
+    # Source: Re_ception_Pre_v_TF_Fallah_26.xlsx — total reel 5190t / 38 jours
+    "ELFALLEH":[0,0,0,0,0,0,0,0,40,70,70,105,105,115,125,165,215,215,230,230,240,
+                225,235,215,175,155,155,140,130,120,130,155,140,140,130,110,130,130,
+                130,110,110,80,70,70,60,20,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    # Source: Re_ception_Pre_v_TF_ABIDA26.xlsx — total reel 8010t
+    "ABIDA":[0,0,0,0,0,0,0,0,30,80,80,120,140,140,140,170,170,200,200,200,240,270,
+             250,230,290,320,190,180,190,220,220,210,110,110,110,110,110,70,70,20,20,
+             80,140,170,170,110,90,60,60,60,60,60,60,60,120,210,270,300,270,210,60,
+             90,90,0,0,0,0],
 }
 
 ORT_COMM_BASE = {
@@ -107,28 +121,6 @@ ORT_USINE_BASE = {
                306,293,250,247,197,160,118,45,40,15,15,8]) if v>0},
     "ELFALLEH":{},
     "ABIDA":   {},
-}
-
-# ── Normaliser toutes les cles des dicts de reference en string ──
-# (evite le TypeError entre datetime.date et str dans les lookups)
-ORT_COMM_BASE = {
-    comm: {str(k): v for k, v in d.items()}
-    for comm, d in ORT_COMM_BASE.items()
-}
-ORT_USINE_BASE = {
-    usine: {str(k): v for k, v in d.items()}
-    for usine, d in ORT_USINE_BASE.items()
-}
-
-# ── Normaliser toutes les cles des dicts de reference en string ──
-# (evite le TypeError entre datetime.date et str dans les lookups)
-ORT_COMM_BASE = {
-    comm: {str(k): v for k, v in d.items()}
-    for comm, d in ORT_COMM_BASE.items()
-}
-ORT_USINE_BASE = {
-    usine: {str(k): v for k, v in d.items()}
-    for usine, d in ORT_USINE_BASE.items()
 }
 
 # ── Helpers openpyxl ─────────────────────────────────────────
@@ -184,12 +176,10 @@ def _build_entity_sheet(ws, name, man_dict, ort_dict, cap, hex_color):
 
     # Lignes de données
     data_rows = []
-    _man_str = {str(k):v for k,v in man_dict.items()}
-    _ort_str = {str(k):v for k,v in ort_dict.items()}
     for d in SEASON:
         dk = d.date()
-        mv = _man_str.get(str(dk), 0)
-        ov = _ort_str.get(str(dk), 0)
+        mv = man_dict.get(dk, 0)
+        ov = ort_dict.get(dk, 0)
         if mv == 0 and ov == 0:
             continue
         data_rows.append((d, dk, mv, ov))
@@ -362,8 +352,8 @@ def _build_synthese_sheet(ws, all_man_comm, all_ort_comm, all_man_usine, all_ort
     usine_order= ["SICAM","TUCAL","COMOCAP","ELFALLEH","ABIDA"]
 
     for ci, comm in enumerate(comm_order):
-        man  = {str(k):v for k,v in all_man_comm.get(comm, {}).items()}
-        ort  = {str(k):v for k,v in all_ort_comm.get(comm, {}).items()}
+        man  = all_man_comm.get(comm, {})
+        ort  = all_ort_comm.get(comm, {})
         alld = sorted(set(list(man.keys())+list(ort.keys())))
         mt   = sum(man.get(d,0) for d in alld); ot = sum(ort.get(d,0) for d in alld)
         ec   = mt-ot; pct = round(ec/ot*100,1) if ot>0 else 0
@@ -392,8 +382,8 @@ def _build_synthese_sheet(ws, all_man_comm, all_ort_comm, all_man_usine, all_ort
     ws.row_dimensions[row].height = 16; row += 1
 
     for ui, usine in enumerate(usine_order):
-        man  = {str(k):v for k,v in all_man_usine.get(usine, {}).items()}
-        ort  = {str(k):v for k,v in all_ort_usine.get(usine, {}).items()}
+        man  = all_man_usine.get(usine, {})
+        ort  = all_ort_usine.get(usine, {})
         alld = sorted(set(list(man.keys())+list(ort.keys())))
         mt   = sum(man.get(d,0) for d in alld); ot = sum(ort.get(d,0) for d in alld)
         ec   = mt-ot; pct = round(ec/ot*100,1) if ot>0 else 0
@@ -444,13 +434,13 @@ def _build_synthese_sheet(ws, all_man_comm, all_ort_comm, all_man_usine, all_ort
         row_vals = [d.strftime("%d/%m/%Y"), DAYS_FR[d.weekday()]]
         tot_m = 0; tot_o = 0
         for comm in comm_order:
-            mv = {str(k):v for k,v in all_man_comm.get(comm,{}).items()}.get(str(dk),0)
-            ov = {str(k):v for k,v in all_ort_comm.get(comm,{}).items()}.get(str(dk),0)
+            mv = all_man_comm.get(comm,{}).get(dk,0)
+            ov = all_ort_comm.get(comm,{}).get(dk,0)
             tot_m += mv; tot_o += ov
             row_vals += [int(mv) if mv>0 else "", int(ov) if ov>0 else ""]
         for usine in usine_order:
-            mv = {str(k):v for k,v in all_man_usine.get(usine,{}).items()}.get(str(dk),0)
-            ov = {str(k):v for k,v in all_ort_usine.get(usine,{}).items()}.get(str(dk),0)
+            mv = all_man_usine.get(usine,{}).get(dk,0)
+            ov = all_ort_usine.get(usine,{}).get(dk,0)
             tot_m += mv; tot_o += ov
             row_vals += [int(mv) if mv>0 else "", int(ov) if ov>0 else ""]
         ec_d = tot_m - tot_o
@@ -694,19 +684,14 @@ def _kpi_row(name, man_dict, ort_dict, cap):
 
 
 def _build_chart(name, man_dict, ort_dict, color, cap):
-    # Normaliser toutes les cles en string pour eviter TypeError
-    man_str = {str(k): v for k, v in man_dict.items()}
-    ort_str = {str(k): v for k, v in ort_dict.items()}
-    all_d = sorted(set(list(man_str.keys())+list(ort_str.keys())))
-    man_dict = man_str
-    ort_dict = ort_str
+    all_d = sorted(set(list(man_dict.keys())+list(ort_dict.keys())))
     dates = [pd.Timestamp(d) for d in all_d]
     mv    = [man_dict.get(d,0) for d in all_d]
     ov    = [ort_dict.get(d,0) for d in all_d]
     fig   = go.Figure()
     fig.add_trace(go.Scatter(x=dates, y=mv, name="Plan Manuel rectifie",
         line=dict(color=color,width=2.5), fill="tozeroy",
-        fillcolor="rgba(59,130,246,0.08)", mode="lines"))
+        fillcolor=color+"14", mode="lines"))
     if any(v>0 for v in ov):
         fig.add_trace(go.Scatter(x=dates, y=ov, name="OR-Tools",
             line=dict(color="#ffffff",width=1.5,dash="dot"), mode="lines"))
@@ -745,11 +730,9 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
       </div>
     </div>""", unsafe_allow_html=True)
 
-    # Session state — avec restauration depuis query_params si session perdue
-    if "comp_uploaded" not in st.session_state:
-        st.session_state["comp_uploaded"] = {}
-    if "comp_raw" not in st.session_state:
-        st.session_state["comp_raw"] = {}
+    # Session state
+    if "comp_uploaded" not in st.session_state: st.session_state["comp_uploaded"] = {}
+    if "comp_raw"      not in st.session_state: st.session_state["comp_raw"]      = {}
 
     # ── ZONE UPLOAD + STATUT ────────────────────────────────
     st.subheader("Deposer les fichiers rectifies")
@@ -791,7 +774,7 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
                 st.rerun()
 
     if not st.session_state["comp_uploaded"]:
-        st.info("Aucun fichier uploade - donnees sauvegardees dans Supabase (persistant entre sessions) — courbes basees sur donnees de reference 13/06/2026.")
+        st.info("Aucun fichier uploade — courbes basees sur donnees de reference 13/06/2026.")
 
     # ── BOUTON EXPORT EXCEL PRINCIPAL ───────────────────────
     st.divider()
@@ -799,43 +782,38 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
     with col_exp1:
         st.markdown("**Export Excel comparaison complète**")
         st.caption("12 onglets : Synthèse + 5 commerciaux + 5 usines + Légende")
-        # Excel: download direct si cache, sinon generer
-        if "comp_excel_cache" in st.session_state and st.session_state["comp_excel_cache"]:
+        if st.button("⬇️ Générer & télécharger Excel", type="primary",
+                     use_container_width=True):
+            with st.spinner("Génération du fichier Excel en cours..."):
+                # Construire les dictionnaires finaux
+                man_comm = {}
+                ort_comm = {}
+                for comm in MANUAL_STATS:
+                    if comm in st.session_state["comp_uploaded"]:
+                        d = st.session_state["comp_uploaded"][comm]
+                        man_comm[comm] = {pd.Timestamp(k).date(): v for k,v in d.items()}
+                    else:
+                        ref = _build_reference_curve(comm)
+                        man_comm[comm] = {pd.Timestamp(k).date(): v for k,v in ref.items()}
+                    ort_comm[comm] = _ortools_profile(comm, planning_df, "commercial")
+
+                man_usine = {}
+                ort_usine = {}
+                for usine in USINE_CAPS:
+                    usine_vals = USINE_DAILY_PDF.get(usine, [])
+                    man_usine[usine] = {(pd.Timestamp("2026-06-20")+pd.Timedelta(days=i)).date(): v
+                                        for i,v in enumerate(usine_vals) if v>0}
+                    ort_usine[usine] = _ortools_profile(usine, planning_df, "usine")
+
+                xl_bytes = generate_comparison_excel(man_comm, ort_comm, man_usine, ort_usine)
+
             st.download_button(
-                "Telecharger Comparaison_Rectifie_vs_ORT_2026.xlsx",
-                data=st.session_state["comp_excel_cache"],
+                "📥 Télécharger Comparaison_ORT_vs_Manuel_2026.xlsx",
+                data=xl_bytes,
                 file_name="Comparaison_ORT_vs_Manuel_2026.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True, type="primary",
+                use_container_width=True,
             )
-            st.caption("Fichier pret (genere automatiquement depuis Supabase)")
-            if st.button("Regenerer Excel", use_container_width=True):
-                del st.session_state["comp_excel_cache"]
-                st.rerun()
-        else:
-            if st.button("Generer et telecharger Excel", type="primary",
-                         use_container_width=True):
-                with st.spinner("Generation du fichier Excel..."):
-                    man_comm = {}
-                    ort_comm = {}
-                    for comm in MANUAL_STATS:
-                        if comm in st.session_state["comp_uploaded"]:
-                            d = st.session_state["comp_uploaded"][comm]
-                            man_comm[comm] = {pd.Timestamp(k).date(): v for k,v in d.items()}
-                        else:
-                            ref = _build_reference_curve(comm)
-                            man_comm[comm] = {pd.Timestamp(k).date(): v for k,v in ref.items()}
-                        ort_comm[comm] = _ortools_profile(comm, planning_df, "commercial")
-                    man_usine = {}
-                    ort_usine = {}
-                    for usine in USINE_CAPS:
-                        usine_vals = USINE_DAILY_PDF.get(usine, [])
-                        man_usine[usine] = {(pd.Timestamp("2026-06-20")+pd.Timedelta(days=i)).date(): v
-                                            for i,v in enumerate(usine_vals) if v>0}
-                        ort_usine[usine] = _ortools_profile(usine, planning_df, "usine")
-                    xl_bytes = generate_comparison_excel(man_comm, ort_comm, man_usine, ort_usine)
-                st.session_state["comp_excel_cache"] = xl_bytes
-                st.rerun()
     with col_exp2:
         st.markdown("""
         <div style='background:#161b22;border:1px solid #21262d;border-radius:8px;
@@ -886,12 +864,10 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
         # Tableau pivot jour par jour (affiché dans le dashboard)
         st.markdown(f"**Tableau jour par jour — {sel_comm}**")
         pivot_rows = []
-        _man_n = {str(k):v for k,v in man_dict.items()}
-        _ort_n = {str(k):v for k,v in ort_dict.items()}
         for d in SEASON:
             dk = d.date()
-            mv = _man_n.get(str(dk), 0)
-            ov = _ort_n.get(str(dk), 0)
+            mv = man_dict.get(dk, 0)
+            ov = ort_dict.get(dk, 0)
             if mv == 0 and ov == 0: continue
             ec = mv - ov
             pivot_rows.append({
@@ -939,19 +915,21 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
                                  ["SICAM","TUCAL","COMOCAP","ELFALLEH","ABIDA"],
                                  key="comp_usine_sel")
         cap   = USINE_CAPS[sel_usine]
+        cap_plan = USINE_CAPS_PLAN.get(sel_usine, cap)  # cap reel du plan rectifie
         data_u= USINE_DAILY_PDF.get(sel_usine, [])
         dates_u=[pd.Timestamp("2026-06-20")+pd.Timedelta(days=i) for i in range(len(data_u))]
-        total_u=sum(data_u); max_u=max(data_u) if data_u else 0
-        jours_u=sum(1 for v in data_u if v>0)
+        total_u = USINE_STATS.get(sel_usine, {}).get("total", sum(data_u))
+        max_u   = USINE_STATS.get(sel_usine, {}).get("max_j", max(data_u) if data_u else 0)
+        jours_u = USINE_STATS.get(sel_usine, {}).get("n_jours", sum(1 for v in data_u if v > 0))
         pic_d=[data_u[i] for i in range(11,26) if i<len(data_u)]
         max_pic=max(pic_d) if pic_d else 0
 
         k1,k2,k3,k4,k5=st.columns(5)
-        k1.metric("Total saison", f"{int(total_u):,}t".replace(",",""))
+        k1.metric("Total saison (reel)", f"{int(total_u):,}t".replace(",",""))
         k2.metric("Max journalier", f"{max_u}t",
-                  delta="DEPASSE" if max_u>cap else "OK",
-                  delta_color="inverse" if max_u>cap else "normal")
-        k3.metric("Cap officiel", f"{cap}t/j")
+                  delta=f"cap officiel {cap}t/j" if max_u <= cap else f"+{max_u-cap}t vs cap {cap}t/j",
+                  delta_color="normal" if max_u <= cap else "inverse")
+        k3.metric("Cap officiel usine", f"{cap}t/j")
         k4.metric("Max PIC 1-15/07", f"{max_pic}t")
         k5.metric("Jours actifs", f"{jours_u}j")
 
@@ -983,12 +961,11 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
 
         # Tableau pivot usine jour par jour
         st.markdown(f"**Tableau jour par jour — {sel_usine}**")
-        man_u = {str((pd.Timestamp("2026-06-20")+pd.Timedelta(days=i)).date()):v
+        man_u = {(pd.Timestamp("2026-06-20")+pd.Timedelta(days=i)).date():v
                  for i,v in enumerate(data_u) if v>0}
-        _ort_u_n = {str(k):v for k,v in ort_u_dict.items()}
         pivot_u = []
         for d in SEASON:
-            dk=d.date(); mv=man_u.get(str(dk),0); ov=_ort_u_n.get(str(dk),0)
+            dk=d.date(); mv=man_u.get(dk,0); ov=ort_u_dict.get(dk,0)
             if mv==0 and ov==0: continue
             ec=mv-ov
             pivot_u.append({
@@ -1025,12 +1002,12 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
 
         for comm in comm_order:
             if comm in st.session_state["comp_uploaded"]:
-                d={str(pd.Timestamp(k).date()):v for k,v in st.session_state["comp_uploaded"][comm].items()}
+                d={pd.Timestamp(k).date():v for k,v in st.session_state["comp_uploaded"][comm].items()}
                 src="uploade"
             else:
-                d={str(pd.Timestamp(k).date()):v for k,v in _build_reference_curve(comm).items()}
+                d={pd.Timestamp(k).date():v for k,v in _build_reference_curve(comm).items()}
                 src="reference"
-            od={str(k):v for k,v in _ortools_profile(comm, planning_df, "commercial").items()}
+            od=_ortools_profile(comm, planning_df, "commercial")
             mt=sum(d.values()); ot=sum(od.values()) if od else 0
             mm=max(d.values()) if d else 0; om=max(od.values()) if od else 0
             ec=mt-ot; pct=round(ec/ot*100,1) if ot>0 else 0
@@ -1080,20 +1057,69 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
     # ─ C4 : CORRECTIONS OPTIMIZER ───────────────────────────
     with c4:
         st.markdown("### Corrections a appliquer dans optimizer_v2.py")
-        st.success("Configuration OPTIMALE stable - ne pas modifier")
-        st.markdown("""
-| Parametre | Valeur actuelle | Statut |
-|---|---|---|
-| Borne journaliere | day_planned x SCALE x 2.0 | OPTIMAL |
-| FACTORY_OVERFLOW_WEIGHT | 2000 | Applique |
-| Arrondi tonnage | 10t | Stable |
-| Correction post-traitement | Desactivee | OK |
-        """)
-        st.warning("**x1.1 et x1.5 causent INFEASIBLE** - teste et prouve.")
-        st.code("""Resultats actuels:
-Status: OPTIMAL (~2s) | 2630 rows | 96 676t (-0.32%)
-FEDI   : -234t (-0.7%)
-MAKKI  : +115t (+0.5%)
-ACHREF : 0t (parfait)
-KHALIL : -139t (-0.8%)
-JILANI : -125t (-1.8%)""")
+        corrs = [
+            {"n":"1","t":"Borne journaliere trop permissive (CRITIQUE)","c":"#e8543a",
+             "i":"Reduit max/agri de 870t a 200t pour FEDI/MAKKI",
+             "av":"day_planned * SCALE * 1.5",
+             "ap":"day_planned * SCALE * 1.1",
+             "ctx":"Dans la boucle creation variables OR-Tools (_ub_day):"},
+            {"n":"2","t":"Arrondi 10t -> 5t","c":"#f5a623",
+             "i":"Autorise 10t/15t/20t pour COMOCAP/TUCAL",
+             "av":"int(round(round(tons_brut, 1) / 10)) * 10",
+             "ap":"int(round(round(tons_brut, 1) / 5)) * 5",
+             "ctx":"Dans la fonction de calcul du tonnage journalier:"},
+            {"n":"3","t":"FACTORY_OVERFLOW_WEIGHT insuffisant","c":"#8b5cf6",
+             "i":"ELFALLEH 60t/j max (au lieu de 130t)",
+             "av":"FACTORY_OVERFLOW_WEIGHT = 500",
+             "ap":"FACTORY_OVERFLOW_WEIGHT = 2000",
+             "ctx":"Dans les constantes globales (debut du fichier):"},
+            {"n":"4","t":"Cap max par agriculteur selon tonnage","c":"#00e5a0",
+             "i":"Petits 30t/j | moyens 60t/j | gros 200t/j",
+             "av":"_ub_day = max(int(day_planned * SCALE * 1.5), int(_get_min_tons(farmer) * SCALE))",
+             "ap":"""if farmer.tonnage < 200:
+    _max_daily = min(30, farmer.tonnage)
+elif farmer.tonnage < 500:
+    _max_daily = min(60, farmer.tonnage / 8)
+else:
+    _max_daily = min(200, farmer.tonnage / 5)
+_cap_agri = int(_max_daily * SCALE)
+_ub_day = min(
+    max(int(day_planned * SCALE * 1.1), int(_get_min_tons(farmer) * SCALE)),
+    _cap_agri
+)""",
+             "ctx":"Dans la boucle creation variables OR-Tools:"},
+        ]
+        for corr in corrs:
+            with st.expander(f"Correction {corr['n']} — {corr['t']}",
+                             expanded=(corr["n"] in ("1","3"))):
+                st.markdown(f"<div style='color:{corr['c']};font-size:12px;font-weight:600;"
+                            f"margin-bottom:6px'>Impact : {corr['i']}</div>"
+                            f"<div style='font-size:12px;color:#8b949e;margin-bottom:4px'>"
+                            f"{corr['ctx']}</div>", unsafe_allow_html=True)
+                cl,cr=st.columns(2)
+                with cl: st.markdown("**AVANT**"); st.code(corr["av"],language="python")
+                with cr: st.markdown("**APRES**"); st.code(corr["ap"],language="python")
+
+        st.markdown("---")
+        st.markdown("### Script PowerShell (corrections 1-3 auto)")
+        st.code("""\
+@"
+f=open('optimizer_v2.py','r',encoding='utf-8')
+c=f.read()
+f.close()
+c=c.replace('day_planned * SCALE * 1.5','day_planned * SCALE * 1.1')
+c=c.replace('FACTORY_OVERFLOW_WEIGHT = 500','FACTORY_OVERFLOW_WEIGHT = 2000')
+c=c.replace('int(round(round(tons_brut, 1) / 10)) * 10','int(round(round(tons_brut, 1) / 5)) * 5')
+f=open('optimizer_v2.py','w',encoding='utf-8')
+f.write(c)
+f.close()
+print('OK - 3 corrections appliquees')
+"@ | Out-File -Encoding utf8 fix_optimizer.py
+python fix_optimizer.py""", language="powershell")
+
+        st.markdown("**Puis relancer :**")
+        st.code("""\
+cd C:\\Users\\amset\\Desktop\\Tomate_scheduler
+python optimizer_v2.py
+python migrate.py
+streamlit run dashboard_phase10.py""", language="bash")
