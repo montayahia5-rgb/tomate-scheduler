@@ -31,6 +31,12 @@ try:
 except ImportError:
     UPLOAD_AVAILABLE = False
 
+try:
+    from comparaison_tab import render_comparaison_tab
+    COMPARAISON_AVAILABLE = True
+except ImportError:
+    COMPARAISON_AVAILABLE = False
+
 # set_page_config MUST be the very first Streamlit call
 st.set_page_config(
     page_title="🍅 Tomate Planning 2026",
@@ -2116,7 +2122,7 @@ elif CURRENT_ROLE == "commercial":
 
 else:
     # Directeur : all tabs
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab_comp = st.tabs([
         "📅 Planning Journalier",
         "👤 Par Commercial",
         "🏭 Par Usine",
@@ -5642,3 +5648,11 @@ with tab10:
             GLOBAL_COMMERCIAL_TONS=GLOBAL_COMMERCIAL_TONS,
             df_to_csv=df_to_csv,
         )
+
+# ONGLET COMPARAISON PLANS
+with tab_comp:
+    if COMPARAISON_AVAILABLE:
+        render_comparaison_tab(planning_df=planning, df_to_xlsx_styled=df_to_xlsx_styled)
+    else:
+        st.error("comparaison_tab.py introuvable")
+        st.info("Mets comparaison_tab.py dans le meme dossier que dashboard_phase10.py")
