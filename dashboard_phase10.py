@@ -37,6 +37,245 @@ try:
 except ImportError:
     COMPARAISON_AVAILABLE = False
 
+# Import données rectifiées (SOURCE PRINCIPALE — reference_interne 13/06/2026)
+try:
+    from comparaison_tab import (
+        RECTIF_COMM_DAILY, RECTIF_USINE_DAILY,
+        RECTIF_COMM_DICT, RECTIF_USINE_DICT,
+        RECTIF_STATS_COMM, RECTIF_STATS_USINE,
+    )
+    RECTIF_AVAILABLE = True
+except ImportError:
+    RECTIF_AVAILABLE = False
+    # Fallback vide si comparaison_tab absent
+    RECTIF_COMM_DAILY = {}; RECTIF_USINE_DAILY = {}
+    RECTIF_COMM_DICT  = {}; RECTIF_USINE_DICT  = {}
+    RECTIF_STATS_COMM = {}; RECTIF_STATS_USINE = {}
+
+# ── Helpers données rectifiées ─────────────────────────────
+def _rectif_total_daily():
+    """DataFrame total journalier depuis données rectifiées (tous commerciaux)"""
+    import pandas as _pd
+    rows = []
+    for comm, vals in RECTIF_COMM_DAILY.items():
+        for i, v in enumerate(vals):
+            if v > 0:
+                d = _pd.Timestamp("2026-06-20") + _pd.Timedelta(days=i)
+                rows.append({"Date": d, "Tonnes/Jour": float(v), "Commercial": comm})
+    if not rows:
+        return _pd.DataFrame(columns=["Date","Tonnes/Jour","Commercial"])
+    df = _pd.DataFrame(rows)
+    return df.groupby("Date")["Tonnes/Jour"].sum().reset_index()
+
+def _rectif_comm_daily_df():
+    """DataFrame par commercial depuis données rectifiées"""
+    import pandas as _pd
+    rows = []
+    for comm, vals in RECTIF_COMM_DAILY.items():
+        for i, v in enumerate(vals):
+            if v > 0:
+                d = _pd.Timestamp("2026-06-20") + _pd.Timedelta(days=i)
+                rows.append({"Date": d, "Commercial": comm, "Tonnes/Jour": float(v)})
+    if not rows:
+        return _pd.DataFrame(columns=["Date","Commercial","Tonnes/Jour"])
+    return _pd.DataFrame(rows)
+
+def _rectif_one_comm_daily(comm):
+    """DataFrame journalier pour un commercial depuis données rectifiées"""
+    import pandas as _pd
+    vals = RECTIF_COMM_DAILY.get(comm, [])
+    rows = [{"Date": _pd.Timestamp("2026-06-20")+_pd.Timedelta(days=i), "Tonnes/Jour": float(v)}
+            for i, v in enumerate(vals) if v > 0]
+    return _pd.DataFrame(rows) if rows else _pd.DataFrame(columns=["Date","Tonnes/Jour"])
+
+def _rectif_usine_daily_df():
+    """DataFrame par usine depuis données rectifiées"""
+    import pandas as _pd
+    rows = []
+    for usine, vals in RECTIF_USINE_DAILY.items():
+        for i, v in enumerate(vals):
+            if v > 0:
+                d = _pd.Timestamp("2026-06-20") + _pd.Timedelta(days=i)
+                rows.append({"Date": d, "Usine": usine, "Tonnes/Jour": float(v)})
+    if not rows:
+        return _pd.DataFrame(columns=["Date","Usine","Tonnes/Jour"])
+    return _pd.DataFrame(rows)
+
+def _build_rectif_wide_excel(planning_df_ort=None):
+    """
+    Génère Excel avec colonnes dates (structure wide) basé sur données rectifiées.
+    Colonnes: Date | Commercial | Agriculteur | Usine | Tonnes/Jour | Type Véhicule |
+              Véhicules Requis | Disponibles | Manquants (à louer) | Nb Voyages |
+              Pic de Récolte | 20/06/2026 | 21/06/2026 | ... | 25/08/2026
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    import io as _io, pandas as _pd
+
+    SEASON_DATES = list(_pd.date_range("2026-06-20","2026-08-25",freq="D"))
+    PIC_S_ = _pd.Timestamp("2026-07-01").date()
+    PIC_E_ = _pd.Timestamp("2026-07-15").date()
+
+    wb = Workbook(); wb.remove(wb.active)
+    ws = wb.create_sheet("Planning Rectifié (Large)")
+
+    HDR_FILL = PatternFill("solid", start_color="1F3864", end_color="1F3864")
+    HDR_FONT = Font(bold=True, color="FFFFFF", name="Calibri", size=9)
+    PIC_FILL = PatternFill("solid", start_color="FFF2CC", end_color="FFF2CC")
+    GRN_FILL = PatternFill("solid", start_color="E2EFDA", end_color="E2EFDA")
+    ALT_FILL = PatternFill("solid", start_color="F8F9FA", end_color="F8F9FA")
+    WHT_FILL = PatternFill("solid", start_color="FFFFFF", end_color="FFFFFF")
+    RED_FILL = PatternFill("solid", start_color="FFC7CE", end_color="FFC7CE")
+    THIN     = Side(style="thin", color="CCCCCC")
+    BORD     = Border(left=THIN,right=THIN,top=THIN,bottom=THIN)
+    CTR      = Alignment(horizontal="center",vertical="center")
+    LFT      = Alignment(horizontal="left",  vertical="center")
+
+    COMM_FILLS = {"FEDI":"DEEBF7","MAKKI BEN SALAH":"E2EFDA","KHALIL":"FFF2CC",
+                  "ACHREF AJLANI":"EDEDED","JILANI OBAY":"FCE4D6"}
+    FLEET      = {"SICAM":{"PL":48,"PPL":6,"SEMI":13},
+                  "TUCAL":{"PL":17,"PPL":0,"SEMI":2},
+                  "COMOCAP":{"PL":6,"PPL":14,"SEMI":3},
+                  "ABIDA":{"PL":1,"PPL":0,"SEMI":2},
+                  "ELFALLEH":{"PL":0,"PPL":2,"SEMI":0}}
+
+    FIXED_HDRS = ["Date","Commercial","Agriculteur","Usine","Tonnes/Jour",
+                  "Type Véhicule","Véhicules Requis","Disponibles","Manquants (à louer)",
+                  "Nb Voyages","Pic de Récolte"]
+    DATE_HDRS  = [d.strftime("%d/%m/%Y") for d in SEASON_DATES]
+    ALL_HDRS   = FIXED_HDRS + DATE_HDRS
+    N = len(ALL_HDRS)
+
+    # Titre
+    ws.merge_cells(start_row=1,start_column=1,end_row=1,end_column=min(N,35))
+    ws.cell(1,1).value = "Planning Rectifié — SOURCE: reference_interne 13/06/2026"
+    ws.cell(1,1).font  = Font(bold=True,color="FFFFFF",name="Calibri",size=12)
+    ws.cell(1,1).fill  = HDR_FILL; ws.cell(1,1).alignment = CTR
+    ws.row_dimensions[1].height = 28
+
+    # En-têtes
+    for ci, h in enumerate(ALL_HDRS, 1):
+        c = ws.cell(2, ci); c.value = h; c.border = BORD; c.alignment = CTR
+        if ci <= len(FIXED_HDRS):
+            c.fill = HDR_FILL; c.font = HDR_FONT
+        else:
+            d_obj = SEASON_DATES[ci-len(FIXED_HDRS)-1].date()
+            c.fill = PIC_FILL if PIC_S_<=d_obj<=PIC_E_ else PatternFill("solid",start_color="1F4E79",end_color="1F4E79")
+            c.font = Font(bold=True,color="FFFFFF",name="Calibri",size=8)
+    ws.row_dimensions[2].height = 36
+
+    comm_order = ["FEDI","MAKKI BEN SALAH","KHALIL","ACHREF AJLANI","JILANI OBAY"]
+    data_row   = 3
+
+    for comm in comm_order:
+        rectif = RECTIF_COMM_DICT.get(comm, {})
+        cfill  = PatternFill("solid", start_color=COMM_FILLS.get(comm,"F0F0F0"), end_color=COMM_FILLS.get(comm,"F0F0F0"))
+
+        # Utiliser planning OR-Tools pour structure agriculteurs si disponible
+        if planning_df_ort is not None and not planning_df_ort.empty and "Commercial" in planning_df_ort.columns:
+            sub = planning_df_ort[planning_df_ort["Commercial"]==comm].copy()
+            if not sub.empty and "Agriculteur" in sub.columns:
+                sub["Date"] = _pd.to_datetime(sub["Date"],errors="coerce")
+                grps = sub.groupby(["Agriculteur","Usine"] if "Usine" in sub.columns else ["Agriculteur"])
+                for key, grp in grps:
+                    agri  = key[0] if isinstance(key,tuple) else key
+                    usine = key[1] if isinstance(key,tuple) and len(key)>1 else ""
+                    ort_d = {}
+                    if "Date" in grp.columns and "Tonnes/Jour" in grp.columns:
+                        for _, r in grp.iterrows():
+                            if _pd.notna(r["Date"]):
+                                ort_d[str(r["Date"].date())] = float(r.get("Tonnes/Jour",0) or 0)
+                    r0 = grp.iloc[0]
+                    tv  = str(r0.get("Type Véhicule","") or "").upper()
+                    vr  = str(r0.get("Véhicules Requis","") or "")
+                    nv  = str(r0.get("Nb Voyages","") or "")
+                    vr_n= int(_pd.to_numeric(vr,errors="coerce") or 0)
+                    dispo= FLEET.get(usine.upper(),{}).get(tv,0)
+                    manq = max(0,vr_n-dispo)
+                    total_ort = sum(ort_d.values())
+                    is_pic = any(PIC_S_<=_pd.Timestamp(k).date()<=PIC_E_ for k,v in ort_d.items() if v>0)
+
+                    alt = data_row%2==0; bf = ALT_FILL if alt else WHT_FILL
+                    fv = ["",comm,agri,usine,round(total_ort,0) if total_ort>0 else "",
+                          tv,vr,dispo if vr_n>0 else "",manq if vr_n>0 else "",nv,
+                          "⚡ PIC" if is_pic else ""]
+                    for ci, val in enumerate(fv,1):
+                        cell=ws.cell(data_row,ci); cell.value=val; cell.border=BORD; cell.alignment=CTR
+                        if ci==2: cell.fill=cfill; cell.font=Font(bold=True,name="Calibri",size=9)
+                        elif ci==9 and isinstance(val,int) and val>0:
+                            cell.fill=RED_FILL; cell.font=Font(bold=True,name="Calibri",size=9,color="9C0006")
+                        else: cell.fill=bf; cell.font=Font(name="Calibri",size=9)
+                    for di,d in enumerate(SEASON_DATES):
+                        dk=str(d.date()); val=ort_d.get(dk,"")
+                        if val==0: val=""
+                        ci2=len(FIXED_HDRS)+di+1
+                        cell=ws.cell(data_row,ci2)
+                        cell.value=int(val) if val!="" else ""; cell.border=BORD; cell.alignment=CTR
+                        is_pic_d=PIC_S_<=d.date()<=PIC_E_
+                        cell.fill=PIC_FILL if (is_pic_d and val!="") else (GRN_FILL if val!="" else bf)
+                        cell.font=Font(name="Calibri",size=8)
+                    ws.row_dimensions[data_row].height=15; data_row+=1
+                continue  # prochain commercial
+
+        # Fallback: ligne agrégée rectifiée
+        total_rect=sum(float(v) for v in rectif.values())
+        alt=data_row%2==0; bf=ALT_FILL if alt else WHT_FILL
+        fv=["",comm,"(total commercial)","Toutes usines",round(total_rect,0),"","","","","",
+            "⚡ PIC" if any(PIC_S_<=_pd.Timestamp(k).date()<=PIC_E_ for k,v in rectif.items() if float(v)>0) else ""]
+        for ci,val in enumerate(fv,1):
+            cell=ws.cell(data_row,ci); cell.value=val; cell.border=BORD; cell.alignment=CTR
+            cell.fill=cfill if ci==2 else bf; cell.font=Font(name="Calibri",size=9,bold=(ci==2))
+        for di,d in enumerate(SEASON_DATES):
+            dk=str(d.date()); val=float(rectif.get(dk,0) or 0)
+            ci2=len(FIXED_HDRS)+di+1
+            cell=ws.cell(data_row,ci2)
+            cell.value=int(val) if val>0 else ""; cell.border=BORD; cell.alignment=CTR
+            is_pic_d=PIC_S_<=d.date()<=PIC_E_
+            cell.fill=PIC_FILL if (is_pic_d and val>0) else (GRN_FILL if val>0 else bf)
+            cell.font=Font(name="Calibri",size=8)
+        ws.row_dimensions[data_row].height=15; data_row+=1
+
+    # Largeurs colonnes
+    for ci,w in enumerate([12,16,28,12,11,12,11,11,13,10,11],1):
+        ws.column_dimensions[get_column_letter(ci)].width=w
+    for di in range(len(SEASON_DATES)):
+        ws.column_dimensions[get_column_letter(len(FIXED_HDRS)+di+1)].width=8
+    ws.freeze_panes="L3"
+
+    # Onglet récap journalier
+    ws2=wb.create_sheet("Recap Journalier Rectifié")
+    ws2.merge_cells(start_row=1,start_column=1,end_row=1,end_column=8)
+    ws2.cell(1,1).value="Récapitulatif journalier — Données Rectifiées (reference_interne)"
+    ws2.cell(1,1).fill=HDR_FILL; ws2.cell(1,1).font=Font(bold=True,color="FFFFFF",name="Calibri",size=11)
+    ws2.cell(1,1).alignment=CTR; ws2.row_dimensions[1].height=24
+
+    comm_order2=["FEDI","MAKKI BEN SALAH","KHALIL","ACHREF AJLANI","JILANI OBAY"]
+    hdrs2=["Date","Jour"]+[c.split()[0] for c in comm_order2]+["TOTAL"]
+    for ci,h in enumerate(hdrs2,1):
+        cell=ws2.cell(2,ci); cell.value=h; cell.fill=HDR_FILL; cell.font=HDR_FONT
+        cell.alignment=CTR; cell.border=BORD
+    ws2.row_dimensions[2].height=20
+    DAYS_FR2=["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"]
+    for ri,d in enumerate(SEASON_DATES):
+        dk=d.date(); is_pic=PIC_S_<=dk<=PIC_E_
+        vals=[float(RECTIF_COMM_DICT.get(c,{}).get(str(dk),0) or 0) for c in comm_order2]
+        total_j=sum(vals)
+        if total_j==0: continue
+        base=PIC_FILL if is_pic else (ALT_FILL if ri%2==0 else WHT_FILL)
+        row_vals=[d.strftime("%d/%m/%Y"),DAYS_FR2[d.weekday()]]+[int(v) if v>0 else "" for v in vals]+[int(total_j)]
+        for ci,val in enumerate(row_vals,1):
+            cell=ws2.cell(ri+3,ci); cell.value=val; cell.border=BORD; cell.alignment=CTR
+            cell.fill=base; cell.font=Font(name="Calibri",size=9,bold=(ci==8))
+        ws2.row_dimensions[ri+3].height=15
+    for ci,w in enumerate([12,6,12,12,12,12,12,14],1):
+        ws2.column_dimensions[get_column_letter(ci)].width=w
+    ws2.freeze_panes="A3"
+
+    buf=_io.BytesIO(); wb.save(buf); buf.seek(0); return buf.read()
+
+# ── Fin helpers ─────────────────────────────────────────────
+
 # set_page_config MUST be the very first Streamlit call
 st.set_page_config(
     page_title="🍅 Tomate Planning 2026",
@@ -2024,7 +2263,14 @@ st.title("🍅 Tomate Planning 2026")
 st.caption("Phase 10 — Connecté à Supabase · Login par rôle · OR-Tools Optimizer")
 
 # KPIs — GLOBAL_N_FARMERS uses unique names from agriculteurs table
-total_tons   = GLOBAL_TOTAL_TONS
+# ── KPIs: priorité aux totaux rectifiés ─────────────────
+if RECTIF_AVAILABLE and RECTIF_STATS_COMM:
+    # Totaux depuis données rectifiées (source principale)
+    _rectif_comm_total = sum(s.get("total",0) for s in RECTIF_STATS_COMM.values())
+    _rectif_usine_total= sum(s.get("total",0) for s in RECTIF_STATS_USINE.values())
+    total_tons = max(_rectif_comm_total, GLOBAL_TOTAL_TONS)  # garder le plus précis
+else:
+    total_tons   = GLOBAL_TOTAL_TONS
 
 # Statut OR-Tools: lire depuis planning (si FEASIBLE = solution trouvée, sinon vide)
 _n_planning_days = len(planning["Date"].dt.date.unique()) if not planning.empty else 0
@@ -2139,10 +2385,17 @@ else:
 
 # ── TAB 1: DAILY PLANNING ────────────────────────────────────
 with tab1:
-    daily = p.groupby("Date")["Tonnes/Jour"].sum().reset_index()
-    daily["Période"] = daily["Date"].apply(
-        lambda d: "⚡ Pic (1-15 Jul)" if PEAK_START <= d.date() <= PEAK_END else "Normal"
-    )
+    # SOURCE = Données Rectifiées (reference_interne 13/06/2026)
+    if RECTIF_AVAILABLE and RECTIF_COMM_DAILY:
+        daily = _rectif_total_daily()
+        daily["Période"] = daily["Date"].apply(
+            lambda d: "⚡ Pic (1-15 Jul)" if PEAK_START <= d.date() <= PEAK_END else "Normal"
+        )
+    else:
+        daily = p.groupby("Date")["Tonnes/Jour"].sum().reset_index()
+        daily["Période"] = daily["Date"].apply(
+            lambda d: "⚡ Pic (1-15 Jul)" if PEAK_START <= d.date() <= PEAK_END else "Normal"
+        )
 
     fig = px.bar(
         daily, x="Date", y="Tonnes/Jour", color="Période",
@@ -2165,7 +2418,11 @@ with tab1:
     c1, c2 = st.columns(2)
     with c1:
         # Use DECLARED tonnage from agriculteurs (correct) not planning sum (filtered/incomplete)
-        if GLOBAL_COMMERCIAL_TONS:
+        # SOURCE PIE = Rectifié en priorité
+        if RECTIF_AVAILABLE and RECTIF_STATS_COMM:
+            comm_df = pd.DataFrame([{"Commercial":c,"Tonnes/Jour":s.get("total",0)}
+                                     for c,s in RECTIF_STATS_COMM.items()])
+        elif GLOBAL_COMMERCIAL_TONS:
             comm_df = pd.DataFrame(list(GLOBAL_COMMERCIAL_TONS.items()),
                                     columns=["Commercial","Tonnes/Jour"])
         else:
@@ -2183,7 +2440,11 @@ with tab1:
     with c2:
         if "Usine" in p.columns:
             # Use declared tonnage from agriculteurs (correct) not planning sum (wrong)
-            if GLOBAL_USINE_TONS:
+            # SOURCE PIE USINE = Rectifié en priorité
+            if RECTIF_AVAILABLE and RECTIF_STATS_USINE:
+                usine_df = pd.DataFrame([{"Usine":u,"Tonnes/Jour":s.get("total",0)}
+                                          for u,s in RECTIF_STATS_USINE.items()])
+            elif GLOBAL_USINE_TONS:
                 usine_df = pd.DataFrame(list(GLOBAL_USINE_TONS.items()),
                                          columns=["Usine","Tonnes/Jour"])
             else:
@@ -2288,14 +2549,27 @@ with tab1:
     )
     # ✅ Exporter p_display (qui contient Disponibles + Manquants), pas l'original
     _planning_export = p_display.copy()
-    col_dl1, col_dl2, col_dl3 = st.columns(3)
+    col_dl0, col_dl1, col_dl2, col_dl3 = st.columns(4)
+    with col_dl0:
+        # ✅ NOUVEAU — Export RECTIFIÉ avec colonnes dates
+        if RECTIF_AVAILABLE:
+            st.download_button(
+                "📆 Planning RECTIFIÉ (colonnes dates)",
+                data=_build_rectif_wide_excel(p if not p.empty else None),
+                file_name="planning_rectifie_colonnes_dates.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True,
+                help="Colonnes: Date|Commercial|Agriculteur|Usine|...|20/06|21/06|...|25/08 — Source: Plans Rectifiés",
+            )
+        else:
+            st.info("comparaison_tab.py requis pour export rectifié")
     with col_dl1:
         st.download_button(
             "📅 Excel SÉPARÉ PAR JOUR",
             data=df_to_xlsx_by_day(_planning_export, date_col="Date"),
             file_name="planning_par_jour.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
             use_container_width=True,
             help="Un onglet par jour + un onglet récapitulatif",
         )
@@ -2319,8 +2593,12 @@ with tab1:
 # ── TAB 2: PAR COMMERCIAL ────────────────────────────────────
 with tab2:
     # Line chart per commercial
-    comm_daily = (p.groupby(["Date","Commercial"])["Tonnes/Jour"]
-                  .sum().reset_index())
+    # SOURCE = Données Rectifiées
+    if RECTIF_AVAILABLE and RECTIF_COMM_DAILY:
+        comm_daily = _rectif_comm_daily_df()
+    else:
+        comm_daily = (p.groupby(["Date","Commercial"])["Tonnes/Jour"]
+                      .sum().reset_index())
     fig4 = px.line(
         comm_daily, x="Date", y="Tonnes/Jour", color="Commercial",
         color_discrete_map=COMM_COLORS,
@@ -2341,7 +2619,11 @@ with tab2:
     with c1:
         # Use DECLARED tonnage from agriculteurs table (source of truth)
         # NOT planning sum which is filtered/partial
-        if GLOBAL_COMMERCIAL_TONS:
+        # SOURCE BAR COMM = Rectifié
+        if RECTIF_AVAILABLE and RECTIF_STATS_COMM:
+            comm_tot = pd.DataFrame([{"Commercial":c,"Tonnes/Jour":s.get("total",0)}
+                                      for c,s in RECTIF_STATS_COMM.items()])
+        elif GLOBAL_COMMERCIAL_TONS:
             comm_tot = pd.DataFrame(list(GLOBAL_COMMERCIAL_TONS.items()),
                                      columns=["Commercial","Tonnes/Jour"])
         else:
@@ -2384,7 +2666,11 @@ with tab2:
     st.subheader("🔎 Détail par commercial")
     selected = st.selectbox("Choisir un commercial", sel_comms)
     one = p[p["Commercial"] == selected]
-    one_daily = one.groupby("Date")["Tonnes/Jour"].sum().reset_index()
+    # SOURCE = Données Rectifiées pour le drill-down
+    if RECTIF_AVAILABLE and selected in RECTIF_COMM_DAILY:
+        one_daily = _rectif_one_comm_daily(selected)
+    else:
+        one_daily = one.groupby("Date")["Tonnes/Jour"].sum().reset_index()
     fig8 = px.area(
         one_daily, x="Date", y="Tonnes/Jour",
         title=f"Tonnes/jour — {selected}",
@@ -2879,7 +3165,11 @@ with tab3:
                     st.metric(f, f"{ft:,.0f} t")
 
         # Line chart per factory
-        fact_daily = p.groupby(["Date","Usine"])["Tonnes/Jour"].sum().reset_index()
+        # SOURCE = Données Rectifiées
+        if RECTIF_AVAILABLE and RECTIF_USINE_DAILY:
+            fact_daily = _rectif_usine_daily_df()
+        else:
+            fact_daily = p.groupby(["Date","Usine"])["Tonnes/Jour"].sum().reset_index()
         fig9 = px.line(
             fact_daily, x="Date", y="Tonnes/Jour", color="Usine",
             color_discrete_map=FACTORY_COLORS,
@@ -2910,7 +3200,11 @@ with tab3:
             st.plotly_chart(fig10, use_container_width=True)
         with c2:
             # Use declared tonnage from agriculteurs (correct totals per usine)
-            if GLOBAL_USINE_TONS:
+            # SOURCE BAR USINE = Rectifié
+            if RECTIF_AVAILABLE and RECTIF_STATS_USINE:
+                fact_tot = pd.DataFrame([{"Usine":u,"Tonnes/Jour":s.get("total",0)}
+                                          for u,s in RECTIF_STATS_USINE.items()])
+            elif GLOBAL_USINE_TONS:
                 fact_tot = pd.DataFrame(list(GLOBAL_USINE_TONS.items()),
                                          columns=["Usine","Tonnes/Jour"])
             else:
