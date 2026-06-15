@@ -120,6 +120,17 @@ ORT_USINE_BASE = {
     for usine, d in ORT_USINE_BASE.items()
 }
 
+# ── Normaliser toutes les cles des dicts de reference en string ──
+# (evite le TypeError entre datetime.date et str dans les lookups)
+ORT_COMM_BASE = {
+    comm: {str(k): v for k, v in d.items()}
+    for comm, d in ORT_COMM_BASE.items()
+}
+ORT_USINE_BASE = {
+    usine: {str(k): v for k, v in d.items()}
+    for usine, d in ORT_USINE_BASE.items()
+}
+
 # ── Helpers openpyxl ─────────────────────────────────────────
 def _hf(h): return PatternFill("solid", start_color=h, end_color=h)
 def _ft(bold=False, color="1F1F1F", size=10, white=False):
@@ -769,6 +780,13 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
                     st.session_state["comp_raw"][comm] = raw_or_err
                 tot = sum(daily.values())
                 st.success(f"Charge : {comm} — {len(daily)} jours, {int(tot):,}t".replace(",",""))
+                # Persister dans query_params pour survivre aux refreshs
+                try:
+                    import json as _j, base64 as _b
+                    _encoded = _b.b64encode(_j.dumps(st.session_state["comp_uploaded"]).encode()).decode()
+                    st.query_params["comp_data"] = _encoded
+                except Exception:
+                    pass
                 # Persister dans query_params pour survivre aux refreshs
                 try:
                     import json as _j, base64 as _b
