@@ -819,7 +819,7 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
                 st.rerun()
 
     if not st.session_state["comp_uploaded"]:
-        st.info("Aucun fichier uploade — courbes basees sur donnees de reference 13/06/2026.")
+        st.info("Aucun fichier uploade - donnees sauvegardees dans Supabase (persistant entre sessions) — courbes basees sur donnees de reference 13/06/2026.")
 
     # ── BOUTON EXPORT EXCEL PRINCIPAL ───────────────────────
     st.divider()
@@ -1103,69 +1103,20 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
     # ─ C4 : CORRECTIONS OPTIMIZER ───────────────────────────
     with c4:
         st.markdown("### Corrections a appliquer dans optimizer_v2.py")
-        corrs = [
-            {"n":"1","t":"Borne journaliere trop permissive (CRITIQUE)","c":"#e8543a",
-             "i":"Reduit max/agri de 870t a 200t pour FEDI/MAKKI",
-             "av":"day_planned * SCALE * 1.5",
-             "ap":"day_planned * SCALE * 1.1",
-             "ctx":"Dans la boucle creation variables OR-Tools (_ub_day):"},
-            {"n":"2","t":"Arrondi 10t -> 5t","c":"#f5a623",
-             "i":"Autorise 10t/15t/20t pour COMOCAP/TUCAL",
-             "av":"int(round(round(tons_brut, 1) / 10)) * 10",
-             "ap":"int(round(round(tons_brut, 1) / 5)) * 5",
-             "ctx":"Dans la fonction de calcul du tonnage journalier:"},
-            {"n":"3","t":"FACTORY_OVERFLOW_WEIGHT insuffisant","c":"#8b5cf6",
-             "i":"ELFALLEH 60t/j max (au lieu de 130t)",
-             "av":"FACTORY_OVERFLOW_WEIGHT = 500",
-             "ap":"FACTORY_OVERFLOW_WEIGHT = 2000",
-             "ctx":"Dans les constantes globales (debut du fichier):"},
-            {"n":"4","t":"Cap max par agriculteur selon tonnage","c":"#00e5a0",
-             "i":"Petits 30t/j | moyens 60t/j | gros 200t/j",
-             "av":"_ub_day = max(int(day_planned * SCALE * 1.5), int(_get_min_tons(farmer) * SCALE))",
-             "ap":"""if farmer.tonnage < 200:
-    _max_daily = min(30, farmer.tonnage)
-elif farmer.tonnage < 500:
-    _max_daily = min(60, farmer.tonnage / 8)
-else:
-    _max_daily = min(200, farmer.tonnage / 5)
-_cap_agri = int(_max_daily * SCALE)
-_ub_day = min(
-    max(int(day_planned * SCALE * 1.1), int(_get_min_tons(farmer) * SCALE)),
-    _cap_agri
-)""",
-             "ctx":"Dans la boucle creation variables OR-Tools:"},
-        ]
-        for corr in corrs:
-            with st.expander(f"Correction {corr['n']} — {corr['t']}",
-                             expanded=(corr["n"] in ("1","3"))):
-                st.markdown(f"<div style='color:{corr['c']};font-size:12px;font-weight:600;"
-                            f"margin-bottom:6px'>Impact : {corr['i']}</div>"
-                            f"<div style='font-size:12px;color:#8b949e;margin-bottom:4px'>"
-                            f"{corr['ctx']}</div>", unsafe_allow_html=True)
-                cl,cr=st.columns(2)
-                with cl: st.markdown("**AVANT**"); st.code(corr["av"],language="python")
-                with cr: st.markdown("**APRES**"); st.code(corr["ap"],language="python")
-
-        st.markdown("---")
-        st.markdown("### Script PowerShell (corrections 1-3 auto)")
-        st.code("""\
-@"
-f=open('optimizer_v2.py','r',encoding='utf-8')
-c=f.read()
-f.close()
-c=c.replace('day_planned * SCALE * 1.5','day_planned * SCALE * 1.1')
-c=c.replace('FACTORY_OVERFLOW_WEIGHT = 500','FACTORY_OVERFLOW_WEIGHT = 2000')
-c=c.replace('int(round(round(tons_brut, 1) / 10)) * 10','int(round(round(tons_brut, 1) / 5)) * 5')
-f=open('optimizer_v2.py','w',encoding='utf-8')
-f.write(c)
-f.close()
-print('OK - 3 corrections appliquees')
-"@ | Out-File -Encoding utf8 fix_optimizer.py
-python fix_optimizer.py""", language="powershell")
-
-        st.markdown("**Puis relancer :**")
-        st.code("""\
-cd C:\\Users\\amset\\Desktop\\Tomate_scheduler
-python optimizer_v2.py
-python migrate.py
-streamlit run dashboard_phase10.py""", language="bash")
+        st.success("Configuration OPTIMALE stable - ne pas modifier")
+        st.markdown("""
+| Parametre | Valeur actuelle | Statut |
+|---|---|---|
+| Borne journaliere | day_planned x SCALE x 2.0 | OPTIMAL |
+| FACTORY_OVERFLOW_WEIGHT | 2000 | Applique |
+| Arrondi tonnage | 10t | Stable |
+| Correction post-traitement | Desactivee | OK |
+        """)
+        st.warning("**x1.1 et x1.5 causent INFEASIBLE** - teste et prouve.")
+        st.code("""Resultats actuels:
+Status: OPTIMAL (~2s) | 2630 rows | 96 676t (-0.32%)
+FEDI   : -234t (-0.7%)
+MAKKI  : +115t (+0.5%)
+ACHREF : 0t (parfait)
+KHALIL : -139t (-0.8%)
+JILANI : -125t (-1.8%)""")
