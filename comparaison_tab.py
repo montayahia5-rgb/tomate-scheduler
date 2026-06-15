@@ -1,13 +1,8 @@
 # ============================================================
-# ONGLET COMPARAISON v3 — Plans rectifiés vs OR-Tools
-# Fichier : comparaison_tab.py
-# CORRECTIONS v3:
-#   - Supabase persistence (save/load plans rectifies)
-#   - Rectifie = SOURCE PRINCIPALE (courbes, KPIs, tableaux)
-#   - fillcolor hex+alpha -> rgba (fix Plotly crash)
-#   - _ortools_profile retourne toujours str keys
-#   - ELFALLEH 5190t / ABIDA 8010t (donnees corrigees)
-#   - Excel auto-genere + download direct
+# ONGLET COMPARAISON v4 — Plans rectifiés vs OR-Tools
+# SOURCE PRINCIPALE = Plans Rectifiés (reference_interne)
+# OR-Tools = comparaison en pointillé uniquement
+# ELFALLEH = 5190t / ABIDA = 8010t (données réelles)
 # ============================================================
 import streamlit as st
 import pandas as pd
@@ -35,45 +30,76 @@ COMM_HEX = {
 USINE_HEX = {
     "SICAM":"1F3864","TUCAL":"4A235A","COMOCAP":"0B4F6C","ELFALLEH":"196F3D","ABIDA":"922B21",
 }
-MANUAL_STATS = {
-    "FEDI":           {"total":32736,"max_j":1216,"n_jours":55,"cap":1300},
-    "MAKKI BEN SALAH":{"total":24310,"max_j":1315,"n_jours":44,"cap":1200},
-    "KHALIL":         {"total":25290,"max_j":1500,"n_jours":46,"cap":1100},
-    "ACHREF AJLANI":  {"total":17486,"max_j":570, "n_jours":61,"cap":700},
-    "JILANI OBAY":    {"total":7000, "max_j":450, "n_jours":25,"cap":150},
-}
-USINE_STATS = {
-    "SICAM":   {"total":44871,"max_j":1650,"n_jours":67,"cap_officiel":1300},
-    "TUCAL":   {"total":20525,"max_j":700, "n_jours":52,"cap_officiel":700},
-    "COMOCAP": {"total":20391,"max_j":875, "n_jours":50,"cap_officiel":700},
-    "ELFALLEH":{"total":5190, "max_j":240, "n_jours":38,"cap_officiel":150},
-    "ABIDA":   {"total":8010, "max_j":320, "n_jours":55,"cap_officiel":200},
-}
-USINE_CAPS      = {"SICAM":1300,"TUCAL":700,"COMOCAP":700,"ELFALLEH":150,"ABIDA":200}
-USINE_CAPS_PLAN = {"SICAM":1300,"TUCAL":700,"COMOCAP":700,"ELFALLEH":240,"ABIDA":320}
 
-USINE_DAILY_PDF = {
+# ── SOURCE PRINCIPALE : Profils journaliers rectifiés (reference_interne 13/06/2026) ──
+# Ces données proviennent directement des fichiers uploadés par les commerciaux
+# RECTIFIÉ = vérité terrain | OR-Tools = calcul algorithme (comparaison)
+
+RECTIF_COMM_DAILY = {
+    "FEDI": [0,0,0,0,0,40,40,80,180,230,220,340,420,470,540,580,590,700,720,920,1045,1010,1050,1130,1200,1170,1216,1150,1070,1120,1135,980,1010,970,970,950,890,800,900,820,770,700,650,610,500,410,370,340,300,270,200,160,160,150,150,110,80,60,60,30,0,0,0,0,0,0,0],
+    "MAKKI BEN SALAH": [0,0,35,35,55,160,160,225,235,260,285,555,575,585,670,840,895,1030,1115,1095,1015,1085,1215,1315,1180,1230,1150,1185,970,865,695,655,565,425,285,280,280,230,200,165,160,115,100,80,35,20,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    "KHALIL": [140,170,200,200,220,220,190,240,435,545,510,650,745,865,935,1020,995,1060,940,870,770,765,655,570,560,505,390,330,300,175,160,180,180,125,125,125,110,70,70,20,20,20,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    "ACHREF AJLANI": [0,0,0,0,0,0,30,30,60,120,180,360,450,450,390,390,360,360,330,270,480,510,570,450,480,570,430,480,390,390,420,340,210,150,126,300,390,390,300,300,270,270,300,330,300,210,240,240,210,150,150,120,90,90,150,270,330,450,390,330,210,240,210,120,120,120,120],
+    "JILANI OBAY": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,60,60,60,130,150,150,260,310,340,310,420,280,400,410,410,370,380,450,430,330,310,310,270,220,180,0,0,0,0,0,0,0,0,0,0,0,0,0],
+}
+
+# Profils usines RÉELS (sources: PDFs et Excel reception_prevue)
+RECTIF_USINE_DAILY = {
+    # Source: Re_ception_Pre_v_TF26_SICAM.pdf — total 44871t
     "SICAM":[0,0,140,170,220,220,260,320,320,415,515,625,560,910,1090,1170,1285,
              1425,1410,1540,1490,1440,1440,1455,1650,1600,1595,1550,1385,1345,1125,
              1000,935,835,840,575,456,660,750,730,660,760,535,615,580,610,520,470,
              530,500,380,320,290,240,200,140,170,140,210,180,150,150,150,120,120,120,120,120],
+    # Source: Re_ception_Pre_v__TF_Tucal26.pdf — total 20525t
     "TUCAL":[0,0,0,0,15,15,15,85,85,105,230,235,285,465,560,590,590,625,610,700,
              670,690,645,660,620,655,585,665,645,595,490,500,405,405,395,345,365,475,
              490,410,430,380,380,350,350,330,315,310,340,350,300,270,200,120,90,90,
              0,0,0,0,0,0,0,0,0,0,0],
+    # Source: Re_ception_Pre_v_TF_26_Comocap.pdf — total 20391t
     "COMOCAP":[0,0,0,0,0,15,15,15,65,145,195,305,305,345,375,425,435,480,515,615,
                760,760,755,785,775,785,826,875,805,760,755,625,610,650,595,540,500,
                490,490,455,455,390,340,280,200,150,100,100,100,80,80,80,80,70,40,
                0,0,0,0,0,0,0,0,0,0,0],
+    # Source: Re_ception_Pre_v_TF_Fallah_26.xlsx — total 5190t / 38 jours / max 240t/j
     "ELFALLEH":[0,0,0,0,0,0,0,0,40,70,70,105,105,115,125,165,215,215,230,230,240,
                 225,235,215,175,155,155,140,130,120,130,155,140,140,130,110,130,130,
                 130,110,110,80,70,70,60,20,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    # Source: Re_ception_Pre_v_TF_ABIDA26.xlsx — total 8010t / max 320t/j
     "ABIDA":[0,0,0,0,0,0,0,0,30,80,80,120,140,140,140,170,170,200,200,200,240,270,
              250,230,290,320,190,180,190,220,220,210,110,110,110,110,110,70,70,20,20,
              80,140,170,170,110,90,60,60,60,60,60,60,60,120,210,270,300,270,210,60,
              90,90,0,0,0,0],
 }
 
+# Vérification totaux
+def _daily_to_dict(vals):
+    """Convertit liste de valeurs saisonnières en dict {str_date: valeur}"""
+    return {str((pd.Timestamp("2026-06-20")+pd.Timedelta(days=i)).date()): float(v)
+            for i,v in enumerate(vals) if v > 0}
+
+RECTIF_COMM_DICT = {k: _daily_to_dict(v) for k, v in RECTIF_COMM_DAILY.items()}
+RECTIF_USINE_DICT = {k: _daily_to_dict(v) for k, v in RECTIF_USINE_DAILY.items()}
+
+# Totaux réels (source: plans rectifiés)
+RECTIF_STATS_COMM = {
+    "FEDI":           {"total": int(sum(RECTIF_COMM_DAILY["FEDI"])),           "max_j": max(RECTIF_COMM_DAILY["FEDI"]),           "n_j": sum(1 for v in RECTIF_COMM_DAILY["FEDI"] if v>0),           "cap": 1300},
+    "MAKKI BEN SALAH":{"total": int(sum(RECTIF_COMM_DAILY["MAKKI BEN SALAH"])),  "max_j": max(RECTIF_COMM_DAILY["MAKKI BEN SALAH"]),  "n_j": sum(1 for v in RECTIF_COMM_DAILY["MAKKI BEN SALAH"] if v>0),  "cap": 1200},
+    "KHALIL":         {"total": int(sum(RECTIF_COMM_DAILY["KHALIL"])),            "max_j": max(RECTIF_COMM_DAILY["KHALIL"]),            "n_j": sum(1 for v in RECTIF_COMM_DAILY["KHALIL"] if v>0),            "cap": 1100},
+    "ACHREF AJLANI":  {"total": int(sum(RECTIF_COMM_DAILY["ACHREF AJLANI"])),     "max_j": max(RECTIF_COMM_DAILY["ACHREF AJLANI"]),     "n_j": sum(1 for v in RECTIF_COMM_DAILY["ACHREF AJLANI"] if v>0),     "cap": 700},
+    "JILANI OBAY":    {"total": int(sum(RECTIF_COMM_DAILY["JILANI OBAY"])),       "max_j": max(RECTIF_COMM_DAILY["JILANI OBAY"]),       "n_j": sum(1 for v in RECTIF_COMM_DAILY["JILANI OBAY"] if v>0),       "cap": 150},
+}
+RECTIF_STATS_USINE = {
+    "SICAM":   {"total":44871,"max_j":1650,"n_j":67,"cap_officiel":1300},
+    "TUCAL":   {"total":20525,"max_j":700, "n_j":52,"cap_officiel":700},
+    "COMOCAP": {"total":20391,"max_j":875, "n_j":50,"cap_officiel":700},
+    "ELFALLEH":{"total":5190, "max_j":240, "n_j":38,"cap_officiel":150},
+    "ABIDA":   {"total":8010, "max_j":320, "n_j":55,"cap_officiel":200},
+}
+
+USINE_CAPS      = {"SICAM":1300,"TUCAL":700,"COMOCAP":700,"ELFALLEH":150,"ABIDA":200}
+USINE_CAPS_PLAN = {"SICAM":1300,"TUCAL":700,"COMOCAP":700,"ELFALLEH":240,"ABIDA":320}
+
+# OR-Tools = profils calculés (comparaison)
 ORT_COMM_BASE = {
     "FEDI":          {str((pd.Timestamp("2026-06-28")+pd.Timedelta(days=i)).date()):v
                      for i,v in enumerate([80,120,180,250,350,420,540,650,780,850,950,1050,
@@ -109,10 +135,50 @@ ORT_USINE_BASE = {
                for i,v in enumerate([0,0,0,0,0,0,0,0,20,55,55,60,135,145,160,165,165,165,170,
                400,520,500,505,585,600,515,558,545,580,542,520,421,380,463,343,293,275,245,290,
                306,293,250,247,197,160,118,45,40,15,15,8]) if v>0},
-    "ELFALLEH":{}, "ABIDA":{},
+    "ELFALLEH": {},  # OR-Tools n'a pas planifié ELFALLEH
+    "ABIDA":    {},  # OR-Tools n'a pas planifié ABIDA
 }
 
-# ── openpyxl helpers ─────────────────────────────────────────
+# ── Helpers données ───────────────────────────────────────────
+def _get_rectif_comm(comm, uploaded_sess, sb_comm):
+    """Retourne le profil rectifié pour un commercial (priorité: upload > Supabase > reference_interne)"""
+    if comm in uploaded_sess:
+        d = {str(k):v for k,v in uploaded_sess[comm].items()}
+        return d, "fichier upload"
+    if comm in sb_comm:
+        d = {str(k):v for k,v in sb_comm[comm].items()}
+        return d, "Supabase"
+    # Fallback: reference_interne (données hardcodées depuis fichiers 13/06/2026)
+    return RECTIF_COMM_DICT[comm], "reference interne (13/06/2026)"
+
+def _get_rectif_usine(usine, sb_usine):
+    """Retourne le profil rectifié pour une usine"""
+    if usine in sb_usine:
+        return {str(k):v for k,v in sb_usine[usine].items()}, "Supabase"
+    return RECTIF_USINE_DICT.get(usine, {}), "reference interne"
+
+def _get_ort_profile(entity, planning_df, entity_type="commercial"):
+    """Extrait le profil OR-Tools depuis Supabase ou utilise le profil de base"""
+    if planning_df is not None and not planning_df.empty:
+        col = "Commercial" if entity_type=="commercial" else "Usine"
+        if col in planning_df.columns:
+            sub = planning_df[planning_df[col]==entity].copy()
+            if not sub.empty and "Date" in sub.columns:
+                sub["Date"] = pd.to_datetime(sub["Date"],errors="coerce")
+                daily = sub.groupby("Date")["Tonnes/Jour"].sum().reset_index()
+                r = {str(r["Date"].date()):float(r["Tonnes/Jour"]) for _,r in daily.iterrows()}
+                if r: return r
+    if entity_type=="commercial":
+        return ORT_COMM_BASE.get(entity, {})
+    if entity in ORT_USINE_BASE and ORT_USINE_BASE[entity]:
+        return ORT_USINE_BASE[entity]
+    return RECTIF_USINE_DICT.get(entity, {})  # Fallback sur rectifié pour OR-T
+
+def _ns(d):
+    """Normalise les clés en str"""
+    return {str(k):v for k,v in d.items()} if d else {}
+
+# ── Helpers openpyxl ─────────────────────────────────────────
 def _hf(h): return PatternFill("solid", start_color=h, end_color=h)
 def _ft(bold=False, color="1F1F1F", size=10, white=False):
     return Font(bold=bold, name="Calibri", size=size, color="FFFFFF" if white else color)
@@ -120,7 +186,7 @@ _CTR=Alignment(horizontal="center",vertical="center")
 _LFT=Alignment(horizontal="left",vertical="center")
 _THIN=Side(style="thin",color="CCCCCC")
 _BORD=Border(left=_THIN,right=_THIN,top=_THIN,bottom=_THIN)
-F_MAN=_hf("E2EFDA");F_ORT=_hf("DEEBF7");F_POS=_hf("C6EFCE");F_NEG=_hf("FFC7CE")
+F_RECT=_hf("E2EFDA");F_ORT=_hf("DEEBF7");F_POS=_hf("C6EFCE");F_NEG=_hf("FFC7CE")
 F_NEU=_hf("F2F2F2");F_PIC=_hf("FFF2CC");F_ALT1=_hf("FFFFFF");F_ALT2=_hf("F8F9FA")
 
 # ═══ SUPABASE PERSISTENCE ════════════════════════════════════
@@ -151,52 +217,7 @@ def _load_all_rectifie(sb):
         return cp,up
     except Exception: return {},{}
 
-# ═══ HELPERS DONNEES ═════════════════════════════════════════
-def _get_man_dict(comm, uploaded, sb_comm):
-    if comm in uploaded:
-        return {str(k):v for k,v in uploaded[comm].items()},"fichier uploade"
-    if comm in sb_comm:
-        return {str(k):v for k,v in sb_comm[comm].items()},"Supabase"
-    return _build_reference_curve(comm),"reference interne (13/06/2026)"
-
-def _get_usine_dict(usine, sb_usine):
-    if usine in sb_usine:
-        return {str(k):v for k,v in sb_usine[usine].items()},"Supabase"
-    vals=USINE_DAILY_PDF.get(usine,[])
-    d={str((pd.Timestamp("2026-06-20")+pd.Timedelta(days=i)).date()):v for i,v in enumerate(vals) if v>0}
-    return d,"reference interne"
-
-def _ortools_profile(comm_or_usine, planning_df, entity_type="commercial"):
-    if planning_df is not None and not planning_df.empty:
-        col="Commercial" if entity_type=="commercial" else "Usine"
-        if col in planning_df.columns:
-            sub=planning_df[planning_df[col]==comm_or_usine].copy()
-            if not sub.empty and "Date" in sub.columns:
-                sub["Date"]=pd.to_datetime(sub["Date"],errors="coerce")
-                daily=sub.groupby("Date")["Tonnes/Jour"].sum().reset_index()
-                r={str(r["Date"].date()):float(r["Tonnes/Jour"]) for _,r in daily.iterrows()}
-                if r: return r
-    if entity_type=="commercial":
-        return {str(k):v for k,v in ORT_COMM_BASE.get(comm_or_usine,{}).items()}
-    if comm_or_usine in ORT_USINE_BASE and ORT_USINE_BASE[comm_or_usine]:
-        return {str(k):v for k,v in ORT_USINE_BASE[comm_or_usine].items()}
-    vals=USINE_DAILY_PDF.get(comm_or_usine,[])
-    return {str((pd.Timestamp("2026-06-20")+pd.Timedelta(days=i)).date()):v for i,v in enumerate(vals) if v>0}
-
-def _build_reference_curve(comm):
-    stat=MANUAL_STATS[comm];n=stat["n_jours"];mx=stat["max_j"]
-    starts={"FEDI":"2026-06-28","MAKKI BEN SALAH":"2026-06-22",
-            "KHALIL":"2026-06-20","ACHREF AJLANI":"2026-06-20","JILANI OBAY":"2026-07-23"}
-    start=pd.Timestamp(starts.get(comm,"2026-06-20"))
-    p1=int(n*0.30);p2=int(n*0.50);p3=n-p1-p2;result={}
-    for i in range(n):
-        if i<p1:       v=mx*0.2+(mx*0.6)*(i/max(p1,1))
-        elif i<p1+p2:  v=mx*0.8+(mx*0.2)*((i-p1)/max(p2,1))
-        else:          v=mx*(1-((i-p1-p2)/max(p3,1))*0.8)
-        result[str((start+pd.Timedelta(days=i)).date())]=round(max(0,v))
-    return result
-
-# ═══ HELPERS STREAMLIT ═══════════════════════════════════════
+# ── Parser upload ─────────────────────────────────────────────
 def _detect_comm_from_filename(filename):
     fn=filename.upper()
     for key,comm in {"FEDI":"FEDI","MEKKI":"MAKKI BEN SALAH","MAKKI":"MAKKI BEN SALAH",
@@ -208,271 +229,398 @@ def _detect_comm_from_filename(filename):
 def _parse_rectification(uploaded_file):
     try: df=pd.read_excel(uploaded_file,header=0)
     except Exception as e: return None,None,str(e)
-    header_row=0
-    for i in range(min(5,len(df))):
-        if any("agriculteur" in str(v).lower() for v in df.iloc[i].values):
-            header_row=i;break
-    if header_row>0:
-        uploaded_file.seek(0);df=pd.read_excel(uploaded_file,header=header_row)
     cols=df.columns.tolist()
-    col_comm=next((c for c in cols if "responsable" in str(c).lower() or "commercial" in str(c).lower()),cols[0] if cols else None)
-    col_agri=next((c for c in cols if "agriculteur" in str(c).lower()),None)
-    col_tonnage=next((c for c in cols if "tonnage" in str(c).lower()),None)
-    parsed_dates=[]
-    for c in cols[5:]:
-        if isinstance(c,pd.Timestamp): parsed_dates.append((c,c));continue
-        cs=str(c).strip()
-        if "/" in cs and len(cs)<=5:
-            try:
-                p=cs.split("/");d=pd.Timestamp(f"2026-{int(p[1]):02d}-{int(p[0]):02d}")
-                parsed_dates.append((c,d));continue
-            except: pass
+    date_cols=[(c,pd.Timestamp(c)) for c in cols if isinstance(c,pd.Timestamp) or (hasattr(c,'year') and getattr(c,'year',0)==2026)]
+    if not date_cols:
+        # Essai header=1
         try:
-            d=pd.to_datetime(str(c).split(" ")[0],errors="coerce")
-            if pd.notna(d) and d.year==2026: parsed_dates.append((c,d))
+            uploaded_file.seek(0); df=pd.read_excel(uploaded_file,header=1)
+            cols=df.columns.tolist()
+            for c in cols[5:]:
+                cs=str(c).strip()
+                if '/' in cs and len(cs)<=5:
+                    try: p=cs.split('/'); date_cols.append((c,pd.Timestamp(f"2026-{int(p[1]):02d}-{int(p[0]):02d}")))
+                    except: pass
+                else:
+                    try:
+                        d=pd.to_datetime(str(c).split(' ')[0],errors='coerce')
+                        if pd.notna(d) and d.year==2026: date_cols.append((c,d))
+                    except: pass
         except: pass
-    if not parsed_dates or col_agri is None: return None,None,"Format non reconnu"
+    col_agri=next((c for c in cols if 'agriculteur' in str(c).lower()),None)
+    col_ton =next((c for c in cols if 'tonnage' in str(c).lower()),None)
+    if not date_cols or not col_agri: return None,None,"Format non reconnu"
     rows=[];comm_detected=None
+    col_comm=next((c for c in cols if 'responsable' in str(c).lower() or 'commercial' in str(c).lower()),None)
     for _,row in df.iterrows():
-        comm=str(row.get(col_comm,"") or "").strip()
-        agri=str(row.get(col_agri,"") or "").strip()
-        if not agri or agri.upper() in ("NAN","","AGRICULTEUR","TOTAL"): continue
-        if "sous-total" in agri.lower() or "total" in agri.lower(): continue
-        if comm and comm.upper() not in ("NAN",""):
-            for known in MANUAL_STATS:
-                if known.upper() in comm.upper() or comm.upper() in known.upper():
-                    comm_detected=known;break
-        ton=pd.to_numeric(row.get(col_tonnage,0),errors="coerce") if col_tonnage else 0
-        for oc,date in parsed_dates:
-            val=pd.to_numeric(row.get(oc,0),errors="coerce")
-            if pd.notna(val) and val>0:
-                rows.append({"agriculteur":agri,"date":date,"tonnes":float(val),
-                             "tonnage_total":float(ton) if pd.notna(ton) else 0})
-    if not rows: return comm_detected,None,"Aucune donnee trouvee"
+        agri=str(row.get(col_agri,'') or '').strip()
+        if not agri or agri.upper() in ('NAN','','AGRICULTEUR','TOTAL'): continue
+        if 'total' in agri.lower() or 'sous' in agri.lower(): continue
+        if col_comm:
+            comm=str(row[col_comm] or '').strip()
+            if comm and comm.upper() not in ('NAN',''):
+                for known in RECTIF_STATS_COMM:
+                    if known.upper() in comm.upper() or comm.upper() in known.upper():
+                        comm_detected=known; break
+        ton=float(pd.to_numeric(row.get(col_ton,0),errors='coerce') or 0)
+        for oc,d in date_cols:
+            v=pd.to_numeric(row[oc],errors='coerce')
+            if pd.notna(v) and v>0:
+                rows.append({"agriculteur":agri,"date":d,"tonnes":float(v),"ton_total":ton})
+    if not rows: return comm_detected,None,"Aucune donnée trouvée"
     df_rows=pd.DataFrame(rows)
     daily=df_rows.groupby("date")["tonnes"].sum().reset_index().sort_values("date")
     daily_dict={str(r["date"].date()):float(r["tonnes"]) for _,r in daily.iterrows()}
     return comm_detected,daily_dict,df_rows
 
-def _kpi_row(name,man_dict,ort_dict,cap):
-    ms={str(k):v for k,v in man_dict.items()} if man_dict else {}
-    os_={str(k):v for k,v in ort_dict.items()} if ort_dict else {}
-    mt=sum(ms.values()) if ms else 0;mm=max(ms.values()) if ms else 0
-    ot=sum(os_.values()) if os_ else 0;om=max(os_.values()) if os_ else 0
+# ── KPIs et chart ─────────────────────────────────────────────
+def _kpi_row(name, man_dict, ort_dict, cap, label_man="Plan Rectifié", label_ort="OR-Tools"):
+    ms=_ns(man_dict); os_=_ns(ort_dict)
+    mt=sum(ms.values()) if ms else 0; mm=max(ms.values()) if ms else 0
+    ot=sum(os_.values()) if os_ else 0; om=max(os_.values()) if os_ else 0
     k1,k2,k3,k4=st.columns(4)
-    k1.metric("Total Rectifie",f"{int(mt)}t",delta=f"{int(mt-ot):+d}t vs OR-T",delta_color="off")
-    k2.metric("Max/j Rectifie",f"{int(mm)}t",delta=f"OR-T max: {int(om)}t",delta_color="inverse" if mm>cap else "off")
+    k1.metric(f"Total {label_man}",f"{int(mt)}t",delta=f"{int(mt-ot):+d}t vs OR-T",delta_color="off")
+    k2.metric(f"Max/j {label_man}",f"{int(mm)}t",
+              delta=f"OR-T max: {int(om)}t",
+              delta_color="inverse" if mm>cap else "off")
     k3.metric("Jours actifs",f"{sum(1 for v in ms.values() if v>0)}j" if ms else "0j")
-    k4.metric("Cap PIC",f"{cap}t/j",delta="OK" if mm<=cap else "DEPASSE",delta_color="normal" if mm<=cap else "inverse")
+    k4.metric("Cap PIC",f"{cap}t/j",
+              delta="OK" if mm<=cap else "DEPASSE",
+              delta_color="normal" if mm<=cap else "inverse")
 
-def _build_chart(name,man_dict,ort_dict,color,cap):
-    ms={str(k):v for k,v in man_dict.items()} if man_dict else {}
-    os_={str(k):v for k,v in ort_dict.items()} if ort_dict else {}
+def _build_chart(name, man_dict, ort_dict, color, cap):
+    ms=_ns(man_dict); os_=_ns(ort_dict)
     all_d=sorted(set(list(ms.keys())+list(os_.keys())))
     dates=[pd.Timestamp(d) for d in all_d]
-    mv=[ms.get(d,0) for d in all_d];ov=[os_.get(d,0) for d in all_d]
+    mv=[ms.get(d,0) for d in all_d]; ov=[os_.get(d,0) for d in all_d]
     fig=go.Figure()
-    fig.add_trace(go.Scatter(x=dates,y=mv,name="Plan Rectifie (principal)",
+    fig.add_trace(go.Scatter(x=dates,y=mv,name="Plan Rectifié (SOURCE)",
         line=dict(color=color,width=2.5),fill="tozeroy",
-        fillcolor="rgba(59,130,246,0.08)",mode="lines"))
+        fillcolor="rgba(59,130,246,0.1)",mode="lines"))
     if any(v>0 for v in ov):
         fig.add_trace(go.Scatter(x=dates,y=ov,name="OR-Tools (comparaison)",
-            line=dict(color="#888888",width=1.5,dash="dot"),mode="lines"))
+            line=dict(color="#555555",width=1.5,dash="dot"),mode="lines"))
     fig.add_hline(y=cap,line_dash="dash",line_color="#e8543a",line_width=1,
                   annotation_text=f"Cap: {cap}t/j",annotation_position="top right",
                   annotation_font_color="#e8543a")
     fig.add_vrect(x0=pd.Timestamp("2026-07-01"),x1=pd.Timestamp("2026-07-15"),
                   fillcolor="rgba(245,166,35,0.07)",line_width=0,
                   annotation_text="PIC",annotation_position="top left",annotation_font_color="#f5a623")
-    fig.update_layout(title=f"{name} — Plan Rectifie (principal) vs OR-Tools (comparaison)",
+    fig.update_layout(
+        title=f"{name} — Plan Rectifié (SOURCE) vs OR-Tools (comparaison)",
         template="plotly_dark",plot_bgcolor="#0d1117",paper_bgcolor="#161b22",
         height=360,hovermode="closest",
         legend=dict(orientation="h",yanchor="bottom",y=1.02),
-        xaxis=dict(title="Date",gridcolor="#21262d"),yaxis=dict(title="Tonnes/jour",gridcolor="#21262d"))
+        xaxis=dict(title="Date",gridcolor="#21262d"),
+        yaxis=dict(title="Tonnes/jour",gridcolor="#21262d"))
     return fig
 
-# ═══ EXCEL ═══════════════════════════════════════════════════
+# ═══ EXCEL EXPORT ════════════════════════════════════════════
 def _build_entity_sheet(ws,name,man_dict,ort_dict,cap,hex_color):
-    def _to_date_dict(d):
+    def td(d):
         out={}
         for k,v in d.items():
-            try: out[pd.Timestamp(k).date()]=v
+            try: out[pd.Timestamp(k).date()]=float(v)
             except: pass
         return out
-    man_d=_to_date_dict(man_dict);ort_d=_to_date_dict(ort_dict)
-    HDR=_hf(hex_color);N=8
+    man_d=td(_ns(man_dict)); ort_d=td(_ns(ort_dict))
+    HDR=_hf(hex_color); N=8
     ws.merge_cells(start_row=1,start_column=1,end_row=1,end_column=N)
-    ws.cell(1,1).value=f"Comparaison Planning  —  {name}  —  Saison 2026"
-    ws.cell(1,1).font=_ft(bold=True,size=12,white=True);ws.cell(1,1).fill=HDR;ws.cell(1,1).alignment=_CTR
+    ws.cell(1,1).value=f"Comparaison  —  {name}  —  Saison 2026  |  SOURCE = Plan Rectifié"
+    ws.cell(1,1).font=_ft(bold=True,size=12,white=True); ws.cell(1,1).fill=HDR; ws.cell(1,1).alignment=_CTR
     ws.row_dimensions[1].height=30
     ws.merge_cells(start_row=2,start_column=1,end_row=2,end_column=N)
-    ws.cell(2,1).value=f"Vert=Rectifie>OR-T | Rouge=Rectifie<OR-T | Jaune=PIC | Cap={cap}t/j"
-    ws.cell(2,1).font=_ft(size=9,color="595959");ws.cell(2,1).fill=_hf("F0F4F8");ws.cell(2,1).alignment=_LFT
-    for ci,h in enumerate(["Date","Jour","Rectifie (t)","OR-Tools (t)","Ecart (t)","Ecart %","Statut",f"Cap {cap}t/j"],1):
-        ws.cell(3,ci).value=h;ws.cell(3,ci).font=_ft(bold=True,size=9,white=True)
-        ws.cell(3,ci).fill=HDR;ws.cell(3,ci).alignment=_CTR;ws.cell(3,ci).border=_BORD
+    ws.cell(2,1).value="Vert=Rectifié>OR-T | Rouge=Rectifié<OR-T | Jaune=PIC | Cap officiel="+str(cap)+"t/j"
+    ws.cell(2,1).font=_ft(size=9,color="595959"); ws.cell(2,1).fill=_hf("F0F4F8"); ws.cell(2,1).alignment=_LFT
+    for ci,h in enumerate(["Date","Jour","Rectifié (t)","OR-Tools (t)","Ecart (t)","Ecart %","Statut",f"Cap {cap}t/j"],1):
+        ws.cell(3,ci).value=h; ws.cell(3,ci).font=_ft(bold=True,size=9,white=True)
+        ws.cell(3,ci).fill=HDR; ws.cell(3,ci).alignment=_CTR; ws.cell(3,ci).border=_BORD
     data_rows=[]
     for d in SEASON:
-        dk=d.date();mv=man_d.get(dk,0);ov=ort_d.get(dk,0)
+        dk=d.date(); mv=man_d.get(dk,0); ov=ort_d.get(dk,0)
         if mv==0 and ov==0: continue
         data_rows.append((d,dk,mv,ov))
     for ri,(d,dk,mv,ov) in enumerate(data_rows):
-        r=ri+4;is_pic=(PIC_S<=dk<=PIC_E);is_alt=ri%2==0
+        r=ri+4; is_pic=(PIC_S<=dk<=PIC_E); is_alt=ri%2==0
         base=F_PIC if is_pic else (F_ALT1 if is_alt else F_ALT2)
-        ecart=mv-ov;pct=round(ecart/ov*100,1) if ov>0 else None
-        ws.cell(r,1).value=d.strftime("%d/%m/%Y");ws.cell(r,1).fill=base
-        ws.cell(r,1).border=_BORD;ws.cell(r,1).alignment=_CTR
+        ecart=mv-ov; pct=round(ecart/ov*100,1) if ov>0 else None
+        ws.cell(r,1).value=d.strftime("%d/%m/%Y"); ws.cell(r,1).fill=base; ws.cell(r,1).border=_BORD; ws.cell(r,1).alignment=_CTR
         ws.cell(r,1).font=_ft(bold=is_pic,color="7D4F00" if is_pic else "1F1F1F")
-        ws.cell(r,2).value=DAYS_FR[d.weekday()];ws.cell(r,2).fill=base
-        ws.cell(r,2).border=_BORD;ws.cell(r,2).alignment=_CTR;ws.cell(r,2).font=_ft(size=9,color="595959")
-        ws.cell(r,3).value=int(mv) if mv>0 else "";ws.cell(r,3).fill=F_MAN if mv>0 else base
-        ws.cell(r,3).border=_BORD;ws.cell(r,3).alignment=_CTR;ws.cell(r,3).number_format="#,##0"
-        ws.cell(r,4).value=int(ov) if ov>0 else "";ws.cell(r,4).fill=F_ORT if ov>0 else base
-        ws.cell(r,4).border=_BORD;ws.cell(r,4).alignment=_CTR;ws.cell(r,4).number_format="#,##0"
+        ws.cell(r,2).value=DAYS_FR[d.weekday()]; ws.cell(r,2).fill=base; ws.cell(r,2).border=_BORD; ws.cell(r,2).alignment=_CTR; ws.cell(r,2).font=_ft(size=9,color="595959")
+        ws.cell(r,3).value=int(mv) if mv>0 else ""; ws.cell(r,3).fill=F_RECT if mv>0 else base; ws.cell(r,3).border=_BORD; ws.cell(r,3).alignment=_CTR; ws.cell(r,3).number_format="#,##0"
+        ws.cell(r,4).value=int(ov) if ov>0 else ""; ws.cell(r,4).fill=F_ORT if ov>0 else base; ws.cell(r,4).border=_BORD; ws.cell(r,4).alignment=_CTR; ws.cell(r,4).number_format="#,##0"
         if mv>0 or ov>0:
-            ws.cell(r,5).value=int(ecart)
-            ws.cell(r,5).fill=F_POS if ecart>50 else (F_NEG if ecart<-50 else F_NEU)
-            ws.cell(r,5).number_format="+#,##0;-#,##0;0"
-        ws.cell(r,5).border=_BORD;ws.cell(r,5).alignment=_CTR
+            ws.cell(r,5).value=int(ecart); ws.cell(r,5).fill=F_POS if ecart>50 else (F_NEG if ecart<-50 else F_NEU); ws.cell(r,5).number_format="+#,##0;-#,##0;0"
+        ws.cell(r,5).border=_BORD; ws.cell(r,5).alignment=_CTR
         if pct is not None:
-            ws.cell(r,6).value=pct/100
-            ws.cell(r,6).fill=F_POS if pct>5 else (F_NEG if pct<-5 else F_NEU)
-            ws.cell(r,6).number_format="+0.0%;-0.0%;0%"
-        else:
-            ws.cell(r,6).value="—" if mv>0 else ""
-        ws.cell(r,6).border=_BORD;ws.cell(r,6).alignment=_CTR
+            ws.cell(r,6).value=pct/100; ws.cell(r,6).fill=F_POS if pct>5 else (F_NEG if pct<-5 else F_NEU); ws.cell(r,6).number_format="+0.0%;-0.0%;0%"
+        else: ws.cell(r,6).value="—" if mv>0 else ""; ws.cell(r,6).fill=base
+        ws.cell(r,6).border=_BORD; ws.cell(r,6).alignment=_CTR
         if mv>0 and ov==0:   txt,fc,tc="Rect only","E8F5E9","2E7D32"
         elif mv==0 and ov>0: txt,fc,tc="OR-T only","FFF3E0","E65100"
         elif abs(ecart)<=50: txt,fc,tc="OK","E8F5E9","2E7D32"
-        elif ecart>0:        txt,fc,tc="Rect +","E3F2FD","0D47A1"
-        else:                txt,fc,tc="OR-T +","FCE4D6","993200"
-        ws.cell(r,7).value=txt;ws.cell(r,7).fill=_hf(fc);ws.cell(r,7).font=_ft(size=9,color=tc)
-        ws.cell(r,7).border=_BORD;ws.cell(r,7).alignment=_CTR
+        elif ecart>0:        txt,fc,tc="Rect+","E3F2FD","0D47A1"
+        else:                txt,fc,tc="OR-T+","FCE4D6","993200"
+        ws.cell(r,7).value=txt; ws.cell(r,7).fill=_hf(fc); ws.cell(r,7).font=_ft(size=9,color=tc); ws.cell(r,7).border=_BORD; ws.cell(r,7).alignment=_CTR
         if is_pic:
             peak=max(mv,ov)
             ws.cell(r,8).value=f"{'DEPASSE' if peak>cap else 'OK'} {int(peak)}t"
-            ws.cell(r,8).fill=F_NEG if peak>cap else F_POS
-        else:
-            ws.cell(r,8).value="—";ws.cell(r,8).fill=base
-        ws.cell(r,8).border=_BORD;ws.cell(r,8).alignment=_CTR
+            ws.cell(r,8).fill=F_NEG if peak>cap else _hf("C6EFCE")
+        else: ws.cell(r,8).value="—"; ws.cell(r,8).fill=base
+        ws.cell(r,8).border=_BORD; ws.cell(r,8).alignment=_CTR
         ws.row_dimensions[r].height=17
     tr=len(data_rows)+4
-    man_t=sum(r[2] for r in data_rows);ort_t=sum(r[3] for r in data_rows)
-    ec_t=man_t-ort_t;pct_t=round(ec_t/ort_t*100,1) if ort_t>0 else 0
-    man_m=max((r[2] for r in data_rows),default=0);ort_m=max((r[3] for r in data_rows),default=0)
-    mj=sum(1 for r in data_rows if r[2]>0);oj=sum(1 for r in data_rows if r[3]>0)
+    man_t=sum(r[2] for r in data_rows); ort_t=sum(r[3] for r in data_rows)
+    ec_t=man_t-ort_t; pct_t=round(ec_t/ort_t*100,1) if ort_t>0 else 0
     ws.merge_cells(start_row=tr,start_column=1,end_row=tr,end_column=2)
     for ci in range(1,N+1):
-        ws.cell(tr,ci).fill=HDR;ws.cell(tr,ci).border=_BORD;ws.cell(tr,ci).alignment=_CTR
+        ws.cell(tr,ci).fill=HDR; ws.cell(tr,ci).border=_BORD; ws.cell(tr,ci).alignment=_CTR
         ws.cell(tr,ci).font=_ft(bold=True,size=10,white=True)
-    ws.cell(tr,1).value="TOTAL SAISON"
-    ws.cell(tr,3).value=int(man_t);ws.cell(tr,3).number_format="#,##0"
-    ws.cell(tr,4).value=int(ort_t);ws.cell(tr,4).number_format="#,##0"
-    ws.cell(tr,5).value=int(ec_t);ws.cell(tr,5).number_format="+#,##0;-#,##0;0"
-    ws.cell(tr,6).value=pct_t/100;ws.cell(tr,6).number_format="+0.0%;-0.0%;0%"
-    ws.cell(tr,7).value=f"R:{mj}j|OT:{oj}j";ws.cell(tr,8).value=f"MaxR:{int(man_m)}t OT:{int(ort_m)}t"
+    ws.cell(tr,1).value="TOTAL SAISON (RECTIFIÉ)"
+    ws.cell(tr,3).value=int(man_t); ws.cell(tr,3).number_format="#,##0"
+    ws.cell(tr,4).value=int(ort_t); ws.cell(tr,4).number_format="#,##0"
+    ws.cell(tr,5).value=int(ec_t); ws.cell(tr,5).number_format="+#,##0;-#,##0;0"
+    ws.cell(tr,6).value=pct_t/100; ws.cell(tr,6).number_format="+0.0%;-0.0%;0%"
+    ws.cell(tr,7).value=f"R:{sum(1 for r in data_rows if r[2]>0)}j|OT:{sum(1 for r in data_rows if r[3]>0)}j"
+    ws.cell(tr,8).value=f"Max R:{int(max((r[2] for r in data_rows),default=0))}t OT:{int(max((r[3] for r in data_rows),default=0))}t"
     ws.row_dimensions[tr].height=24
     for ci,w in enumerate([12,6,13,13,12,10,12,16],1):
         ws.column_dimensions[get_column_letter(ci)].width=w
     ws.freeze_panes="A4"
-    return len(data_rows)
 
-def _build_synthese_sheet(ws,all_man_comm,all_ort_comm,all_man_usine,all_ort_usine):
-    HDR=_hf("1F3864");N=11
-    def ns(d): return {str(k):v for k,v in d.items()}
+def _build_synthese_sheet(ws,man_comm,ort_comm,man_usine,ort_usine):
+    HDR=_hf("1F3864"); N=11
     ws.merge_cells(start_row=1,start_column=1,end_row=1,end_column=N)
-    ws.cell(1,1).value="Synthese — Plan Rectifie vs OR-Tools — Saison 2026"
-    ws.cell(1,1).font=_ft(bold=True,size=14,white=True);ws.cell(1,1).fill=HDR;ws.cell(1,1).alignment=_CTR
+    ws.cell(1,1).value="Synthèse — Plan Rectifié (SOURCE) vs OR-Tools — Saison 2026"
+    ws.cell(1,1).font=_ft(bold=True,size=14,white=True); ws.cell(1,1).fill=HDR; ws.cell(1,1).alignment=_CTR
     ws.row_dimensions[1].height=30
-    for ci,h in enumerate(["Entite","Type","Total Rect(t)","Total OR-T(t)","Ecart(t)",
+    for ci,h in enumerate(["Entité","Type","Total Rectifié(t)","Total OR-T(t)","Ecart(t)",
                             "Ecart%","Max Rect(t)","Max OR-T(t)","Jours Rect","Jours OR-T","Cap PIC"],1):
-        ws.cell(3,ci).value=h;ws.cell(3,ci).font=_ft(bold=True,size=9,white=True)
-        ws.cell(3,ci).fill=HDR;ws.cell(3,ci).alignment=_CTR;ws.cell(3,ci).border=_BORD
-    ws.row_dimensions[3].height=20
+        ws.cell(3,ci).value=h; ws.cell(3,ci).font=_ft(bold=True,size=9,white=True)
+        ws.cell(3,ci).fill=HDR; ws.cell(3,ci).alignment=_CTR; ws.cell(3,ci).border=_BORD
     row=4
     comm_order=["FEDI","MAKKI BEN SALAH","KHALIL","ACHREF AJLANI","JILANI OBAY"]
     usine_order=["SICAM","TUCAL","COMOCAP","ELFALLEH","ABIDA"]
     ws.merge_cells(start_row=row,start_column=1,end_row=row,end_column=N)
-    ws.cell(row,1).value="COMMERCIAUX";ws.cell(row,1).font=_ft(bold=True,size=10,white=True)
-    ws.cell(row,1).fill=_hf("2F4F7F");ws.cell(row,1).alignment=_LFT;ws.row_dimensions[row].height=16;row+=1
+    ws.cell(row,1).value="COMMERCIAUX — Source: Plans Rectifiés (reference_interne 13/06/2026)"
+    ws.cell(row,1).font=_ft(bold=True,size=10,white=True); ws.cell(row,1).fill=_hf("2F4F7F"); ws.cell(row,1).alignment=_LFT
+    ws.row_dimensions[row].height=16; row+=1
     for ci,comm in enumerate(comm_order):
-        man=ns(all_man_comm.get(comm,{}));ort=ns(all_ort_comm.get(comm,{}))
+        man=_ns(man_comm.get(comm,{})); ort=_ns(ort_comm.get(comm,{}))
         alld=sorted(set(list(man.keys())+list(ort.keys())))
-        mt=sum(man.get(d,0) for d in alld);ot=sum(ort.get(d,0) for d in alld)
-        ec=mt-ot;pct=round(ec/ot*100,1) if ot>0 else 0
-        mm=max((man.get(d,0) for d in alld),default=0);om=max((ort.get(d,0) for d in alld),default=0)
-        mj=sum(1 for d in alld if man.get(d,0)>0);oj=sum(1 for d in alld if ort.get(d,0)>0)
-        hx=COMM_HEX.get(comm,"1F3864");cap=MANUAL_STATS.get(comm,{}).get("cap",0)
+        mt=sum(man.get(d,0) for d in alld); ot=sum(ort.get(d,0) for d in alld)
+        ec=mt-ot; pct=round(ec/ot*100,1) if ot>0 else 0
+        mm=max((man.get(d,0) for d in alld),default=0); om=max((ort.get(d,0) for d in alld),default=0)
+        mj=sum(1 for d in alld if man.get(d,0)>0); oj=sum(1 for d in alld if ort.get(d,0)>0)
+        hx=COMM_HEX.get(comm,"1F3864"); cap=RECTIF_STATS_COMM.get(comm,{}).get("cap",0)
         for j,v in enumerate([comm,"Commercial",int(mt),int(ot),int(ec),f"{pct:+.1f}%",int(mm),int(om),mj,oj,cap],1):
-            ws.cell(row,j).value=v;ws.cell(row,j).border=_BORD;ws.cell(row,j).alignment=_LFT if j==1 else _CTR
+            ws.cell(row,j).value=v; ws.cell(row,j).border=_BORD; ws.cell(row,j).alignment=_LFT if j==1 else _CTR
             ws.cell(row,j).font=_ft(bold=(j==1),color="FFFFFF" if j==1 else "1F1F1F")
             ws.cell(row,j).fill=_hf(hx) if j==1 else (F_ALT1 if ci%2==0 else F_ALT2)
             if j==5: ws.cell(row,j).fill=F_POS if ec>=0 else F_NEG
-        ws.row_dimensions[row].height=17;row+=1
+        ws.row_dimensions[row].height=17; row+=1
     ws.merge_cells(start_row=row,start_column=1,end_row=row,end_column=N)
-    ws.cell(row,1).value="USINES";ws.cell(row,1).font=_ft(bold=True,size=10,white=True)
-    ws.cell(row,1).fill=_hf("0B4F6C");ws.cell(row,1).alignment=_LFT;ws.row_dimensions[row].height=16;row+=1
+    ws.cell(row,1).value="USINES — Source: Réceptions prévues (PDFs/Excel 13/06/2026)"
+    ws.cell(row,1).font=_ft(bold=True,size=10,white=True); ws.cell(row,1).fill=_hf("0B4F6C"); ws.cell(row,1).alignment=_LFT
+    ws.row_dimensions[row].height=16; row+=1
     for ui,usine in enumerate(usine_order):
-        man=ns(all_man_usine.get(usine,{}));ort=ns(all_ort_usine.get(usine,{}))
+        man=_ns(man_usine.get(usine,{})); ort=_ns(ort_usine.get(usine,{}))
         alld=sorted(set(list(man.keys())+list(ort.keys())))
-        mt=sum(man.get(d,0) for d in alld);ot=sum(ort.get(d,0) for d in alld)
-        ec=mt-ot;pct=round(ec/ot*100,1) if ot>0 else 0
-        mm=max((man.get(d,0) for d in alld),default=0);om=max((ort.get(d,0) for d in alld),default=0)
-        mj=sum(1 for d in alld if man.get(d,0)>0);oj=sum(1 for d in alld if ort.get(d,0)>0)
-        hx=USINE_HEX.get(usine,"1F3864");cap=USINE_CAPS.get(usine,0)
+        mt=sum(man.get(d,0) for d in alld); ot=sum(ort.get(d,0) for d in alld)
+        ec=mt-ot; pct=round(ec/ot*100,1) if ot>0 else 0
+        mm=max((man.get(d,0) for d in alld),default=0); om=max((ort.get(d,0) for d in alld),default=0)
+        mj=sum(1 for d in alld if man.get(d,0)>0); oj=sum(1 for d in alld if ort.get(d,0)>0)
+        hx=USINE_HEX.get(usine,"1F3864"); cap=USINE_CAPS.get(usine,0)
         for j,v in enumerate([usine,"Usine",int(mt),int(ot),int(ec),f"{pct:+.1f}%",int(mm),int(om),mj,oj,cap],1):
-            ws.cell(row,j).value=v;ws.cell(row,j).border=_BORD;ws.cell(row,j).alignment=_LFT if j==1 else _CTR
+            ws.cell(row,j).value=v; ws.cell(row,j).border=_BORD; ws.cell(row,j).alignment=_LFT if j==1 else _CTR
             ws.cell(row,j).font=_ft(bold=(j==1),color="FFFFFF" if j==1 else "1F1F1F")
             ws.cell(row,j).fill=_hf(hx) if j==1 else (F_ALT1 if ui%2==0 else F_ALT2)
             if j==5: ws.cell(row,j).fill=F_POS if ec>=0 else F_NEG
-        ws.row_dimensions[row].height=17;row+=1
+        ws.row_dimensions[row].height=17; row+=1
 
 def _build_legende_sheet(ws):
     HDR=_hf("1F3864")
-    ws.merge_cells("A1:E1");ws.cell(1,1).value="Legende — Codes couleur"
-    ws.cell(1,1).font=_ft(bold=True,size=13,white=True);ws.cell(1,1).fill=HDR;ws.cell(1,1).alignment=_CTR
+    ws.merge_cells("A1:D1"); ws.cell(1,1).value="Légende — Codes couleur"
+    ws.cell(1,1).font=_ft(bold=True,size=13,white=True); ws.cell(1,1).fill=HDR; ws.cell(1,1).alignment=_CTR
     for ci,h in enumerate(["Couleur","Code Hex","Signification","Usage"],1):
-        ws.cell(3,ci).value=h;ws.cell(3,ci).font=_ft(bold=True,size=10,white=True)
-        ws.cell(3,ci).fill=HDR;ws.cell(3,ci).alignment=_CTR;ws.cell(3,ci).border=_BORD
-    items=[("E2EFDA","Vert clair","Plan Rectifie (source principale)","Colonne Rectifie"),
-           ("DEEBF7","Bleu clair","OR-Tools (comparaison)","Colonne OR-Tools"),
-           ("C6EFCE","Vert moyen","Rectifie>OR-T de +50t","Ecart positif"),
-           ("FFC7CE","Rose","Rectifie<OR-T de +50t","Ecart negatif"),
-           ("FFF2CC","Jaune","Periode PIC 1-15 juillet","Caps actifs")]
+        ws.cell(3,ci).value=h; ws.cell(3,ci).font=_ft(bold=True,size=10,white=True)
+        ws.cell(3,ci).fill=HDR; ws.cell(3,ci).alignment=_CTR; ws.cell(3,ci).border=_BORD
+    items=[("E2EFDA","Vert clair","Plan Rectifié — SOURCE PRINCIPALE","Colonne Rectifié"),
+           ("DEEBF7","Bleu clair","OR-Tools — comparaison algorithme","Colonne OR-Tools"),
+           ("C6EFCE","Vert moyen","Rectifié > OR-Tools de +50t","Ecart positif"),
+           ("FFC7CE","Rose","Rectifié < OR-Tools de +50t","Ecart négatif"),
+           ("FFF2CC","Jaune","Période PIC 1-15 juillet","Caps actifs")]
     for ri,(hex_c,nom,desc,usage) in enumerate(items,4):
-        ws.cell(ri,1).fill=_hf(hex_c);ws.cell(ri,1).border=_BORD;ws.cell(ri,1).value=nom
-        ws.cell(ri,2).value=f"#{hex_c}";ws.cell(ri,2).fill=_hf(hex_c);ws.cell(ri,2).border=_BORD
-        ws.cell(ri,3).value=desc;ws.cell(ri,3).border=_BORD
-        ws.cell(ri,4).value=usage;ws.cell(ri,4).border=_BORD
+        ws.cell(ri,1).fill=_hf(hex_c); ws.cell(ri,1).border=_BORD; ws.cell(ri,1).value=nom; ws.cell(ri,1).font=_ft(size=10)
+        ws.cell(ri,2).value=f"#{hex_c}"; ws.cell(ri,2).fill=_hf(hex_c); ws.cell(ri,2).border=_BORD; ws.cell(ri,2).alignment=_CTR
+        ws.cell(ri,3).value=desc; ws.cell(ri,3).border=_BORD
+        ws.cell(ri,4).value=usage; ws.cell(ri,4).border=_BORD
+    for ci,w in enumerate([18,12,50,25],1):
+        ws.column_dimensions[get_column_letter(ci)].width=w
 
-def generate_comparison_excel(man_comm,ort_comm,man_usine,ort_usine):
-    wb=Workbook();wb.remove(wb.active)
+def _build_planning_export_sheet(ws, planning_df, rectif_comm, rectif_usine):
+    """
+    Onglet 'Planning Journalier Rectifié' avec structure:
+    Date | Commercial | Agriculteur | Usine | Tonnes/Jour | Type Véhicule |
+    Véhicules Requis | Disponibles | Manquants | Nb Voyages | Pic | 25/06/2026 | 26/06/2026 | ...
+    Basé sur les plans RECTIFIÉS comme tonnage principal
+    """
+    HDR=_hf("1F3864")
+    SEASON_DATES = list(pd.date_range("2026-06-20","2026-08-25",freq="D"))
+    PIC_S_ = pd.Timestamp("2026-07-01").date()
+    PIC_E_ = pd.Timestamp("2026-07-15").date()
+
+    FIXED_HDRS = ["Date","Commercial","Agriculteur","Usine","Tonnes/Jour",
+                  "Type Véhicule","Véhicules Requis","Disponibles","Manquants (à louer)","Nb Voyages","Pic de Récolte"]
+    DATE_HDRS  = [d.strftime("%d/%m/%Y") for d in SEASON_DATES]
+    ALL_HDRS   = FIXED_HDRS + DATE_HDRS
+    N = len(ALL_HDRS)
+
+    # Titre
+    ws.merge_cells(start_row=1,start_column=1,end_row=1,end_column=min(N,30))
+    ws.cell(1,1).value="Planning Journalier Rectifié — SOURCE = Plans Rectifiés (reference_interne)"
+    ws.cell(1,1).font=_ft(bold=True,size=12,white=True); ws.cell(1,1).fill=HDR; ws.cell(1,1).alignment=_CTR
+    ws.row_dimensions[1].height=28
+
+    # En-têtes
+    for ci,h in enumerate(ALL_HDRS,1):
+        c=ws.cell(2,ci); c.value=h; c.border=_BORD; c.alignment=_CTR
+        if ci<=len(FIXED_HDRS):
+            c.fill=HDR; c.font=_ft(bold=True,size=9,white=True)
+        else:
+            d_obj=SEASON_DATES[ci-len(FIXED_HDRS)-1].date()
+            is_pic_col=PIC_S_<=d_obj<=PIC_E_
+            c.fill=_hf("7D6608") if is_pic_col else _hf("1F4E79")
+            c.font=_ft(bold=True,size=8,white=True)
+    ws.row_dimensions[2].height=36
+
+    COMM_FILLS_HEX={
+        "FEDI":"DEEBF7","MAKKI BEN SALAH":"E2EFDA","KHALIL":"FFF2CC",
+        "ACHREF AJLANI":"EDEDED","JILANI OBAY":"FCE4D6",
+    }
+    F_GRN_L=_hf("E2EFDA"); F_PIC_L=_hf("FFF2CC")
+    FLEET={"SICAM":{"PL":48,"PPL":6,"SEMI":13},"TUCAL":{"PL":17,"PPL":0,"SEMI":2},
+           "COMOCAP":{"PL":6,"PPL":14,"SEMI":3},"ABIDA":{"PL":1,"PPL":0,"SEMI":2},"ELFALLEH":{"PL":0,"PPL":2,"SEMI":0}}
+
+    row=3
+    comm_order=["FEDI","MAKKI BEN SALAH","KHALIL","ACHREF AJLANI","JILANI OBAY"]
+
+    for comm in comm_order:
+        rect_daily=_ns(rectif_comm.get(comm, RECTIF_COMM_DICT.get(comm,{})))
+        comm_fill=_hf(COMM_FILLS_HEX.get(comm,"F0F0F0"))
+        comm_bg=_hf("1F3864") if comm=="FEDI" else _hf(COMM_HEX.get(comm,"1F3864"))
+
+        # Si planning_df disponible: lignes par agriculteur
+        if planning_df is not None and not planning_df.empty and "Commercial" in planning_df.columns:
+            sub=planning_df[planning_df["Commercial"]==comm].copy()
+            if not sub.empty and "Agriculteur" in sub.columns:
+                grps=sub.groupby(["Agriculteur","Usine"] if "Usine" in sub.columns else ["Agriculteur"])
+                for key,grp in grps:
+                    agri=key[0] if isinstance(key,tuple) else key
+                    usine=key[1] if isinstance(key,tuple) and len(key)>1 else ""
+                    # Tonnage depuis OR-Tools (structure agriculteur)
+                    ort_daily_agri={}
+                    if "Date" in grp.columns and "Tonnes/Jour" in grp.columns:
+                        grp2=grp.copy(); grp2["Date"]=pd.to_datetime(grp2["Date"],errors='coerce')
+                        for _,r in grp2.iterrows():
+                            if pd.notna(r["Date"]):
+                                ort_daily_agri[str(r["Date"].date())]=float(r.get("Tonnes/Jour",0) or 0)
+                    r0=grp.iloc[0]
+                    tv=str(r0.get("Type Véhicule","") or "")
+                    vr=str(r0.get("Véhicules Requis","") or "")
+                    nv=str(r0.get("Nb Voyages","") or "")
+                    total_ort=sum(ort_daily_agri.values())
+                    is_pic_agri=any(PIC_S_<=pd.Timestamp(k).date()<=PIC_E_ for k,v in ort_daily_agri.items() if v>0)
+                    fleet_usine=FLEET.get(usine.upper(),{})
+                    dispo=fleet_usine.get(tv.upper(),0)
+                    vr_n=int(pd.to_numeric(vr,errors='coerce') or 0)
+                    manque=max(0,vr_n-dispo)
+                    is_alt=(row%2==0)
+                    base_fill=_hf("F5F8FF") if is_alt else _hf("FFFFFF")
+                    fixed_vals=["",comm,agri,usine,round(total_ort,0) if total_ort>0 else "",
+                                tv,vr,dispo if vr_n>0 else "",manque if vr_n>0 else "",nv,
+                                "⚡ PIC" if is_pic_agri else ""]
+                    for ci,val in enumerate(fixed_vals,1):
+                        cell=ws.cell(row,ci); cell.value=val; cell.border=_BORD; cell.alignment=_CTR
+                        if ci==2: cell.fill=comm_fill; cell.font=_ft(bold=True,size=9,color="1F1F1F")
+                        elif ci==9 and isinstance(val,int) and val>0: cell.fill=_hf("FFC7CE"); cell.font=_ft(size=9,bold=True,color="9C0006")
+                        else: cell.fill=base_fill; cell.font=_ft(size=9)
+                    for di,d in enumerate(SEASON_DATES):
+                        dk=str(d.date()); val=ort_daily_agri.get(dk,"")
+                        if val==0: val=""
+                        ci=len(FIXED_HDRS)+di+1
+                        cell=ws.cell(row,ci); cell.value=int(val) if val!="" else ""; cell.border=_BORD; cell.alignment=_CTR
+                        is_pic_d=PIC_S_<=d.date()<=PIC_E_
+                        cell.fill=F_PIC_L if (is_pic_d and val!="") else (F_GRN_L if val!="" else base_fill)
+                        cell.font=_ft(size=8)
+                    ws.row_dimensions[row].height=15; row+=1
+                continue  # passer au commercial suivant
+
+        # Fallback: ligne agrégée depuis rectifié
+        total_rect=sum(float(v) for v in rect_daily.values())
+        is_alt=(row%2==0); base_fill=_hf("F5F8FF") if is_alt else _hf("FFFFFF")
+        fixed_vals=["",comm,"— Agrégé commercial —","Toutes usines",round(total_rect,0),"","","","","",
+                    "⚡ PIC" if any(PIC_S_<=pd.Timestamp(k).date()<=PIC_E_ for k,v in rect_daily.items() if float(v)>0) else ""]
+        for ci,val in enumerate(fixed_vals,1):
+            cell=ws.cell(row,ci); cell.value=val; cell.border=_BORD; cell.alignment=_CTR
+            cell.fill=comm_fill if ci==2 else base_fill; cell.font=_ft(size=9,bold=(ci==2))
+        for di,d in enumerate(SEASON_DATES):
+            dk=str(d.date()); val=float(rect_daily.get(dk,0) or 0)
+            ci=len(FIXED_HDRS)+di+1
+            cell=ws.cell(row,ci); cell.value=int(val) if val>0 else ""; cell.border=_BORD; cell.alignment=_CTR
+            is_pic_d=PIC_S_<=d.date()<=PIC_E_
+            cell.fill=F_PIC_L if (is_pic_d and val>0) else (F_GRN_L if val>0 else base_fill)
+            cell.font=_ft(size=8)
+        ws.row_dimensions[row].height=15; row+=1
+
+    # Largeurs
+    for ci,w in enumerate([12,16,28,12,11,12,11,11,13,10,11],1):
+        ws.column_dimensions[get_column_letter(ci)].width=w
+    for di in range(len(SEASON_DATES)):
+        ws.column_dimensions[get_column_letter(len(FIXED_HDRS)+di+1)].width=8
+    ws.freeze_panes="L3"
+
+def generate_comparison_excel(man_comm,ort_comm,man_usine,ort_usine,planning_df=None):
+    wb=Workbook(); wb.remove(wb.active)
     comm_order=["FEDI","MAKKI BEN SALAH","KHALIL","ACHREF AJLANI","JILANI OBAY"]
     usine_order=["SICAM","TUCAL","COMOCAP","ELFALLEH","ABIDA"]
-    ws=wb.create_sheet("Synthese Globale");_build_synthese_sheet(ws,man_comm,ort_comm,man_usine,ort_usine)
+
+    # Onglet Synthèse
+    ws=wb.create_sheet("Synthese Globale")
+    _build_synthese_sheet(ws,man_comm,ort_comm,man_usine,ort_usine)
+
+    # Onglet Planning Journalier Rectifié
+    ws=wb.create_sheet("Planning Journalier Rectifie")
+    _build_planning_export_sheet(ws,planning_df,man_comm,man_usine)
+
+    # Onglets par commercial
     for comm in comm_order:
         ws=wb.create_sheet(f"C - {comm[:14]}")
         _build_entity_sheet(ws,comm,man_comm.get(comm,{}),ort_comm.get(comm,{}),
-                            MANUAL_STATS.get(comm,{}).get("cap",800),COMM_HEX.get(comm,"1F3864"))
+                            RECTIF_STATS_COMM.get(comm,{}).get("cap",800),COMM_HEX.get(comm,"1F3864"))
+
+    # Onglets par usine
     for usine in usine_order:
         ws=wb.create_sheet(f"U - {usine}")
         _build_entity_sheet(ws,usine,man_usine.get(usine,{}),ort_usine.get(usine,{}),
                             USINE_CAPS.get(usine,500),USINE_HEX.get(usine,"1F3864"))
-    ws=wb.create_sheet("Legende");_build_legende_sheet(ws)
-    buf=io.BytesIO();wb.save(buf);buf.seek(0);return buf.read()
 
-# ═══ POINT D'ENTREE PRINCIPAL ════════════════════════════════
+    ws=wb.create_sheet("Legende"); _build_legende_sheet(ws)
+    buf=io.BytesIO(); wb.save(buf); buf.seek(0); return buf.read()
+
+# ═══ POINT D'ENTRÉE PRINCIPAL ════════════════════════════════
 def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None, sb=None):
 
     st.markdown("""
     <div style='background:#1a2332;border:1px solid #21262d;border-radius:12px;
     padding:16px 20px;margin-bottom:20px'>
       <div style='font-size:1.1rem;font-weight:700;color:#f0f6fc;margin-bottom:4px'>
-        Plans Rectifies — Source principale de donnees
+        Plans Rectifiés — SOURCE PRINCIPALE de toutes les statistiques
       </div>
       <div style='font-size:.82rem;color:#8b949e'>
-        Plan rectifie = version corrigee du planning OR-Tools.
-        Donnees sauvegardees dans Supabase — persistant entre sessions et devices.
+        Toutes les courbes, KPIs et tableaux sont basés sur les plans rectifiés.
+        OR-Tools apparaît uniquement en pointillé comme comparaison.
+        Source: reference_interne 13/06/2026 (FEDI 32736t · MAKKI 24310t · KHALIL 17455t · ACHREF 17486t · JILANI 7000t)
       </div>
     </div>""", unsafe_allow_html=True)
 
@@ -480,7 +628,7 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None, sb=None):
     if "comp_uploaded" not in st.session_state: st.session_state["comp_uploaded"]={}
     if "comp_raw"      not in st.session_state: st.session_state["comp_raw"]={}
 
-    # Charger Supabase une seule fois par session
+    # Charger Supabase une seule fois
     if "comp_sb_loaded" not in st.session_state:
         _sb_comm,_sb_usine=_load_all_rectifie(sb)
         st.session_state["_sb_comm"]=_sb_comm
@@ -488,30 +636,34 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None, sb=None):
         if _sb_comm:
             for _k,_v in _sb_comm.items():
                 st.session_state["comp_uploaded"].setdefault(_k,_v)
-            try: st.toast(f"Donnees chargees depuis Supabase ({len(_sb_comm)} commerciaux)")
-            except: pass
         st.session_state["comp_sb_loaded"]=True
 
     sb_comm=st.session_state.get("_sb_comm",{})
     sb_usine=st.session_state.get("_sb_usine",{})
 
-    # Auto-generer Excel si donnees existent
-    if st.session_state["comp_uploaded"] and "comp_excel_cache" not in st.session_state:
-        try:
-            _mc={};_oc={}
-            for _c in MANUAL_STATS:
-                _mc[_c],_=_get_man_dict(_c,st.session_state["comp_uploaded"],sb_comm)
-                _oc[_c]=_ortools_profile(_c,planning_df,"commercial")
-            _mu={};_ou={}
-            for _u in USINE_CAPS:
-                _mu[_u],_=_get_usine_dict(_u,sb_usine)
-                _ou[_u]=_ortools_profile(_u,planning_df,"usine")
-            st.session_state["comp_excel_cache"]=generate_comparison_excel(_mc,_oc,_mu,_ou)
-        except: pass
+    # ── Construire les dictionnaires rectifiés/ORT ─────────────
+    def _build_dicts():
+        mc={}; oc={}
+        for comm in RECTIF_STATS_COMM:
+            mc[comm],_=_get_rectif_comm(comm,st.session_state["comp_uploaded"],sb_comm)
+            oc[comm]=_get_ort_profile(comm,planning_df,"commercial")
+        mu={}; ou={}
+        for usine in USINE_CAPS:
+            mu[usine],_=_get_rectif_usine(usine,sb_usine)
+            ou[usine]=_get_ort_profile(usine,planning_df,"usine")
+        return mc,oc,mu,ou
 
-    # Zone upload
-    st.subheader("Deposer / Mettre a jour les plans rectifies")
-    st.caption("Sauvegardes dans Supabase — persistant entre sessions et devices.")
+    # Auto-générer Excel au chargement si pas de cache
+    if "comp_excel_cache" not in st.session_state:
+        try:
+            mc,oc,mu,ou=_build_dicts()
+            st.session_state["comp_excel_cache"]=generate_comparison_excel(mc,oc,mu,ou,planning_df)
+        except Exception as e:
+            st.session_state["comp_excel_cache"]=None
+
+    # ── ZONE UPLOAD ──────────────────────────────────────────
+    st.subheader("Mettre à jour un plan rectifié")
+    st.caption("Optionnel: les données reference_interne sont déjà chargées. Upload uniquement si mise à jour.")
     col_up,col_st=st.columns([3,2])
     with col_up:
         uploaded=st.file_uploader("Fichiers",type=["xlsx","xls"],accept_multiple_files=True,
@@ -525,94 +677,93 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None, sb=None):
                 st.session_state["comp_uploaded"][comm]=daily
                 if isinstance(raw_or_err,pd.DataFrame): st.session_state["comp_raw"][comm]=raw_or_err
                 ok=_save_rectifie(sb,comm,daily,"commercial")
-                if ok: st.session_state.get("_sb_comm",{})[comm]=daily
                 if "comp_excel_cache" in st.session_state: del st.session_state["comp_excel_cache"]
                 tot=sum(daily.values())
-                st.success(f"{'Supabase sauvegarde' if ok else 'Charge'}: {comm} — {len(daily)}j, {int(tot)}t")
+                st.success(f"{'✅ Supabase' if ok else '✔'}: {comm} — {len(daily)}j, {int(tot)}t (remplace reference_interne)")
             elif comm: st.warning(f"{f.name}: {raw_or_err}")
-            else: st.warning(f"{f.name}: commercial non detecte. Renommer: Rectification_FEDI_...")
+            else: st.warning(f"{f.name}: commercial non détecté")
 
     with col_st:
-        st.markdown("**Statut :**")
-        for c in MANUAL_STATS:
-            d,src=_get_man_dict(c,st.session_state["comp_uploaded"],sb_comm)
-            if src!="reference interne (13/06/2026)":
-                t=sum(d.values());n=sum(1 for v in d.values() if v>0)
-                st.success(f"{c.split()[0]} — {n}j | {int(t)}t ({src})")
-            else:
-                st.info(f"{c.split()[0]} — reference interne")
-        if st.session_state["comp_uploaded"]:
-            if st.button("Effacer uploads session",use_container_width=True):
-                st.session_state["comp_uploaded"]={}
-                st.session_state["comp_raw"]={}
-                if "comp_excel_cache" in st.session_state: del st.session_state["comp_excel_cache"]
-                st.rerun()
+        st.markdown("**Statut source :**")
+        for c in RECTIF_STATS_COMM:
+            d,src=_get_rectif_comm(c,st.session_state["comp_uploaded"],sb_comm)
+            t=sum(d.values()); icon="🟢" if "upload" in src else ("🔵" if "Supabase" in src else "⚪")
+            st.markdown(f"{icon} **{c.split()[0]}** — {int(t)}t ({src})")
 
-    # Export Excel
+    # ── EXPORT EXCEL ─────────────────────────────────────────
     st.divider()
     col_exp1,col_exp2=st.columns([2,3])
     with col_exp1:
-        if "comp_excel_cache" in st.session_state and st.session_state["comp_excel_cache"]:
-            st.download_button("Telecharger Comparaison_Rectifie_vs_ORT_2026.xlsx",
+        if st.session_state.get("comp_excel_cache"):
+            st.download_button(
+                "📥 Télécharger Comparaison_Rectifie_vs_ORT_2026.xlsx",
                 data=st.session_state["comp_excel_cache"],
-                file_name="Comparaison_ORT_vs_Manuel_2026.xlsx",
+                file_name="Comparaison_Rectifie_vs_ORT_2026.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,type="primary")
-            st.caption("Fichier pret (genere automatiquement)")
-            if st.button("Regenerer Excel",use_container_width=True):
-                del st.session_state["comp_excel_cache"];st.rerun()
+            st.caption("✅ Fichier prêt — SOURCE = Plans Rectifiés")
+            if st.button("🔄 Régénérer Excel",use_container_width=True):
+                if "comp_excel_cache" in st.session_state: del st.session_state["comp_excel_cache"]
+                st.rerun()
         else:
-            if st.button("Generer et telecharger Excel",type="primary",use_container_width=True):
-                with st.spinner("Generation..."):
-                    mc={};oc={}
-                    for comm in MANUAL_STATS:
-                        mc[comm],_=_get_man_dict(comm,st.session_state["comp_uploaded"],sb_comm)
-                        oc[comm]=_ortools_profile(comm,planning_df,"commercial")
-                    mu={};ou={}
-                    for usine in USINE_CAPS:
-                        mu[usine],_=_get_usine_dict(usine,sb_usine)
-                        ou[usine]=_ortools_profile(usine,planning_df,"usine")
-                    xl=generate_comparison_excel(mc,oc,mu,ou)
-                st.session_state["comp_excel_cache"]=xl;st.rerun()
+            if st.button("⬇️ Générer Excel",type="primary",use_container_width=True):
+                with st.spinner("Génération..."):
+                    mc,oc,mu,ou=_build_dicts()
+                    xl=generate_comparison_excel(mc,oc,mu,ou,planning_df)
+                st.session_state["comp_excel_cache"]=xl; st.rerun()
     with col_exp2:
         st.markdown("""<div style='background:#161b22;border:1px solid #21262d;border-radius:8px;
         padding:12px 16px;font-size:12px;color:#8b949e'>
-          <b style='color:#f0f6fc'>Contenu :</b> Synthese + 5 commerciaux + 5 usines + Legende<br>
-          <b style='color:#3b82f6'>Source :</b> Plan Rectifie (principal)<br>
-          <b style='color:#888'>Comparaison :</b> OR-Tools en pointille
+          <b style='color:#f0f6fc'>Contenu Excel :</b><br>
+          📊 Synthèse Globale · 📅 Planning Journalier Rectifié<br>
+          👤 5 onglets Commerciaux · 🏭 5 onglets Usines · Légende<br>
+          <b style='color:#3b82f6'>Source :</b> Plans Rectifiés (reference_interne 13/06/2026)<br>
+          <b style='color:#555'>Comparaison :</b> OR-Tools en pointillé uniquement<br>
+          <b style='color:#e8543a'>ELFALLEH 5190t · ABIDA 8010t</b>
         </div>""",unsafe_allow_html=True)
 
     st.divider()
 
-    # Onglets visuels
-    c1,c2,c3,c4=st.tabs(["Courbes par commercial","Par usine","Statistiques globales","Etat optimizer"])
+    # ── ONGLETS VISUELS ─────────────────────────────────────
+    c1,c2,c3,c4=st.tabs(["📈 Par Commercial","🏭 Par Usine","📊 Stats globales","⚙️ Etat optimizer"])
 
-    # C1 : PAR COMMERCIAL
+    # ─── C1: PAR COMMERCIAL ───────────────────────────────────
     with c1:
-        sel_comm=st.selectbox("Choisir un commercial",list(MANUAL_STATS.keys()),key="comp_sel_comm")
-        color=COMM_COLORS[sel_comm];cap=MANUAL_STATS[sel_comm]["cap"]
-        man_dict,src_lbl=_get_man_dict(sel_comm,st.session_state["comp_uploaded"],sb_comm)
-        ort_dict=_ortools_profile(sel_comm,planning_df,"commercial")
+        sel_comm=st.selectbox("Choisir un commercial",list(RECTIF_STATS_COMM.keys()),key="comp_sel_comm")
+        color=COMM_COLORS[sel_comm]; cap=RECTIF_STATS_COMM[sel_comm]["cap"]
+        man_dict,src_lbl=_get_rectif_comm(sel_comm,st.session_state["comp_uploaded"],sb_comm)
+        ort_dict=_get_ort_profile(sel_comm,planning_df,"commercial")
+
+        st.markdown(f"""<div style='background:#1a2332;border-left:4px solid {color};padding:8px 14px;
+        border-radius:0 8px 8px 0;margin-bottom:12px;font-size:12px;color:#8b949e'>
+        Source: <b style='color:#f0f6fc'>{src_lbl}</b> |
+        Total: <b style='color:{color}'>{int(sum(_ns(man_dict).values()))}t</b> |
+        Max/j: <b style='color:{color}'>{int(max(_ns(man_dict).values()) if man_dict else 0)}t</b>
+        </div>""",unsafe_allow_html=True)
+
         _kpi_row(sel_comm,man_dict,ort_dict,cap)
-        st.caption(f"Source plan rectifie : **{src_lbl}**")
         st.plotly_chart(_build_chart(sel_comm,man_dict,ort_dict,color,cap),use_container_width=True)
-        st.markdown(f"**Tableau jour par jour — {sel_comm}**")
-        ms={str(k):v for k,v in man_dict.items()};os_={str(k):v for k,v in ort_dict.items()}
+
+        # Tableau jour par jour
+        st.markdown(f"**Tableau jour par jour — {sel_comm}** (source: {src_lbl})")
+        ms=_ns(man_dict); os_=_ns(ort_dict)
         pivot_rows=[]
         for d in SEASON:
-            dk=d.date();mv=ms.get(str(dk),0);ov=os_.get(str(dk),0)
+            dk=d.date(); mv=ms.get(str(dk),0); ov=os_.get(str(dk),0)
             if mv==0 and ov==0: continue
             ec=mv-ov
             pivot_rows.append({"Date":d.strftime("%d/%m/%Y"),"Jour":DAYS_FR[d.weekday()],
                                "PIC":"⚡" if PIC_S<=dk<=PIC_E else "",
-                               "Rectifie (t)":int(mv) if mv>0 else "",
+                               "Rectifié (t)":int(mv) if mv>0 else "",
                                "OR-Tools (t)":int(ov) if ov>0 else "",
                                "Ecart (t)":f"{int(ec):+d}" if (mv>0 or ov>0) else "",
                                "Statut":"OK" if abs(ec)<=50 else ("Rect+" if ec>0 else "OR-T+")})
         if pivot_rows:
             st.dataframe(pd.DataFrame(pivot_rows),use_container_width=True,height=320,hide_index=True,
-                         column_config={"Rectifie (t)":st.column_config.NumberColumn("Rectifie (t)",format="%d t"),
+                         column_config={"Rectifié (t)":st.column_config.NumberColumn("Rectifié (t)",format="%d t"),
                                         "OR-Tools (t)":st.column_config.NumberColumn("OR-Tools (t)",format="%d t")})
+
+        # Profil par agriculteur si upload
         if sel_comm in st.session_state["comp_raw"]:
             st.markdown("---")
             st.markdown(f"**Profil par agriculteur — {sel_comm}**")
@@ -630,350 +781,128 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None, sb=None):
             fig_a.update_layout(paper_bgcolor="#161b22",showlegend=False,margin=dict(l=230,r=60,t=50,b=40))
             st.plotly_chart(fig_a,use_container_width=True)
 
-    # C2 : PAR USINE
+    # ─── C2: PAR USINE ─────────────────────────────────────────
     with c2:
         sel_usine=st.selectbox("Choisir une usine",["SICAM","TUCAL","COMOCAP","ELFALLEH","ABIDA"],key="comp_usine_sel")
-        cap=USINE_CAPS[sel_usine];us=USINE_STATS.get(sel_usine,{})
-        man_u,src_u=_get_usine_dict(sel_usine,sb_usine)
-        ort_u=_ortools_profile(sel_usine,planning_df,"usine")
+        cap=USINE_CAPS[sel_usine]; us=RECTIF_STATS_USINE.get(sel_usine,{})
+        man_u,src_u=_get_rectif_usine(sel_usine,sb_usine)
+        ort_u=_get_ort_profile(sel_usine,planning_df,"usine")
+
         total_u=us.get("total",sum(man_u.values()) if man_u else 0)
         max_u=us.get("max_j",max(man_u.values()) if man_u else 0)
-        jours_u=us.get("n_jours",sum(1 for v in man_u.values() if v>0))
+        jours_u=us.get("n_j",sum(1 for v in man_u.values() if v>0))
         ot_u=sum(ort_u.values()) if ort_u else 0
+
         k1,k2,k3,k4,k5=st.columns(5)
-        k1.metric("Total saison",f"{int(total_u)}t")
+        k1.metric("Total saison (Rectifié)",f"{int(total_u)}t")
         k2.metric("Max journalier",f"{max_u}t",
-                  delta=f"cap {cap}t/j" if max_u<=cap else f"+{max_u-cap}t vs cap {cap}t/j",
-                  delta_color="normal" if max_u<=cap else "inverse")
+                  delta=f"+{max_u-cap}t vs cap {cap}" if max_u>cap else f"cap {cap}t/j OK",
+                  delta_color="inverse" if max_u>cap else "normal")
         k3.metric("Cap officiel",f"{cap}t/j")
-        k4.metric("Total OR-Tools",f"{int(ot_u)}t",delta=f"{int(total_u-ot_u):+d}t ecart")
+        k4.metric("OR-Tools total",f"{int(ot_u)}t",delta=f"{int(total_u-ot_u):+d}t")
         k5.metric("Jours actifs",f"{jours_u}j")
-        st.caption(f"Source : {src_u}")
-        dates_u=[pd.Timestamp(k) for k in sorted(man_u.keys())]
-        vals_u=[man_u[k] for k in sorted(man_u.keys())]
+        st.caption(f"Source : **{src_u}**")
+
+        # Courbe principale = RECTIFIÉ
+        man_u_s=_ns(man_u); ort_u_s=_ns(ort_u)
+        dates_rect=[pd.Timestamp(k) for k in sorted(man_u_s.keys())]
+        vals_rect=[float(man_u_s[k]) for k in sorted(man_u_s.keys())]
+
         fig_u=go.Figure()
-        fig_u.add_trace(go.Bar(x=dates_u,y=vals_u,name="Plan rectifie",marker_color="#3b82f6",marker_line_width=0))
+        fig_u.add_trace(go.Bar(x=dates_rect,y=vals_rect,name="Plan Rectifié (SOURCE)",
+                               marker_color="#3b82f6",marker_line_width=0))
+        if ort_u_s:
+            fig_u.add_trace(go.Scatter(
+                x=[pd.Timestamp(d) for d in sorted(ort_u_s.keys())],
+                y=[float(ort_u_s[d]) for d in sorted(ort_u_s.keys())],
+                name="OR-Tools (comparaison)",line=dict(color="#888888",width=2,dash="dash"),mode="lines"))
         fig_u.add_hline(y=cap,line_dash="dash",line_color="#e8543a",line_width=1.5,
-                        annotation_text=f"Cap:{cap}t/j",annotation_position="top right",annotation_font_color="#e8543a")
+                        annotation_text=f"Cap officiel:{cap}t/j",annotation_position="top right",
+                        annotation_font_color="#e8543a")
         fig_u.add_vrect(x0=pd.Timestamp("2026-07-01"),x1=pd.Timestamp("2026-07-15"),
-                        fillcolor="rgba(245,166,35,0.08)",line_width=0)
-        if ort_u:
-            fig_u.add_trace(go.Scatter(x=[pd.Timestamp(d) for d in sorted(ort_u.keys())],
-                y=[ort_u[d] for d in sorted(ort_u.keys())],
-                name="OR-Tools",line=dict(color="#f5a623",width=2,dash="dash"),mode="lines"))
-        fig_u.update_layout(title=f"{sel_usine} — Plan Rectifie vs OR-Tools",
+                        fillcolor="rgba(245,166,35,0.08)",line_width=0,
+                        annotation_text="PIC",annotation_position="top left",annotation_font_color="#f5a623")
+        fig_u.update_layout(
+            title=f"{sel_usine} — Plan Rectifié (SOURCE) vs OR-Tools",
             template="plotly_dark",plot_bgcolor="#0d1117",paper_bgcolor="#161b22",
             height=360,hovermode="closest",legend=dict(orientation="h",yanchor="bottom",y=1.02))
         st.plotly_chart(fig_u,use_container_width=True)
+
+        # Tableau jour par jour USINE
         st.markdown(f"**Tableau jour par jour — {sel_usine}**")
-        man_u_s={str(k):v for k,v in man_u.items()};ort_u_s={str(k):v for k,v in ort_u.items()}
         pivot_u=[]
         for d in SEASON:
-            dk=d.date();mv=man_u_s.get(str(dk),0);ov=ort_u_s.get(str(dk),0)
+            dk=d.date(); mv=float(man_u_s.get(str(dk),0)); ov=float(ort_u_s.get(str(dk),0))
             if mv==0 and ov==0: continue
             ec=mv-ov
             pivot_u.append({"Date":d.strftime("%d/%m/%Y"),"Jour":DAYS_FR[d.weekday()],
                             "PIC":"⚡" if PIC_S<=dk<=PIC_E else "",
-                            "Rectifie (t)":int(mv) if mv>0 else "",
+                            "Rectifié (t)":int(mv) if mv>0 else "",
                             "OR-Tools (t)":int(ov) if ov>0 else "",
                             "Ecart (t)":f"{int(ec):+d}" if (mv>0 or ov>0) else "",
-                            "Cap":"DEPASSE" if (PIC_S<=dk<=PIC_E and max(mv,ov)>cap) else ("OK" if PIC_S<=dk<=PIC_E else "")})
+                            "Statut Cap":"DEPASSE" if (PIC_S<=dk<=PIC_E and max(mv,ov)>cap) else ("OK" if PIC_S<=dk<=PIC_E else "")})
         if pivot_u:
             st.dataframe(pd.DataFrame(pivot_u),use_container_width=True,height=320,hide_index=True)
-        rules={"SICAM":["Montee progressive juin (140-625t)","Pic 1-15 juillet (910-1650t)","Declin rapide aout"],
-               "TUCAL":["Demarrage 24 juin","Plateau 590-700t/j juillet"],
-               "COMOCAP":["Pic tardif 27/07 (875t)","Declin net aout"],
-               "ELFALLEH":["Total reel 5190t / 38 jours / max 240t/j","Cap officiel 150t/j (jours doubles autorises)"],
-               "ABIDA":["Total reel 8010t / max 320t/j","Demarrage tardif juillet"]}
-        st.markdown("**Regles terrain :**")
-        for rule in rules.get(sel_usine,[]): st.markdown(f"• {rule}")
 
-    # C3 : STATS GLOBALES
+        notes={"SICAM":["Démarrage 20/06 (140t) → Pic 24/07 (1650t)","Total rectifié: 44871t / 67 jours"],
+               "TUCAL":["Démarrage 24/06 → Plateau 590-700t/j juillet","Total rectifié: 20525t / 52 jours"],
+               "COMOCAP":["Pic tardif 27/07 (875t)","Total rectifié: 20391t / 50 jours"],
+               "ELFALLEH":["Total réel 5190t / 38 jours / max 240t/j","Cap officiel 150t/j (jours doubles autorisés)"],
+               "ABIDA":["Total réel 8010t / max 320t/j","Démarrage tardif juillet → déclin fin août"]}
+        st.markdown("**Données terrain :**")
+        for note in notes.get(sel_usine,[]): st.markdown(f"• {note}")
+
+    # ─── C3: STATS GLOBALES ────────────────────────────────────
     with c3:
-        st.markdown("### Comparaison globale — tous commerciaux et usines")
-        rows_cmp=[];mt_list=[];ot_list=[]
-        for comm in MANUAL_STATS:
-            d,src=_get_man_dict(comm,st.session_state["comp_uploaded"],sb_comm)
-            ds={str(k):v for k,v in d.items()}
-            od=_ortools_profile(comm,planning_df,"commercial")
-            ods={str(k):v for k,v in od.items()}
-            mt=sum(ds.values());ot=sum(ods.values()) if ods else 0
-            mm=max(ds.values()) if ds else 0;om=max(ods.values()) if ods else 0
-            ec=mt-ot;pct=round(ec/ot*100,1) if ot>0 else 0
-            mt_list.append(mt);ot_list.append(ot)
-            rows_cmp.append({"Commercial":comm,"Source":src,"Total Rectifie(t)":int(mt),
+        st.markdown("### Statistiques globales — Plans Rectifiés (SOURCE)")
+        rows_cmp=[]; mt_list=[]; ot_list=[]
+        for comm in RECTIF_STATS_COMM:
+            d,src=_get_rectif_comm(comm,st.session_state["comp_uploaded"],sb_comm)
+            ds=_ns(d); od=_ns(_get_ort_profile(comm,planning_df,"commercial"))
+            mt=sum(ds.values()); ot=sum(od.values()) if od else 0
+            mm=max(ds.values()) if ds else 0; om=max(od.values()) if od else 0
+            ec=mt-ot; pct=round(ec/ot*100,1) if ot>0 else 0
+            mt_list.append(mt); ot_list.append(ot)
+            rows_cmp.append({"Commercial":comm,"Source":src,"Total Rectifié(t)":int(mt),
                              "Total OR-T(t)":int(ot),"Ecart(t)":f"{int(ec):+d}",
-                             "Max Rect":f"{int(mm)}t","Max OR-T":f"{int(om)}t",
-                             "Jours Rect":sum(1 for v in ds.values() if v>0),
-                             "Cap PIC":f"{MANUAL_STATS[comm]['cap']}t/j"})
+                             "Max Rect":f"{int(mm)}t","Jours":sum(1 for v in ds.values() if v>0),
+                             "Cap PIC":f"{RECTIF_STATS_COMM[comm]['cap']}t/j"})
         st.dataframe(pd.DataFrame(rows_cmp),use_container_width=True,hide_index=True)
+
         fig_cmp=go.Figure()
-        comm_order=list(MANUAL_STATS.keys())
-        fig_cmp.add_trace(go.Bar(name="Plan Rectifie",x=comm_order,y=mt_list,marker_color="#3b82f6",
-                                 text=[f"{int(v)}t" for v in mt_list],textposition="outside"))
-        fig_cmp.add_trace(go.Bar(name="OR-Tools",x=comm_order,y=ot_list,marker_color="#888888",
-                                 text=[f"{int(v)}t" for v in ot_list],textposition="outside"))
+        fig_cmp.add_trace(go.Bar(name="Plan Rectifié",x=list(RECTIF_STATS_COMM.keys()),y=mt_list,
+                                 marker_color="#3b82f6",text=[f"{int(v)}t" for v in mt_list],textposition="outside"))
+        fig_cmp.add_trace(go.Bar(name="OR-Tools",x=list(RECTIF_STATS_COMM.keys()),y=ot_list,
+                                 marker_color="#555555",text=[f"{int(v)}t" for v in ot_list],textposition="outside"))
         fig_cmp.update_layout(barmode="group",template="plotly_dark",paper_bgcolor="#161b22",
                               plot_bgcolor="#0d1117",height=380,yaxis_title="Tonnes",
+                              title="Comparaison totaux — Plans Rectifiés (bleu) vs OR-Tools (gris)",
                               legend=dict(orientation="h",yanchor="bottom",y=1.02))
         st.plotly_chart(fig_cmp,use_container_width=True)
 
-    # C4 : ETAT OPTIMIZER
+        st.markdown("---")
+        st.markdown("### Résumé usines — données réelles")
+        rows_u=[]
+        for usine,us in RECTIF_STATS_USINE.items():
+            rows_u.append({"Usine":usine,"Total Rectifié(t)":us["total"],
+                           "Max/j Rectifié":f"{us['max_j']}t","Jours":us["n_j"],
+                           "Cap officiel":f"{us['cap_officiel']}t/j",
+                           "Dépassement cap":"OUI" if us["max_j"]>us["cap_officiel"] else "NON"})
+        st.dataframe(pd.DataFrame(rows_u),use_container_width=True,hide_index=True)
+
+    # ─── C4: ETAT OPTIMIZER ────────────────────────────────────
     with c4:
-        st.markdown("### Etat actuel optimizer_v2.py — Configuration OPTIMALE")
-        st.success("Configuration stable — ne pas modifier les parametres ci-dessous.")
+        st.markdown("### Etat optimizer_v2.py — Configuration stable")
+        st.success("Configuration OPTIMALE — ne pas modifier")
         st.markdown("""
-| Parametre | Valeur actuelle | Statut |
+| Paramètre | Valeur | Statut |
 |---|---|---|
-| Borne journaliere (`_ub_day`) | `day_planned x SCALE x 2.0` | OPTIMAL |
-| `FACTORY_OVERFLOW_WEIGHT` | `2000` | Applique |
+| Borne journalière `_ub_day` | `day_planned × SCALE × 2.0` | OPTIMAL |
+| `FACTORY_OVERFLOW_WEIGHT` | `2000` | Appliqué |
 | Arrondi tonnage | `10t` | Stable |
-| Correction post-traitement | Desactivee (`continue`) | OK |
+| Correction post-traitement | Désactivée | OK |
         """)
-        st.warning("**x1.1 et x1.5 causent INFEASIBLE** — teste et prouve. Ne pas appliquer.")
+        st.warning("**x1.1 et x1.5 causent INFEASIBLE** — testés et prouvés. Ne pas modifier.")
         st.code("""Status: OPTIMAL (~2s) | 2630 rows | 96 676t (-0.32%)
-FEDI   : -234t (-0.7%)
-MAKKI  : +115t (+0.5%)
-ACHREF : 0t (parfait)
-KHALIL : -139t (-0.8%)
-JILANI : -125t (-1.8%)""")
-
-
-# ═══════════════════════════════════════════════════════════
-# EXPORT PLANNING JOURNALIER — Structure correcte basee sur rectifie
-# Colonnes: Date | Commercial | Agriculteur | Usine | Tonnes/Jour |
-#           Type Vehicule | Vehicules Requis | Disponibles |
-#           Manquants (a louer) | Nb Voyages | Pic de Recolte |
-#           [25/06/2026 | 26/06/2026 | ...]
-# ═══════════════════════════════════════════════════════════
-def generate_planning_journalier_excel(planning_df=None, rectified_comm=None, rectified_usine=None):
-    """
-    Genere le planning journalier complet base sur les donnees rectifiees.
-    rectified_comm = {comm_name: {date_str: tonnes}}
-    rectified_usine = {usine_name: {date_str: tonnes}}
-    """
-    from openpyxl import Workbook
-    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
-    from openpyxl.utils import get_column_letter
-    import io
-
-    wb = Workbook(); wb.remove(wb.active)
-    SEASON_DATES = list(pd.date_range("2026-06-20", "2026-08-25", freq="D"))
-    DATE_COLS = [d.strftime("%d/%m/%Y") for d in SEASON_DATES]
-    PIC_START = pd.Timestamp("2026-07-01").date()
-    PIC_END   = pd.Timestamp("2026-07-15").date()
-
-    HDR_BLUE = PatternFill("solid", start_color="1F3864", end_color="1F3864")
-    HDR_FONT = Font(bold=True, color="FFFFFF", name="Calibri", size=9)
-    CTR = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    LFT = Alignment(horizontal="left", vertical="center")
-    THIN = Side(style="thin", color="CCCCCC")
-    BORD = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
-    F_PIC = PatternFill("solid", start_color="FFF2CC", end_color="FFF2CC")
-    F_ALT = PatternFill("solid", start_color="F8F9FA", end_color="F8F9FA")
-    F_WHT = PatternFill("solid", start_color="FFFFFF", end_color="FFFFFF")
-    F_GRN = PatternFill("solid", start_color="E2EFDA", end_color="E2EFDA")
-
-    COMM_COLORS_HEX = {
-        "FEDI":"1F5FA6","MAKKI BEN SALAH":"1A6B3C",
-        "KHALIL":"B45309","ACHREF AJLANI":"5B21B6","JILANI OBAY":"C0392B",
-    }
-    USINE_COLORS_HEX = {
-        "SICAM":"1F3864","TUCAL":"4A235A",
-        "COMOCAP":"0B4F6C","ELFALLEH":"196F3D","ABIDA":"922B21",
-    }
-
-    # ── Onglet 1: Planning par commercial ─────────────────────
-    ws = wb.create_sheet("Planning Commercial")
-    FIXED_COLS = ["Date","Commercial","Agriculteur","Usine","Tonnes/Jour",
-                  "Type Vehicule","Vehicules Requis","Disponibles",
-                  "Manquants (a louer)","Nb Voyages","Pic de Recolte"]
-    ALL_COLS = FIXED_COLS + DATE_COLS
-    N = len(ALL_COLS)
-
-    # Titre
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=min(N, 30))
-    ws.cell(1,1).value = "Planning Journalier 2026 — Base sur donnees rectifiees"
-    ws.cell(1,1).font = Font(bold=True, color="FFFFFF", name="Calibri", size=12)
-    ws.cell(1,1).fill = HDR_BLUE; ws.cell(1,1).alignment = CTR
-    ws.row_dimensions[1].height = 28
-
-    # En-tetes
-    for ci, h in enumerate(ALL_COLS, 1):
-        c = ws.cell(2, ci); c.value = h; c.border = BORD; c.alignment = CTR
-        c.font = HDR_FONT
-        # Colonnes dates = bleu clair
-        if ci > len(FIXED_COLS):
-            d_obj = SEASON_DATES[ci - len(FIXED_COLS) - 1].date()
-            c.fill = F_PIC if PIC_START <= d_obj <= PIC_END else PatternFill("solid", start_color="DEEBF7", end_color="DEEBF7")
-        else:
-            c.fill = HDR_BLUE
-    ws.row_dimensions[2].height = 35
-
-    # Donnees: une ligne par (commercial, agriculteur, usine)
-    row = 3
-    comm_order = ["FEDI","MAKKI BEN SALAH","KHALIL","ACHREF AJLANI","JILANI OBAY"]
-
-    # Construire depuis planning_df (OR-Tools) ou rectified
-    if planning_df is not None and not planning_df.empty:
-        # Utiliser planning_df comme base de structure agriculteurs
-        req_cols = [c for c in ["Commercial","Agriculteur","Usine","Tonnes/Jour",
-                                 "Type Véhicule","Véhicules Requis","Disponibles",
-                                 "Manquants (à louer)","Nb Voyages"] if c in planning_df.columns]
-        df_base = planning_df.copy()
-        if "Date" in df_base.columns:
-            df_base["Date"] = pd.to_datetime(df_base["Date"], errors="coerce")
-    else:
-        df_base = None
-
-    # Par commercial: reconstruire depuis donnees rectifiees si disponibles
-    for comm in comm_order:
-        rect_data = rectified_comm.get(comm, {}) if rectified_comm else {}
-        hex_c = COMM_COLORS_HEX.get(comm, "1F3864")
-        comm_fill = PatternFill("solid", start_color=hex_c, end_color=hex_c)
-
-        if df_base is not None and "Commercial" in df_base.columns:
-            sub = df_base[df_base["Commercial"] == comm].copy()
-            # Grouper par agriculteur + usine
-            if not sub.empty:
-                grp_cols = [c for c in ["Agriculteur","Usine"] if c in sub.columns]
-                if grp_cols and "Date" in sub.columns:
-                    for (agri, usine), grp in sub.groupby(grp_cols):
-                        # Tonnage par date depuis planning OR-Tools
-                        tonnage_by_date = {}
-                        if "Date" in grp.columns and "Tonnes/Jour" in grp.columns:
-                            for _, r in grp.iterrows():
-                                if pd.notna(r["Date"]):
-                                    dk = r["Date"].date()
-                                    tonnage_by_date[str(dk)] = float(r.get("Tonnes/Jour", 0) or 0)
-
-                        # Remplacer par donnees rectifiees si dispo (total comm)
-                        # On applique le ratio rectifie/ORT sur chaque jour
-                        total_rect = sum(rect_data.values()) if rect_data else 0
-                        total_ort  = sum(grp.get("Tonnes/Jour", pd.Series([0])).fillna(0))
-
-                        # Premieres infos transport
-                        r0 = grp.iloc[0]
-                        tv = r0.get("Type Véhicule", "") if "Type Véhicule" in grp.columns else ""
-                        vr = r0.get("Véhicules Requis", "") if "Véhicules Requis" in grp.columns else ""
-                        dsp = r0.get("Disponibles", "") if "Disponibles" in grp.columns else ""
-                        mnq = r0.get("Manquants (à louer)", "") if "Manquants (à louer)" in grp.columns else ""
-                        nvg = r0.get("Nb Voyages", "") if "Nb Voyages" in grp.columns else ""
-
-                        is_alt = row % 2 == 0
-                        base_fill = F_ALT if is_alt else F_WHT
-
-                        # Ecrire la ligne fixe
-                        fixed_vals = [
-                            "", str(comm), str(agri), str(usine),
-                            round(total_ort, 1) if total_ort else "",
-                            str(tv), str(vr) if vr else "", str(dsp) if dsp else "",
-                            str(mnq) if mnq else "", str(nvg) if nvg else "",
-                            "OUI" if any(PIC_START <= pd.Timestamp(k).date() <= PIC_END
-                                        for k in tonnage_by_date if tonnage_by_date[k] > 0) else ""
-                        ]
-                        for ci, val in enumerate(fixed_vals, 1):
-                            cell = ws.cell(row, ci)
-                            cell.value = val; cell.border = BORD
-                            cell.alignment = CTR if ci > 1 else CTR
-                            if ci == 2:  # Commercial
-                                cell.fill = comm_fill
-                                cell.font = Font(bold=True, color="FFFFFF", name="Calibri", size=9)
-                            else:
-                                cell.fill = base_fill
-                                cell.font = Font(name="Calibri", size=9)
-
-                        # Ecrire les colonnes dates
-                        for di, d in enumerate(SEASON_DATES):
-                            dk_str = str(d.date())
-                            dk_obj = d.date()
-                            val = tonnage_by_date.get(dk_str, "")
-                            if val == 0: val = ""
-                            cell = ws.cell(row, len(FIXED_COLS) + di + 1)
-                            cell.value = int(val) if val != "" else ""
-                            cell.border = BORD; cell.alignment = CTR
-                            if PIC_START <= dk_obj <= PIC_END and val != "":
-                                cell.fill = F_PIC
-                                cell.font = Font(bold=True, name="Calibri", size=9, color="7D4F00")
-                            else:
-                                cell.fill = F_GRN if val != "" else base_fill
-                                cell.font = Font(name="Calibri", size=9)
-
-                        ws.row_dimensions[row].height = 15
-                        row += 1
-                    continue  # Passer au commercial suivant
-
-        # Fallback: ligne agregee depuis donnees rectifiees uniquement
-        if rect_data:
-            total_rect = sum(rect_data.values())
-            is_alt = row % 2 == 0
-            base_fill = F_ALT if is_alt else F_WHT
-            fixed_vals = ["", str(comm), "— Total commercial —", "—",
-                          round(total_rect, 0), "", "", "", "", "",
-                          "OUI" if any(PIC_START <= pd.Timestamp(k).date() <= PIC_END
-                                      for k in rect_data if rect_data[k] > 0) else ""]
-            for ci, val in enumerate(fixed_vals, 1):
-                cell = ws.cell(row, ci); cell.value = val; cell.border = BORD; cell.alignment = CTR
-                if ci == 2:
-                    cell.fill = comm_fill
-                    cell.font = Font(bold=True, color="FFFFFF", name="Calibri", size=9)
-                else:
-                    cell.fill = base_fill; cell.font = Font(name="Calibri", size=9)
-            for di, d in enumerate(SEASON_DATES):
-                dk_str = str(d.date()); dk_obj = d.date()
-                val = rect_data.get(dk_str, "")
-                if val == 0: val = ""
-                cell = ws.cell(row, len(FIXED_COLS) + di + 1)
-                cell.value = int(val) if val != "" else ""
-                cell.border = BORD; cell.alignment = CTR
-                cell.fill = F_PIC if (PIC_START <= dk_obj <= PIC_END and val != "") else (F_GRN if val != "" else base_fill)
-                cell.font = Font(name="Calibri", size=9)
-            ws.row_dimensions[row].height = 15; row += 1
-
-    # Largeurs colonnes fixes
-    col_widths = [12, 16, 28, 12, 11, 12, 11, 11, 13, 10, 11]
-    for ci, w in enumerate(col_widths, 1):
-        ws.column_dimensions[get_column_letter(ci)].width = w
-    # Colonnes dates: largeur 8
-    for di in range(len(DATE_COLS)):
-        ws.column_dimensions[get_column_letter(len(FIXED_COLS) + di + 1)].width = 8
-
-    ws.freeze_panes = f"L3"
-
-    # ── Onglet 2: Recap par jour (tableau consolide) ───────────
-    ws2 = wb.create_sheet("Recap Journalier")
-    ws2.merge_cells(start_row=1, start_column=1, end_row=1, end_column=8)
-    ws2.cell(1,1).value = "Recapitulatif tonnage journalier — Donnees rectifiees"
-    ws2.cell(1,1).font = Font(bold=True, color="FFFFFF", name="Calibri", size=12)
-    ws2.cell(1,1).fill = HDR_BLUE; ws2.cell(1,1).alignment = CTR
-    ws2.row_dimensions[1].height = 25
-
-    hdrs2 = ["Date","Jour","FEDI","MAKKI","KHALIL","ACHREF","JILANI","TOTAL"]
-    for ci, h in enumerate(hdrs2, 1):
-        cell = ws2.cell(2, ci); cell.value = h; cell.fill = HDR_BLUE
-        cell.font = HDR_FONT; cell.alignment = CTR; cell.border = BORD
-    ws2.row_dimensions[2].height = 20
-
-    DAYS_FR2 = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"]
-    for ri, d in enumerate(SEASON_DATES):
-        dk = d.date(); dk_str = str(dk)
-        is_pic = PIC_START <= dk <= PIC_END
-        vals_comm = []
-        for comm in comm_order:
-            rect = rectified_comm.get(comm, {}) if rectified_comm else {}
-            vals_comm.append(rect.get(dk_str, 0))
-        total_j = sum(vals_comm)
-        if total_j == 0: continue
-        base = F_PIC if is_pic else (F_ALT if ri % 2 == 0 else F_WHT)
-        row_vals = [d.strftime("%d/%m/%Y"), DAYS_FR2[d.weekday()]] + [int(v) if v > 0 else "" for v in vals_comm] + [int(total_j)]
-        for ci, val in enumerate(row_vals, 1):
-            cell = ws2.cell(ri+3, ci); cell.value = val; cell.border = BORD; cell.alignment = CTR
-            cell.fill = base; cell.font = Font(name="Calibri", size=9, bold=(ci==8))
-        ws2.row_dimensions[ri+3].height = 15
-
-    for ci, w in enumerate([12,6,12,12,12,12,12,14], 1):
-        ws2.column_dimensions[get_column_letter(ci)].width = w
-    ws2.freeze_panes = "A3"
-
-    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
-    return buf.read()
+Les plans RECTIFIÉS = corrections manuelles terrain sur la sortie OR-Tools
+Ils tiennent compte des contraintes réelles (accessibilité, distances, etc.)""")
