@@ -195,7 +195,7 @@ def _build_comparison_chart(comm, man_dict, ort_dict, color, cap):
     fig.add_trace(go.Scatter(
         x=all_dates, y=man_vals, name="Plan manuel rectifie",
         line=dict(color=color, width=2.5),
-        fill="tozeroy", fillcolor=color + "14", mode="lines",
+        fill="tozeroy", fillcolor="rgba(100,100,200,0.08)", mode="lines",
     ))
     if any(v > 0 for v in ort_vals):
         fig.add_trace(go.Scatter(
