@@ -2116,6 +2116,7 @@ elif CURRENT_ROLE == "commercial":
         "🚛 Transport & Alertes",
         "🌾 Mes Agriculteurs",
         "📤 Upload Planning",
+        "📊 Comparaison Plans",
     ])
     tab3 = tab1
     tab5 = tab7 = tab8 = tab4
