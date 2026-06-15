@@ -109,6 +109,17 @@ ORT_USINE_BASE = {
     "ABIDA":   {},
 }
 
+# ── Normaliser toutes les cles des dicts de reference en string ──
+# (evite le TypeError entre datetime.date et str dans les lookups)
+ORT_COMM_BASE = {
+    comm: {str(k): v for k, v in d.items()}
+    for comm, d in ORT_COMM_BASE.items()
+}
+ORT_USINE_BASE = {
+    usine: {str(k): v for k, v in d.items()}
+    for usine, d in ORT_USINE_BASE.items()
+}
+
 # ── Helpers openpyxl ─────────────────────────────────────────
 def _hf(h): return PatternFill("solid", start_color=h, end_color=h)
 def _ft(bold=False, color="1F1F1F", size=10, white=False):
@@ -723,9 +734,21 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
       </div>
     </div>""", unsafe_allow_html=True)
 
-    # Session state
-    if "comp_uploaded" not in st.session_state: st.session_state["comp_uploaded"] = {}
-    if "comp_raw"      not in st.session_state: st.session_state["comp_raw"]      = {}
+    # Session state — avec restauration depuis query_params si session perdue
+    import json as _json, base64 as _b64
+    if "comp_uploaded" not in st.session_state:
+        # Essayer de restaurer depuis query_params
+        try:
+            _qp = st.query_params.get("comp_data", "")
+            if _qp:
+                _decoded = _json.loads(_b64.b64decode(_qp.encode()).decode())
+                st.session_state["comp_uploaded"] = _decoded
+            else:
+                st.session_state["comp_uploaded"] = {}
+        except Exception:
+            st.session_state["comp_uploaded"] = {}
+    if "comp_raw" not in st.session_state:
+        st.session_state["comp_raw"] = {}
 
     # ── ZONE UPLOAD + STATUT ────────────────────────────────
     st.subheader("Deposer les fichiers rectifies")
@@ -746,6 +769,13 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
                     st.session_state["comp_raw"][comm] = raw_or_err
                 tot = sum(daily.values())
                 st.success(f"Charge : {comm} — {len(daily)} jours, {int(tot):,}t".replace(",",""))
+                # Persister dans query_params pour survivre aux refreshs
+                try:
+                    import json as _j, base64 as _b
+                    _encoded = _b.b64encode(_j.dumps(st.session_state["comp_uploaded"]).encode()).decode()
+                    st.query_params["comp_data"] = _encoded
+                except Exception:
+                    pass
             elif comm:
                 st.warning(f"{f.name} : {raw_or_err}")
             else:
@@ -764,6 +794,10 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
             if st.button("Effacer uploads", use_container_width=True):
                 st.session_state["comp_uploaded"] = {}
                 st.session_state["comp_raw"] = {}
+                try:
+                    st.query_params.pop("comp_data", None)
+                except Exception:
+                    pass
                 st.rerun()
 
     if not st.session_state["comp_uploaded"]:
@@ -857,10 +891,12 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
         # Tableau pivot jour par jour (affiché dans le dashboard)
         st.markdown(f"**Tableau jour par jour — {sel_comm}**")
         pivot_rows = []
+        _man_n = {str(k):v for k,v in man_dict.items()}
+        _ort_n = {str(k):v for k,v in ort_dict.items()}
         for d in SEASON:
             dk = d.date()
-            mv = man_dict.get(dk, 0)
-            ov = ort_dict.get(dk, 0)
+            mv = _man_n.get(str(dk), 0)
+            ov = _ort_n.get(str(dk), 0)
             if mv == 0 and ov == 0: continue
             ec = mv - ov
             pivot_rows.append({
@@ -952,11 +988,12 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
 
         # Tableau pivot usine jour par jour
         st.markdown(f"**Tableau jour par jour — {sel_usine}**")
-        man_u = {(pd.Timestamp("2026-06-20")+pd.Timedelta(days=i)).date():v
+        man_u = {str((pd.Timestamp("2026-06-20")+pd.Timedelta(days=i)).date()):v
                  for i,v in enumerate(data_u) if v>0}
+        _ort_u_n = {str(k):v for k,v in ort_u_dict.items()}
         pivot_u = []
         for d in SEASON:
-            dk=d.date(); mv=man_u.get(dk,0); ov=ort_u_dict.get(dk,0)
+            dk=d.date(); mv=man_u.get(str(dk),0); ov=_ort_u_n.get(str(dk),0)
             if mv==0 and ov==0: continue
             ec=mv-ov
             pivot_u.append({
@@ -993,12 +1030,12 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
 
         for comm in comm_order:
             if comm in st.session_state["comp_uploaded"]:
-                d={pd.Timestamp(k).date():v for k,v in st.session_state["comp_uploaded"][comm].items()}
+                d={str(pd.Timestamp(k).date()):v for k,v in st.session_state["comp_uploaded"][comm].items()}
                 src="uploade"
             else:
-                d={pd.Timestamp(k).date():v for k,v in _build_reference_curve(comm).items()}
+                d={str(pd.Timestamp(k).date()):v for k,v in _build_reference_curve(comm).items()}
                 src="reference"
-            od=_ortools_profile(comm, planning_df, "commercial")
+            od={str(k):v for k,v in _ortools_profile(comm, planning_df, "commercial").items()}
             mt=sum(d.values()); ot=sum(od.values()) if od else 0
             mm=max(d.values()) if d else 0; om=max(od.values()) if od else 0
             ec=mt-ot; pct=round(ec/ot*100,1) if ot>0 else 0
