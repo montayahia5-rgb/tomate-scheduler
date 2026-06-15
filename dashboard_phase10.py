@@ -2109,7 +2109,7 @@ if CURRENT_ROLE == "usine":
     tab7 = tab8 = tab4
 
 elif CURRENT_ROLE == "commercial":
-    tab1, tab2, tab6, tab4, tab9, tab10 = st.tabs([
+    tab1, tab2, tab6, tab4, tab9, tab10, tab_comp = st.tabs([
         "📅 Planning Journalier",
         "👤 Par Commercial",
         "📈 Mes Prévisions 25/26",
