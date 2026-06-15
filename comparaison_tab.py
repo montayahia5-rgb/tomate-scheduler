@@ -737,3 +737,243 @@ MAKKI  : +115t (+0.5%)
 ACHREF : 0t (parfait)
 KHALIL : -139t (-0.8%)
 JILANI : -125t (-1.8%)""")
+
+
+# ═══════════════════════════════════════════════════════════
+# EXPORT PLANNING JOURNALIER — Structure correcte basee sur rectifie
+# Colonnes: Date | Commercial | Agriculteur | Usine | Tonnes/Jour |
+#           Type Vehicule | Vehicules Requis | Disponibles |
+#           Manquants (a louer) | Nb Voyages | Pic de Recolte |
+#           [25/06/2026 | 26/06/2026 | ...]
+# ═══════════════════════════════════════════════════════════
+def generate_planning_journalier_excel(planning_df=None, rectified_comm=None, rectified_usine=None):
+    """
+    Genere le planning journalier complet base sur les donnees rectifiees.
+    rectified_comm = {comm_name: {date_str: tonnes}}
+    rectified_usine = {usine_name: {date_str: tonnes}}
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    import io
+
+    wb = Workbook(); wb.remove(wb.active)
+    SEASON_DATES = list(pd.date_range("2026-06-20", "2026-08-25", freq="D"))
+    DATE_COLS = [d.strftime("%d/%m/%Y") for d in SEASON_DATES]
+    PIC_START = pd.Timestamp("2026-07-01").date()
+    PIC_END   = pd.Timestamp("2026-07-15").date()
+
+    HDR_BLUE = PatternFill("solid", start_color="1F3864", end_color="1F3864")
+    HDR_FONT = Font(bold=True, color="FFFFFF", name="Calibri", size=9)
+    CTR = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    LFT = Alignment(horizontal="left", vertical="center")
+    THIN = Side(style="thin", color="CCCCCC")
+    BORD = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+    F_PIC = PatternFill("solid", start_color="FFF2CC", end_color="FFF2CC")
+    F_ALT = PatternFill("solid", start_color="F8F9FA", end_color="F8F9FA")
+    F_WHT = PatternFill("solid", start_color="FFFFFF", end_color="FFFFFF")
+    F_GRN = PatternFill("solid", start_color="E2EFDA", end_color="E2EFDA")
+
+    COMM_COLORS_HEX = {
+        "FEDI":"1F5FA6","MAKKI BEN SALAH":"1A6B3C",
+        "KHALIL":"B45309","ACHREF AJLANI":"5B21B6","JILANI OBAY":"C0392B",
+    }
+    USINE_COLORS_HEX = {
+        "SICAM":"1F3864","TUCAL":"4A235A",
+        "COMOCAP":"0B4F6C","ELFALLEH":"196F3D","ABIDA":"922B21",
+    }
+
+    # ── Onglet 1: Planning par commercial ─────────────────────
+    ws = wb.create_sheet("Planning Commercial")
+    FIXED_COLS = ["Date","Commercial","Agriculteur","Usine","Tonnes/Jour",
+                  "Type Vehicule","Vehicules Requis","Disponibles",
+                  "Manquants (a louer)","Nb Voyages","Pic de Recolte"]
+    ALL_COLS = FIXED_COLS + DATE_COLS
+    N = len(ALL_COLS)
+
+    # Titre
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=min(N, 30))
+    ws.cell(1,1).value = "Planning Journalier 2026 — Base sur donnees rectifiees"
+    ws.cell(1,1).font = Font(bold=True, color="FFFFFF", name="Calibri", size=12)
+    ws.cell(1,1).fill = HDR_BLUE; ws.cell(1,1).alignment = CTR
+    ws.row_dimensions[1].height = 28
+
+    # En-tetes
+    for ci, h in enumerate(ALL_COLS, 1):
+        c = ws.cell(2, ci); c.value = h; c.border = BORD; c.alignment = CTR
+        c.font = HDR_FONT
+        # Colonnes dates = bleu clair
+        if ci > len(FIXED_COLS):
+            d_obj = SEASON_DATES[ci - len(FIXED_COLS) - 1].date()
+            c.fill = F_PIC if PIC_START <= d_obj <= PIC_END else PatternFill("solid", start_color="DEEBF7", end_color="DEEBF7")
+        else:
+            c.fill = HDR_BLUE
+    ws.row_dimensions[2].height = 35
+
+    # Donnees: une ligne par (commercial, agriculteur, usine)
+    row = 3
+    comm_order = ["FEDI","MAKKI BEN SALAH","KHALIL","ACHREF AJLANI","JILANI OBAY"]
+
+    # Construire depuis planning_df (OR-Tools) ou rectified
+    if planning_df is not None and not planning_df.empty:
+        # Utiliser planning_df comme base de structure agriculteurs
+        req_cols = [c for c in ["Commercial","Agriculteur","Usine","Tonnes/Jour",
+                                 "Type Véhicule","Véhicules Requis","Disponibles",
+                                 "Manquants (à louer)","Nb Voyages"] if c in planning_df.columns]
+        df_base = planning_df.copy()
+        if "Date" in df_base.columns:
+            df_base["Date"] = pd.to_datetime(df_base["Date"], errors="coerce")
+    else:
+        df_base = None
+
+    # Par commercial: reconstruire depuis donnees rectifiees si disponibles
+    for comm in comm_order:
+        rect_data = rectified_comm.get(comm, {}) if rectified_comm else {}
+        hex_c = COMM_COLORS_HEX.get(comm, "1F3864")
+        comm_fill = PatternFill("solid", start_color=hex_c, end_color=hex_c)
+
+        if df_base is not None and "Commercial" in df_base.columns:
+            sub = df_base[df_base["Commercial"] == comm].copy()
+            # Grouper par agriculteur + usine
+            if not sub.empty:
+                grp_cols = [c for c in ["Agriculteur","Usine"] if c in sub.columns]
+                if grp_cols and "Date" in sub.columns:
+                    for (agri, usine), grp in sub.groupby(grp_cols):
+                        # Tonnage par date depuis planning OR-Tools
+                        tonnage_by_date = {}
+                        if "Date" in grp.columns and "Tonnes/Jour" in grp.columns:
+                            for _, r in grp.iterrows():
+                                if pd.notna(r["Date"]):
+                                    dk = r["Date"].date()
+                                    tonnage_by_date[str(dk)] = float(r.get("Tonnes/Jour", 0) or 0)
+
+                        # Remplacer par donnees rectifiees si dispo (total comm)
+                        # On applique le ratio rectifie/ORT sur chaque jour
+                        total_rect = sum(rect_data.values()) if rect_data else 0
+                        total_ort  = sum(grp.get("Tonnes/Jour", pd.Series([0])).fillna(0))
+
+                        # Premieres infos transport
+                        r0 = grp.iloc[0]
+                        tv = r0.get("Type Véhicule", "") if "Type Véhicule" in grp.columns else ""
+                        vr = r0.get("Véhicules Requis", "") if "Véhicules Requis" in grp.columns else ""
+                        dsp = r0.get("Disponibles", "") if "Disponibles" in grp.columns else ""
+                        mnq = r0.get("Manquants (à louer)", "") if "Manquants (à louer)" in grp.columns else ""
+                        nvg = r0.get("Nb Voyages", "") if "Nb Voyages" in grp.columns else ""
+
+                        is_alt = row % 2 == 0
+                        base_fill = F_ALT if is_alt else F_WHT
+
+                        # Ecrire la ligne fixe
+                        fixed_vals = [
+                            "", str(comm), str(agri), str(usine),
+                            round(total_ort, 1) if total_ort else "",
+                            str(tv), str(vr) if vr else "", str(dsp) if dsp else "",
+                            str(mnq) if mnq else "", str(nvg) if nvg else "",
+                            "OUI" if any(PIC_START <= pd.Timestamp(k).date() <= PIC_END
+                                        for k in tonnage_by_date if tonnage_by_date[k] > 0) else ""
+                        ]
+                        for ci, val in enumerate(fixed_vals, 1):
+                            cell = ws.cell(row, ci)
+                            cell.value = val; cell.border = BORD
+                            cell.alignment = CTR if ci > 1 else CTR
+                            if ci == 2:  # Commercial
+                                cell.fill = comm_fill
+                                cell.font = Font(bold=True, color="FFFFFF", name="Calibri", size=9)
+                            else:
+                                cell.fill = base_fill
+                                cell.font = Font(name="Calibri", size=9)
+
+                        # Ecrire les colonnes dates
+                        for di, d in enumerate(SEASON_DATES):
+                            dk_str = str(d.date())
+                            dk_obj = d.date()
+                            val = tonnage_by_date.get(dk_str, "")
+                            if val == 0: val = ""
+                            cell = ws.cell(row, len(FIXED_COLS) + di + 1)
+                            cell.value = int(val) if val != "" else ""
+                            cell.border = BORD; cell.alignment = CTR
+                            if PIC_START <= dk_obj <= PIC_END and val != "":
+                                cell.fill = F_PIC
+                                cell.font = Font(bold=True, name="Calibri", size=9, color="7D4F00")
+                            else:
+                                cell.fill = F_GRN if val != "" else base_fill
+                                cell.font = Font(name="Calibri", size=9)
+
+                        ws.row_dimensions[row].height = 15
+                        row += 1
+                    continue  # Passer au commercial suivant
+
+        # Fallback: ligne agregee depuis donnees rectifiees uniquement
+        if rect_data:
+            total_rect = sum(rect_data.values())
+            is_alt = row % 2 == 0
+            base_fill = F_ALT if is_alt else F_WHT
+            fixed_vals = ["", str(comm), "— Total commercial —", "—",
+                          round(total_rect, 0), "", "", "", "", "",
+                          "OUI" if any(PIC_START <= pd.Timestamp(k).date() <= PIC_END
+                                      for k in rect_data if rect_data[k] > 0) else ""]
+            for ci, val in enumerate(fixed_vals, 1):
+                cell = ws.cell(row, ci); cell.value = val; cell.border = BORD; cell.alignment = CTR
+                if ci == 2:
+                    cell.fill = comm_fill
+                    cell.font = Font(bold=True, color="FFFFFF", name="Calibri", size=9)
+                else:
+                    cell.fill = base_fill; cell.font = Font(name="Calibri", size=9)
+            for di, d in enumerate(SEASON_DATES):
+                dk_str = str(d.date()); dk_obj = d.date()
+                val = rect_data.get(dk_str, "")
+                if val == 0: val = ""
+                cell = ws.cell(row, len(FIXED_COLS) + di + 1)
+                cell.value = int(val) if val != "" else ""
+                cell.border = BORD; cell.alignment = CTR
+                cell.fill = F_PIC if (PIC_START <= dk_obj <= PIC_END and val != "") else (F_GRN if val != "" else base_fill)
+                cell.font = Font(name="Calibri", size=9)
+            ws.row_dimensions[row].height = 15; row += 1
+
+    # Largeurs colonnes fixes
+    col_widths = [12, 16, 28, 12, 11, 12, 11, 11, 13, 10, 11]
+    for ci, w in enumerate(col_widths, 1):
+        ws.column_dimensions[get_column_letter(ci)].width = w
+    # Colonnes dates: largeur 8
+    for di in range(len(DATE_COLS)):
+        ws.column_dimensions[get_column_letter(len(FIXED_COLS) + di + 1)].width = 8
+
+    ws.freeze_panes = f"L3"
+
+    # ── Onglet 2: Recap par jour (tableau consolide) ───────────
+    ws2 = wb.create_sheet("Recap Journalier")
+    ws2.merge_cells(start_row=1, start_column=1, end_row=1, end_column=8)
+    ws2.cell(1,1).value = "Recapitulatif tonnage journalier — Donnees rectifiees"
+    ws2.cell(1,1).font = Font(bold=True, color="FFFFFF", name="Calibri", size=12)
+    ws2.cell(1,1).fill = HDR_BLUE; ws2.cell(1,1).alignment = CTR
+    ws2.row_dimensions[1].height = 25
+
+    hdrs2 = ["Date","Jour","FEDI","MAKKI","KHALIL","ACHREF","JILANI","TOTAL"]
+    for ci, h in enumerate(hdrs2, 1):
+        cell = ws2.cell(2, ci); cell.value = h; cell.fill = HDR_BLUE
+        cell.font = HDR_FONT; cell.alignment = CTR; cell.border = BORD
+    ws2.row_dimensions[2].height = 20
+
+    DAYS_FR2 = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"]
+    for ri, d in enumerate(SEASON_DATES):
+        dk = d.date(); dk_str = str(dk)
+        is_pic = PIC_START <= dk <= PIC_END
+        vals_comm = []
+        for comm in comm_order:
+            rect = rectified_comm.get(comm, {}) if rectified_comm else {}
+            vals_comm.append(rect.get(dk_str, 0))
+        total_j = sum(vals_comm)
+        if total_j == 0: continue
+        base = F_PIC if is_pic else (F_ALT if ri % 2 == 0 else F_WHT)
+        row_vals = [d.strftime("%d/%m/%Y"), DAYS_FR2[d.weekday()]] + [int(v) if v > 0 else "" for v in vals_comm] + [int(total_j)]
+        for ci, val in enumerate(row_vals, 1):
+            cell = ws2.cell(ri+3, ci); cell.value = val; cell.border = BORD; cell.alignment = CTR
+            cell.fill = base; cell.font = Font(name="Calibri", size=9, bold=(ci==8))
+        ws2.row_dimensions[ri+3].height = 15
+
+    for ci, w in enumerate([12,6,12,12,12,12,12,14], 1):
+        ws2.column_dimensions[get_column_letter(ci)].width = w
+    ws2.freeze_panes = "A3"
+
+    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+    return buf.read()

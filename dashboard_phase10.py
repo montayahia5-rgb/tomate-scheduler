@@ -5654,7 +5654,7 @@ with tab10:
 # ONGLET COMPARAISON PLANS
 with tab_comp:
     if COMPARAISON_AVAILABLE:
-        render_comparaison_tab(planning_df=planning, df_to_xlsx_styled=df_to_xlsx_styled)
+        render_comparaison_tab(planning_df=planning, df_to_xlsx_styled=df_to_xlsx_styled, sb=get_supabase())
     else:
         st.error("comparaison_tab.py introuvable")
         st.info("Mets comparaison_tab.py dans le meme dossier que dashboard_phase10.py")
