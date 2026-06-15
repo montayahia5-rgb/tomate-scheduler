@@ -677,7 +677,7 @@ def _build_chart(name, man_dict, ort_dict, color, cap):
     fig   = go.Figure()
     fig.add_trace(go.Scatter(x=dates, y=mv, name="Plan Manuel rectifie",
         line=dict(color=color,width=2.5), fill="tozeroy",
-        fillcolor=color+"14", mode="lines"))
+        fillcolor="rgba(59,130,246,0.08)", mode="lines"))
     if any(v>0 for v in ov):
         fig.add_trace(go.Scatter(x=dates, y=ov, name="OR-Tools",
             line=dict(color="#ffffff",width=1.5,dash="dot"), mode="lines"))
