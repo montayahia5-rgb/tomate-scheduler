@@ -746,18 +746,8 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
     </div>""", unsafe_allow_html=True)
 
     # Session state — avec restauration depuis query_params si session perdue
-    import json as _json, base64 as _b64
     if "comp_uploaded" not in st.session_state:
-        # Essayer de restaurer depuis query_params
-        try:
-            _qp = st.query_params.get("comp_data", "")
-            if _qp:
-                _decoded = _json.loads(_b64.b64decode(_qp.encode()).decode())
-                st.session_state["comp_uploaded"] = _decoded
-            else:
-                st.session_state["comp_uploaded"] = {}
-        except Exception:
-            st.session_state["comp_uploaded"] = {}
+        st.session_state["comp_uploaded"] = {}
     if "comp_raw" not in st.session_state:
         st.session_state["comp_raw"] = {}
 
@@ -780,20 +770,6 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
                     st.session_state["comp_raw"][comm] = raw_or_err
                 tot = sum(daily.values())
                 st.success(f"Charge : {comm} — {len(daily)} jours, {int(tot):,}t".replace(",",""))
-                # Persister dans query_params pour survivre aux refreshs
-                try:
-                    import json as _j, base64 as _b
-                    _encoded = _b.b64encode(_j.dumps(st.session_state["comp_uploaded"]).encode()).decode()
-                    st.query_params["comp_data"] = _encoded
-                except Exception:
-                    pass
-                # Persister dans query_params pour survivre aux refreshs
-                try:
-                    import json as _j, base64 as _b
-                    _encoded = _b.b64encode(_j.dumps(st.session_state["comp_uploaded"]).encode()).decode()
-                    st.query_params["comp_data"] = _encoded
-                except Exception:
-                    pass
             elif comm:
                 st.warning(f"{f.name} : {raw_or_err}")
             else:
@@ -812,10 +788,6 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
             if st.button("Effacer uploads", use_container_width=True):
                 st.session_state["comp_uploaded"] = {}
                 st.session_state["comp_raw"] = {}
-                try:
-                    st.query_params.pop("comp_data", None)
-                except Exception:
-                    pass
                 st.rerun()
 
     if not st.session_state["comp_uploaded"]:
@@ -827,38 +799,43 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None):
     with col_exp1:
         st.markdown("**Export Excel comparaison complète**")
         st.caption("12 onglets : Synthèse + 5 commerciaux + 5 usines + Légende")
-        if st.button("⬇️ Générer & télécharger Excel", type="primary",
-                     use_container_width=True):
-            with st.spinner("Génération du fichier Excel en cours..."):
-                # Construire les dictionnaires finaux
-                man_comm = {}
-                ort_comm = {}
-                for comm in MANUAL_STATS:
-                    if comm in st.session_state["comp_uploaded"]:
-                        d = st.session_state["comp_uploaded"][comm]
-                        man_comm[comm] = {pd.Timestamp(k).date(): v for k,v in d.items()}
-                    else:
-                        ref = _build_reference_curve(comm)
-                        man_comm[comm] = {pd.Timestamp(k).date(): v for k,v in ref.items()}
-                    ort_comm[comm] = _ortools_profile(comm, planning_df, "commercial")
-
-                man_usine = {}
-                ort_usine = {}
-                for usine in USINE_CAPS:
-                    usine_vals = USINE_DAILY_PDF.get(usine, [])
-                    man_usine[usine] = {(pd.Timestamp("2026-06-20")+pd.Timedelta(days=i)).date(): v
-                                        for i,v in enumerate(usine_vals) if v>0}
-                    ort_usine[usine] = _ortools_profile(usine, planning_df, "usine")
-
-                xl_bytes = generate_comparison_excel(man_comm, ort_comm, man_usine, ort_usine)
-
+        # Excel: download direct si cache, sinon generer
+        if "comp_excel_cache" in st.session_state and st.session_state["comp_excel_cache"]:
             st.download_button(
-                "📥 Télécharger Comparaison_ORT_vs_Manuel_2026.xlsx",
-                data=xl_bytes,
+                "Telecharger Comparaison_Rectifie_vs_ORT_2026.xlsx",
+                data=st.session_state["comp_excel_cache"],
                 file_name="Comparaison_ORT_vs_Manuel_2026.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
+                use_container_width=True, type="primary",
             )
+            st.caption("Fichier pret (genere automatiquement depuis Supabase)")
+            if st.button("Regenerer Excel", use_container_width=True):
+                del st.session_state["comp_excel_cache"]
+                st.rerun()
+        else:
+            if st.button("Generer et telecharger Excel", type="primary",
+                         use_container_width=True):
+                with st.spinner("Generation du fichier Excel..."):
+                    man_comm = {}
+                    ort_comm = {}
+                    for comm in MANUAL_STATS:
+                        if comm in st.session_state["comp_uploaded"]:
+                            d = st.session_state["comp_uploaded"][comm]
+                            man_comm[comm] = {pd.Timestamp(k).date(): v for k,v in d.items()}
+                        else:
+                            ref = _build_reference_curve(comm)
+                            man_comm[comm] = {pd.Timestamp(k).date(): v for k,v in ref.items()}
+                        ort_comm[comm] = _ortools_profile(comm, planning_df, "commercial")
+                    man_usine = {}
+                    ort_usine = {}
+                    for usine in USINE_CAPS:
+                        usine_vals = USINE_DAILY_PDF.get(usine, [])
+                        man_usine[usine] = {(pd.Timestamp("2026-06-20")+pd.Timedelta(days=i)).date(): v
+                                            for i,v in enumerate(usine_vals) if v>0}
+                        ort_usine[usine] = _ortools_profile(usine, planning_df, "usine")
+                    xl_bytes = generate_comparison_excel(man_comm, ort_comm, man_usine, ort_usine)
+                st.session_state["comp_excel_cache"] = xl_bytes
+                st.rerun()
     with col_exp2:
         st.markdown("""
         <div style='background:#161b22;border:1px solid #21262d;border-radius:8px;
