@@ -200,6 +200,7 @@ def _load_flotte_reelle(sb):
         return {}
 
 
+def _save_rectifie_detail(sb, comm, df_raw):
     """Sauvegarde le detail GRANULAIRE (par agriculteur+date, valeurs EXACTES de l'upload)
     dans la table plan_rectifie_detail. C'est cette table qui permet a
     build_effective_planning de restituer les chiffres EXACTEMENT identiques
