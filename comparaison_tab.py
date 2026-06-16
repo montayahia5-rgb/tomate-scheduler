@@ -497,9 +497,16 @@ def build_effective_planning(p, sb=None):
     sb: client Supabase (ou None)
     Retourne une COPIE de p avec Tonnes/Jour corrige selon la cascade des
     Plans Rectifies. Deux passes:
-      1) Par commercial (source: fichiers reference_interne commerciaux)
-      2) Par usine (source: fichiers reception_prevue usines) — priorite
-         finale car c'est la mesure directe du tonnage recu en usine.
+      1) Par commercial (source: fichiers reference_interne commerciaux,
+         priorite upload session > Supabase > reference) — TOUJOURS active,
+         garantit que le total par commercial == exactement ce qui a ete
+         uploade.
+      2) Par usine — UNIQUEMENT si une correction explicite existe dans
+         Supabase pour cette usine (override intentionnel de l'admin).
+         Si rien dans Supabase, cette passe est ignoree (on n'utilise PAS
+         le fallback de reference statique ici, sinon il ecraserait
+         silencieusement la Passe 1 et ferait deriver les totaux par
+         commercial loin des valeurs uploadees).
     """
     if p is None or p.empty or "Commercial" not in p.columns or "Date" not in p.columns:
         return p
@@ -567,12 +574,15 @@ def build_effective_planning(p, sb=None):
             if r["Commercial"] == "":
                 r["Commercial"] = comm
 
-    # ── Passe 2 : correction par USINE (priorite finale) ──────────
+    # ── Passe 2 : correction par USINE — UNIQUEMENT si override
+    # explicite Supabase (jamais via le fallback reference statique
+    # USINE_DAILY_PDF, qui sinon ecrase silencieusement la Passe 1
+    # par commercial et fait deriver les totaux uploades) ──────────
     if "Usine" in p.columns:
         for usine in p["Usine"].dropna().unique():
-            if not usine:
+            if not usine or usine not in sb_usine:
                 continue
-            rect_u, _src_u = _get_usine_dict(usine, sb_usine)
+            rect_u = {str(k): float(v) for k, v in sb_usine[usine].items()}
             mask_u = p["Usine"] == usine
             sub_u = p[mask_u]
             comm_default = ""
