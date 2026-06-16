@@ -905,4 +905,249 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None, sb=None):
         st.warning("**x1.1 et x1.5 causent INFEASIBLE** — testés et prouvés. Ne pas modifier.")
         st.code("""Status: OPTIMAL (~2s) | 2630 rows | 96 676t (-0.32%)
 Les plans RECTIFIÉS = corrections manuelles terrain sur la sortie OR-Tools
-Ils tiennent compte des contraintes réelles (accessibilité, distances, etc.)""")
+Ils tiennent compte des contraintes réelles (accessibilité, distances, etc.)""")# ============================================================
+# SOURCE UNIQUE DE VERITE — Plans Rectifies > OR-Tools
+# Ajoute en fin de fichier — n'interfere avec rien d'existant.
+# A utiliser depuis dashboard_phase10.py juste apres construction de 'p'.
+# ============================================================
+def _rectif_load_from_supabase(sb):
+    """Charge tous les plans rectifies depuis Supabase (independant des autres helpers)."""
+    if sb is None:
+        return {}, {}
+    try:
+        data = sb.table("plan_rectifie").select(
+            "entity_type,entity_name,date,tonnes").execute().data
+    except Exception:
+        return {}, {}
+    comm, usine = {}, {}
+    for row in (data or []):
+        et = row.get("entity_type", "commercial")
+        en = row.get("entity_name")
+        d  = str(row.get("date"))
+        t  = float(row.get("tonnes", 0) or 0)
+        target = comm if et == "commercial" else usine
+        target.setdefault(en, {})[d] = t
+    return comm, usine
+
+
+def _rectif_get_daily(entity_name, entity_type, sb):
+    """
+    Retourne (dict {date_str: tonnes}, source) pour une entite,
+    ou (None, None) si aucune correction n'existe pour elle.
+    Priorite: upload de la session en cours > Supabase (persistant).
+    """
+    if entity_type == "commercial":
+        uploaded = st.session_state.get("comp_uploaded", {})
+        if entity_name in uploaded:
+            d = uploaded[entity_name]
+            return {str(k): float(v) for k, v in d.items()}, "upload session"
+    sb_comm, sb_usine = _rectif_load_from_supabase(sb)
+    table = sb_comm if entity_type == "commercial" else sb_usine
+    if entity_name in table:
+        return {str(k): float(v) for k, v in table[entity_name].items()}, "Supabase"
+    return None, None
+
+
+def build_effective_planning(planning_df, sb):
+    """
+    SOURCE UNIQUE: priorite Plans Rectifies > OR-Tools (planning_df original).
+    Retourne un DataFrame avec EXACTEMENT les memes colonnes que planning_df,
+    ou les Tonnes/Jour sont corrigees pour matcher les plans rectifies
+    quand ils existent (niveau commercial). Sans correction -> OR-Tools inchange.
+
+    A appeler UNE SEULE FOIS juste apres avoir construit 'p' dans le dashboard.
+    Tous les tabs qui lisent 'p' ensuite refletent automatiquement la correction.
+    """
+    if planning_df is None or planning_df.empty:
+        return planning_df
+    if "Date" not in planning_df.columns or "Commercial" not in planning_df.columns:
+        return planning_df
+
+    df = planning_df.copy()
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+
+    raw_sess = st.session_state.get("comp_raw", {})  # detail agriculteur si upload recent
+    out_parts = []
+    keep_mask = pd.Series(True, index=df.index)
+
+    for comm in df["Commercial"].dropna().unique():
+        rect_daily, _src = _rectif_get_daily(comm, "commercial", sb)
+        if rect_daily is None:
+            continue  # pas de correction -> garder OR-Tools tel quel pour ce commercial
+
+        mask = df["Commercial"] == comm
+        sub = df[mask].copy()
+        keep_mask &= ~mask
+
+        if comm in raw_sess:
+            # Detail par agriculteur disponible (upload de cette session) -> remplacement complet
+            raw_df = raw_sess[comm][["agriculteur", "date", "tonnes"]].copy()
+            raw_df = raw_df.rename(columns={"agriculteur": "Agriculteur",
+                                             "date": "Date", "tonnes": "Tonnes/Jour"})
+            raw_df["Date"] = pd.to_datetime(raw_df["Date"])
+            raw_df["Commercial"] = comm
+            if "Usine" in sub.columns and not sub.empty:
+                usine_map = sub.groupby("Agriculteur")["Usine"].agg(
+                    lambda s: s.mode().iat[0] if not s.mode().empty else "")
+                default_usine = sub["Usine"].mode().iat[0] if not sub["Usine"].mode().empty else ""
+                raw_df["Usine"] = raw_df["Agriculteur"].map(usine_map).fillna(default_usine)
+            else:
+                raw_df["Usine"] = ""
+            for col in df.columns:
+                if col not in raw_df.columns:
+                    raw_df[col] = sub[col].iloc[0] if (col in sub.columns and not sub.empty) else ""
+            out_parts.append(raw_df[df.columns])
+        else:
+            # Seulement les totaux journaliers -> mise a l'echelle proportionnelle
+            # (preserve la repartition entre agriculteurs/usines, corrige le total du jour)
+            sub["_d"] = sub["Date"].dt.date
+            daily_ort = sub.groupby("_d")["Tonnes/Jour"].sum()
+            for d_key, ort_total in daily_ort.items():
+                rect_total = rect_daily.get(str(d_key))
+                if rect_total is None:
+                    continue  # pas de correction ce jour precis -> garder OR-Tools
+                ratio = (rect_total / ort_total) if ort_total > 0 else 0
+                day_mask = sub["_d"] == d_key
+                sub.loc[day_mask, "Tonnes/Jour"] = sub.loc[day_mask, "Tonnes/Jour"] * ratio
+            sub = sub.drop(columns=["_d"])
+            out_parts.append(sub)
+
+    if not out_parts:
+        return df
+    return pd.concat([df[keep_mask]] + out_parts, ignore_index=True)
+
+
+_FLEET_AVAILABILITY_RECTIF = {
+    "SICAM":    {"PL": 48, "PPL": 6,  "SEMI": 13, "TRACTEUR": 0},
+    "TUCAL":    {"PL": 17, "PPL": 0,  "SEMI": 2,  "TRACTEUR": 0},
+    "COMOCAP":  {"PL": 6,  "PPL": 14, "SEMI": 3,  "TRACTEUR": 10},
+    "ABIDA":    {"PL": 1,  "PPL": 0,  "SEMI": 2,  "TRACTEUR": 0},
+    "ELFALLEH": {"PL": 0,  "PPL": 2,  "SEMI": 0,  "TRACTEUR": 0},
+}
+
+
+def generate_planning_wide_excel(effective_df):
+    """
+    Excel avec colonnes:
+    Date | Commercial | Agriculteur | Usine | Tonnes/Jour | Type Vehicule |
+    Vehicules Requis | Disponibles | Manquants (a louer) | Nb Voyages | Pic de Recolte |
+    [une colonne par date de la saison]
+    Construit directement depuis le planning EFFECTIF (rectifie prioritaire).
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook(); wb.remove(wb.active)
+    ws = wb.create_sheet("Planning Rectifie")
+
+    if effective_df is None or effective_df.empty:
+        ws["A1"] = "Aucune donnee disponible"
+        buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+        return buf.read()
+
+    df = effective_df.copy()
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+
+    SEASON_DATES = list(pd.date_range("2026-06-20", "2026-08-25", freq="D"))
+    PIC_S_ = pd.Timestamp("2026-07-01").date()
+    PIC_E_ = pd.Timestamp("2026-07-15").date()
+    FIXED = ["Date", "Commercial", "Agriculteur", "Usine", "Tonnes/Jour", "Type Véhicule",
+             "Véhicules Requis", "Disponibles", "Manquants (à louer)", "Nb Voyages", "Pic de Récolte"]
+    DATE_HDRS = [d.strftime("%d/%m/%Y") for d in SEASON_DATES]
+    ALL_HDRS = FIXED + DATE_HDRS
+    N = len(ALL_HDRS)
+
+    HDR  = PatternFill("solid", start_color="1F3864", end_color="1F3864")
+    PICF = PatternFill("solid", start_color="FFF2CC", end_color="FFF2CC")
+    BLUF = PatternFill("solid", start_color="DEEBF7", end_color="DEEBF7")
+    GRNF = PatternFill("solid", start_color="E2EFDA", end_color="E2EFDA")
+    ALTF = PatternFill("solid", start_color="F8F9FA", end_color="F8F9FA")
+    WHTF = PatternFill("solid", start_color="FFFFFF", end_color="FFFFFF")
+    REDF = PatternFill("solid", start_color="FFC7CE", end_color="FFC7CE")
+    THIN = Side(style="thin", color="CCCCCC")
+    BORD = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+    CTR  = Alignment(horizontal="center", vertical="center")
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=min(N, 30))
+    c = ws.cell(1, 1)
+    c.value = "Planning Journalier — Source: Plans Rectifies (priorite) + OR-Tools"
+    c.font = Font(bold=True, color="FFFFFF", size=12); c.fill = HDR; c.alignment = CTR
+    ws.row_dimensions[1].height = 26
+
+    for ci, h in enumerate(ALL_HDRS, 1):
+        cell = ws.cell(2, ci); cell.value = h; cell.border = BORD; cell.alignment = CTR
+        if ci <= len(FIXED):
+            cell.fill = HDR; cell.font = Font(bold=True, color="FFFFFF", size=9)
+        else:
+            d_obj = SEASON_DATES[ci - len(FIXED) - 1].date()
+            cell.fill = PICF if PIC_S_ <= d_obj <= PIC_E_ else BLUF
+            cell.font = Font(bold=True, size=8)
+    ws.row_dimensions[2].height = 32
+
+    group_cols = [c for c in ["Commercial", "Agriculteur", "Usine"] if c in df.columns]
+    if not group_cols:
+        group_cols = ["Commercial"]
+
+    row = 3
+    for keys, grp in df.groupby(group_cols, dropna=False):
+        if not isinstance(keys, tuple):
+            keys = (keys,)
+        kd = dict(zip(group_cols, keys))
+        comm  = kd.get("Commercial", "")
+        agri  = kd.get("Agriculteur", "")
+        usine = kd.get("Usine", "")
+
+        daily = {}
+        for _, r in grp.iterrows():
+            if pd.notna(r["Date"]):
+                dk = str(r["Date"].date())
+                daily[dk] = daily.get(dk, 0) + float(r.get("Tonnes/Jour", 0) or 0)
+        total = sum(daily.values())
+        if total <= 0:
+            continue
+
+        r0 = grp.iloc[0]
+        tv = str(r0.get("Type Véhicule", "") or "")
+        vr_raw = r0.get("Véhicules Requis", "")
+        nv = r0.get("Nb Voyages", "")
+        vr_n = int(pd.to_numeric(vr_raw, errors="coerce") or 0)
+        fleet = _FLEET_AVAILABILITY_RECTIF.get(str(usine).upper().strip(), {})
+        dispo = fleet.get(str(tv).upper().strip(), 0) if vr_n > 0 else 0
+        manque = max(0, vr_n - dispo) if vr_n > 0 else 0
+        is_pic = any(PIC_S_ <= pd.Timestamp(k).date() <= PIC_E_ for k, v in daily.items() if v > 0)
+
+        alt = row % 2 == 0
+        base = ALTF if alt else WHTF
+        fixed_vals = ["", comm, agri, usine, round(total, 0), tv,
+                      vr_n if vr_n > 0 else "", dispo if dispo else "",
+                      manque if manque else "", nv, "⚡ PIC" if is_pic else ""]
+        for ci, val in enumerate(fixed_vals, 1):
+            cell = ws.cell(row, ci); cell.value = val; cell.border = BORD; cell.alignment = CTR
+            if ci == 9 and isinstance(val, int) and val > 0:
+                cell.fill = REDF; cell.font = Font(bold=True, size=9, color="9C0006")
+            else:
+                cell.fill = base; cell.font = Font(size=9, bold=(ci == 2))
+
+        for di, d in enumerate(SEASON_DATES):
+            dk = str(d.date())
+            val = daily.get(dk, 0)
+            ci2 = len(FIXED) + di + 1
+            cell = ws.cell(row, ci2)
+            cell.value = int(round(val, 0)) if val > 0 else ""
+            cell.border = BORD; cell.alignment = CTR
+            is_pic_d = PIC_S_ <= d.date() <= PIC_E_
+            cell.fill = PICF if (is_pic_d and val > 0) else (GRNF if val > 0 else base)
+            cell.font = Font(size=8)
+        ws.row_dimensions[row].height = 15
+        row += 1
+
+    widths = [12, 16, 26, 12, 11, 12, 11, 11, 13, 10, 11]
+    for ci, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(ci)].width = w
+    for di in range(len(SEASON_DATES)):
+        ws.column_dimensions[get_column_letter(len(FIXED) + di + 1)].width = 8
+    ws.freeze_panes = "L3"
+
+    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+    return buf.read()

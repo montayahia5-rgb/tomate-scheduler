@@ -2246,6 +2246,15 @@ if planning is None or planning.empty:
 p = planning[planning["Commercial"].isin(sel_comms)].copy()
 t = transport[transport["Commercial"].isin(sel_comms)].copy()
 
+# ── SOURCE UNIQUE: priorite Plans Rectifies > OR-Tools ──────
+# Cascade automatiquement vers tous les tabs qui lisent 'p' ensuite.
+if COMPARAISON_AVAILABLE:
+    try:
+        from comparaison_tab import build_effective_planning
+        p = build_effective_planning(p, get_supabase())
+    except Exception:
+        pass
+
 if "Usine" in p.columns and sel_facts:
     p = p[p["Usine"].isin(sel_facts)]
 
@@ -2263,14 +2272,7 @@ st.title("🍅 Tomate Planning 2026")
 st.caption("Phase 10 — Connecté à Supabase · Login par rôle · OR-Tools Optimizer")
 
 # KPIs — GLOBAL_N_FARMERS uses unique names from agriculteurs table
-# ── KPIs: priorité aux totaux rectifiés ─────────────────
-if RECTIF_AVAILABLE and RECTIF_STATS_COMM:
-    # Totaux depuis données rectifiées (source principale)
-    _rectif_comm_total = sum(s.get("total",0) for s in RECTIF_STATS_COMM.values())
-    _rectif_usine_total= sum(s.get("total",0) for s in RECTIF_STATS_USINE.values())
-    total_tons = max(_rectif_comm_total, GLOBAL_TOTAL_TONS)  # garder le plus précis
-else:
-    total_tons   = GLOBAL_TOTAL_TONS
+total_tons   = GLOBAL_TOTAL_TONS
 
 # Statut OR-Tools: lire depuis planning (si FEASIBLE = solution trouvée, sinon vide)
 _n_planning_days = len(planning["Date"].dt.date.unique()) if not planning.empty else 0
@@ -2385,17 +2387,10 @@ else:
 
 # ── TAB 1: DAILY PLANNING ────────────────────────────────────
 with tab1:
-    # SOURCE = Données Rectifiées (reference_interne 13/06/2026)
-    if RECTIF_AVAILABLE and RECTIF_COMM_DAILY:
-        daily = _rectif_total_daily()
-        daily["Période"] = daily["Date"].apply(
-            lambda d: "⚡ Pic (1-15 Jul)" if PEAK_START <= d.date() <= PEAK_END else "Normal"
-        )
-    else:
-        daily = p.groupby("Date")["Tonnes/Jour"].sum().reset_index()
-        daily["Période"] = daily["Date"].apply(
-            lambda d: "⚡ Pic (1-15 Jul)" if PEAK_START <= d.date() <= PEAK_END else "Normal"
-        )
+    daily = p.groupby("Date")["Tonnes/Jour"].sum().reset_index()
+    daily["Période"] = daily["Date"].apply(
+        lambda d: "⚡ Pic (1-15 Jul)" if PEAK_START <= d.date() <= PEAK_END else "Normal"
+    )
 
     fig = px.bar(
         daily, x="Date", y="Tonnes/Jour", color="Période",
@@ -2418,11 +2413,7 @@ with tab1:
     c1, c2 = st.columns(2)
     with c1:
         # Use DECLARED tonnage from agriculteurs (correct) not planning sum (filtered/incomplete)
-        # SOURCE PIE = Rectifié en priorité
-        if RECTIF_AVAILABLE and RECTIF_STATS_COMM:
-            comm_df = pd.DataFrame([{"Commercial":c,"Tonnes/Jour":s.get("total",0)}
-                                     for c,s in RECTIF_STATS_COMM.items()])
-        elif GLOBAL_COMMERCIAL_TONS:
+        if GLOBAL_COMMERCIAL_TONS:
             comm_df = pd.DataFrame(list(GLOBAL_COMMERCIAL_TONS.items()),
                                     columns=["Commercial","Tonnes/Jour"])
         else:
@@ -2440,11 +2431,7 @@ with tab1:
     with c2:
         if "Usine" in p.columns:
             # Use declared tonnage from agriculteurs (correct) not planning sum (wrong)
-            # SOURCE PIE USINE = Rectifié en priorité
-            if RECTIF_AVAILABLE and RECTIF_STATS_USINE:
-                usine_df = pd.DataFrame([{"Usine":u,"Tonnes/Jour":s.get("total",0)}
-                                          for u,s in RECTIF_STATS_USINE.items()])
-            elif GLOBAL_USINE_TONS:
+            if GLOBAL_USINE_TONS:
                 usine_df = pd.DataFrame(list(GLOBAL_USINE_TONS.items()),
                                          columns=["Usine","Tonnes/Jour"])
             else:
@@ -2551,17 +2538,21 @@ with tab1:
     _planning_export = p_display.copy()
     col_dl0, col_dl1, col_dl2, col_dl3 = st.columns(4)
     with col_dl0:
-        # ✅ NOUVEAU — Export RECTIFIÉ avec colonnes dates
-        if RECTIF_AVAILABLE:
-            st.download_button(
-                "📆 Planning RECTIFIÉ (colonnes dates)",
-                data=_build_rectif_wide_excel(p if not p.empty else None),
-                file_name="planning_rectifie_colonnes_dates.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary",
-                use_container_width=True,
-                help="Colonnes: Date|Commercial|Agriculteur|Usine|...|20/06|21/06|...|25/08 — Source: Plans Rectifiés",
-            )
+        # Export RECTIFIE — base sur le planning EFFECTIF (p, deja corrige par build_effective_planning)
+        if COMPARAISON_AVAILABLE:
+            try:
+                from comparaison_tab import generate_planning_wide_excel
+                st.download_button(
+                    "📆 Planning RECTIFIÉ (colonnes dates)",
+                    data=generate_planning_wide_excel(p),
+                    file_name="planning_rectifie_colonnes_dates.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    use_container_width=True,
+                    help="Colonnes: Date|Commercial|Agriculteur|Usine|...|20/06|21/06|...|25/08 — Source: Plans Rectifies (priorite) + OR-Tools",
+                )
+            except Exception as _e:
+                st.caption(f"Export rectifie indisponible: {_e}")
         else:
             st.info("comparaison_tab.py requis pour export rectifié")
     with col_dl1:
@@ -2593,12 +2584,8 @@ with tab1:
 # ── TAB 2: PAR COMMERCIAL ────────────────────────────────────
 with tab2:
     # Line chart per commercial
-    # SOURCE = Données Rectifiées
-    if RECTIF_AVAILABLE and RECTIF_COMM_DAILY:
-        comm_daily = _rectif_comm_daily_df()
-    else:
-        comm_daily = (p.groupby(["Date","Commercial"])["Tonnes/Jour"]
-                      .sum().reset_index())
+    comm_daily = (p.groupby(["Date","Commercial"])["Tonnes/Jour"]
+                  .sum().reset_index())
     fig4 = px.line(
         comm_daily, x="Date", y="Tonnes/Jour", color="Commercial",
         color_discrete_map=COMM_COLORS,
@@ -2619,11 +2606,7 @@ with tab2:
     with c1:
         # Use DECLARED tonnage from agriculteurs table (source of truth)
         # NOT planning sum which is filtered/partial
-        # SOURCE BAR COMM = Rectifié
-        if RECTIF_AVAILABLE and RECTIF_STATS_COMM:
-            comm_tot = pd.DataFrame([{"Commercial":c,"Tonnes/Jour":s.get("total",0)}
-                                      for c,s in RECTIF_STATS_COMM.items()])
-        elif GLOBAL_COMMERCIAL_TONS:
+        if GLOBAL_COMMERCIAL_TONS:
             comm_tot = pd.DataFrame(list(GLOBAL_COMMERCIAL_TONS.items()),
                                      columns=["Commercial","Tonnes/Jour"])
         else:
@@ -2666,11 +2649,7 @@ with tab2:
     st.subheader("🔎 Détail par commercial")
     selected = st.selectbox("Choisir un commercial", sel_comms)
     one = p[p["Commercial"] == selected]
-    # SOURCE = Données Rectifiées pour le drill-down
-    if RECTIF_AVAILABLE and selected in RECTIF_COMM_DAILY:
-        one_daily = _rectif_one_comm_daily(selected)
-    else:
-        one_daily = one.groupby("Date")["Tonnes/Jour"].sum().reset_index()
+    one_daily = one.groupby("Date")["Tonnes/Jour"].sum().reset_index()
     fig8 = px.area(
         one_daily, x="Date", y="Tonnes/Jour",
         title=f"Tonnes/jour — {selected}",
@@ -3165,11 +3144,7 @@ with tab3:
                     st.metric(f, f"{ft:,.0f} t")
 
         # Line chart per factory
-        # SOURCE = Données Rectifiées
-        if RECTIF_AVAILABLE and RECTIF_USINE_DAILY:
-            fact_daily = _rectif_usine_daily_df()
-        else:
-            fact_daily = p.groupby(["Date","Usine"])["Tonnes/Jour"].sum().reset_index()
+        fact_daily = p.groupby(["Date","Usine"])["Tonnes/Jour"].sum().reset_index()
         fig9 = px.line(
             fact_daily, x="Date", y="Tonnes/Jour", color="Usine",
             color_discrete_map=FACTORY_COLORS,
@@ -3200,11 +3175,7 @@ with tab3:
             st.plotly_chart(fig10, use_container_width=True)
         with c2:
             # Use declared tonnage from agriculteurs (correct totals per usine)
-            # SOURCE BAR USINE = Rectifié
-            if RECTIF_AVAILABLE and RECTIF_STATS_USINE:
-                fact_tot = pd.DataFrame([{"Usine":u,"Tonnes/Jour":s.get("total",0)}
-                                          for u,s in RECTIF_STATS_USINE.items()])
-            elif GLOBAL_USINE_TONS:
+            if GLOBAL_USINE_TONS:
                 fact_tot = pd.DataFrame(list(GLOBAL_USINE_TONS.items()),
                                          columns=["Usine","Tonnes/Jour"])
             else:
