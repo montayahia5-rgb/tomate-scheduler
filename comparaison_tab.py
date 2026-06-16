@@ -601,6 +601,36 @@ def build_effective_planning(p, sb=None):
     return p
 
 
+def _round_preserving_total(df, group_cols=("Commercial", "Date")):
+    """
+    Arrondit la colonne 'Tonnes/Jour' a l'entier (methode des plus grands
+    restes) en garantissant que la somme par group_cols (typiquement par
+    Commercial+Date) reste EXACTEMENT egale a l'entier le plus proche du
+    total non arrondi. Necessaire car arrondir chaque ligne separement
+    (comme avant) fait deriver le total importe de +/-1 a 2 tonnes selon
+    le nombre de lignes, ce qui n'est pas acceptable: les totaux exportes
+    doivent etre identiques au tonnage uploade, au tonnage pres.
+    """
+    import math
+    vals = df["Tonnes/Jour"].astype(float)
+    out = pd.Series(0, index=df.index, dtype=int)
+    for _, idx in df.groupby(list(group_cols)).groups.items():
+        v = vals.loc[idx]
+        target = int(round(v.sum()))
+        floors = v.apply(math.floor).astype(int)
+        remainder = target - int(floors.sum())
+        fracs = (v - floors).sort_values(ascending=False)
+        result = floors.copy()
+        if remainder > 0:
+            for i in fracs.index[:remainder]:
+                result[i] += 1
+        elif remainder < 0:
+            for i in fracs.index[::-1][:abs(remainder)]:
+                result[i] = max(0, result[i] - 1)
+        out.loc[idx] = result
+    return out
+
+
 def generate_planning_wide_excel(p_display):
     """
     Genere l'Excel "colonnes dates" demande, a partir du planning DEJA CORRIGE
@@ -632,6 +662,7 @@ def generate_planning_wide_excel(p_display):
         if c not in df.columns:
             df[c] = ""
     df["Tonnes/Jour"] = pd.to_numeric(df["Tonnes/Jour"], errors="coerce").fillna(0)
+    df["_T_int"] = _round_preserving_total(df, group_cols=("Commercial", "Date"))
 
     season_dates = list(pd.date_range("2026-06-20", "2026-08-25", freq="D"))
 
@@ -671,14 +702,14 @@ def generate_planning_wide_excel(p_display):
     groups = df.groupby(["Commercial","Agriculteur","Usine"], dropna=False)
     row = 3
     for (comm, agri, usine), grp in groups:
-        grp_daily = grp.groupby(grp["Date"].dt.date)["Tonnes/Jour"].sum()
-        total = grp_daily.sum()
+        grp_daily = grp.groupby(grp["Date"].dt.date)["_T_int"].sum()
+        total = int(grp_daily.sum())
         r0 = grp.iloc[0]
         is_alt = row % 2 == 0
         base_fill = ALTF if is_alt else WHTF
         is_pic_any = any(PIC_S <= d <= PIC_E and v > 0 for d, v in grp_daily.items())
         manq_val = r0.get("Manquants (à louer)", "")
-        fixed_vals = ["", comm, agri, usine, round(float(total), 0) if total else "",
+        fixed_vals = ["", comm, agri, usine, total if total else "",
                       r0.get("Type Véhicule",""), r0.get("Véhicules Requis",""),
                       r0.get("Disponibles",""), manq_val,
                       r0.get("Nb Voyages",""), "⚡ PIC" if is_pic_any else ""]
@@ -693,10 +724,10 @@ def generate_planning_wide_excel(p_display):
                 cell.fill = base_fill
             cell.font = _ft(size=9, bold=(ci == 2))
         for di, d in enumerate(season_dates):
-            val = float(grp_daily.get(d.date(), 0) or 0)
+            val = int(grp_daily.get(d.date(), 0) or 0)
             ci2 = len(FIXED_HDRS) + di + 1
             cell = ws.cell(row, ci2)
-            cell.value = int(round(val)) if val > 0 else ""
+            cell.value = val if val > 0 else ""
             cell.border = _BORD; cell.alignment = _CTR
             is_pic_d = PIC_S <= d.date() <= PIC_E
             cell.fill = PICF if (is_pic_d and val > 0) else (GRNF if val > 0 else base_fill)
