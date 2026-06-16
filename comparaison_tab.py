@@ -10,10 +10,16 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 import io
+from collections import defaultdict
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.formatting.rule import ColorScaleRule
+try:
+    import transport_calc as _tc
+    TRANSPORT_CALC_AVAILABLE = True
+except ImportError:
+    TRANSPORT_CALC_AVAILABLE = False
 
 SEASON  = pd.date_range("2026-06-20", "2026-08-25", freq="D")
 PIC_S   = pd.Timestamp("2026-07-01").date()
@@ -124,6 +130,12 @@ _REFERENCE_REAL_DAILY = {
 def _hf(h): return PatternFill("solid", start_color=h, end_color=h)
 def _ft(bold=False, color="1F1F1F", size=10, white=False):
     return Font(bold=bold, name="Calibri", size=size, color="FFFFFF" if white else color)
+def _tint_hex(hex_color, amount=0.8):
+    """Eclaircit une couleur hex en la melangeant avec du blanc (amount=1 -> blanc pur)."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)
+    r = int(r + (255-r)*amount); g = int(g + (255-g)*amount); b = int(b + (255-b)*amount)
+    return f"{r:02X}{g:02X}{b:02X}"
 _CTR=Alignment(horizontal="center",vertical="center")
 _LFT=Alignment(horizontal="left",vertical="center")
 _THIN=Side(style="thin",color="CCCCCC")
@@ -151,9 +163,81 @@ def _delete_rectifie(sb, entity_name, entity_type="commercial"):
     if sb is None: return False
     try:
         sb.table("plan_rectifie").delete().eq("entity_type",entity_type).eq("entity_name",entity_name).execute()
+        sb.table("plan_rectifie_detail").delete().eq("entity_name",entity_name).execute()
         return True
     except Exception as e:
         st.warning(f"Supabase delete: {e}"); return False
+
+def _save_flotte_reelle(sb, real_fleet):
+    """Sauvegarde la flotte reelle parsee (transport_etat_final.xlsx) dans Supabase,
+    une ligne par camion (usine, type, capacite)."""
+    if sb is None or not real_fleet: return False
+    try:
+        sb.table("flotte_reelle").delete().neq("usine", "__never__").execute()
+        rows = []
+        for usine, vtypes in real_fleet.items():
+            for vtype, caps in vtypes.items():
+                for cap in caps:
+                    rows.append({"usine": usine, "type": vtype, "capacite": float(cap)})
+        if rows:
+            for i in range(0, len(rows), 500):
+                sb.table("flotte_reelle").insert(rows[i:i+500]).execute()
+        return True
+    except Exception as e:
+        st.warning(f"Supabase save flotte: {e}"); return False
+
+def _load_flotte_reelle(sb):
+    """Charge la flotte reelle depuis Supabase -> {usine: {type: [capacites triees desc]}}."""
+    if sb is None: return {}
+    try:
+        data = sb.table("flotte_reelle").select("usine,type,capacite").execute().data
+        if not data: return {}
+        out = {}
+        for row in data:
+            out.setdefault(row["usine"], {}).setdefault(row["type"], []).append(float(row["capacite"]))
+        return {u: {t: sorted(caps, reverse=True) for t, caps in vt.items()} for u, vt in out.items()}
+    except Exception:
+        return {}
+
+
+    """Sauvegarde le detail GRANULAIRE (par agriculteur+date, valeurs EXACTES de l'upload)
+    dans la table plan_rectifie_detail. C'est cette table qui permet a
+    build_effective_planning de restituer les chiffres EXACTEMENT identiques
+    a ceux uploades (au lieu d'un re-scaling proportionnel qui produisait des
+    valeurs parasites comme 11/13/21 qui n'existent pas dans le fichier source)."""
+    if sb is None or df_raw is None or df_raw.empty: return False
+    try:
+        sb.table("plan_rectifie_detail").delete().eq("entity_name", comm).execute()
+        rows = [{"entity_name": comm, "agriculteur": str(r["agriculteur"]),
+                 "date": str(pd.Timestamp(r["date"]).date()), "tonnes": float(r["tonnes"]),
+                 "region": str(r.get("region","") or ""), "accessibilite": str(r.get("accessibilite","") or "")}
+                for _, r in df_raw.iterrows() if float(r["tonnes"]) > 0]
+        if rows:
+            for i in range(0, len(rows), 500):
+                sb.table("plan_rectifie_detail").insert(rows[i:i+500]).execute()
+        return True
+    except Exception as e:
+        st.warning(f"Supabase save detail: {e}"); return False
+
+def _load_all_rectifie_detail(sb):
+    """Charge le detail granulaire de tous les commerciaux depuis Supabase.
+    Retourne {commercial: DataFrame(agriculteur,date,tonnes,region,accessibilite)}."""
+    if sb is None: return {}
+    try:
+        data = sb.table("plan_rectifie_detail").select(
+            "entity_name,agriculteur,date,tonnes,region,accessibilite").execute().data
+        if not data: return {}
+        out = {}
+        for row in data:
+            comm = row["entity_name"]
+            out.setdefault(comm, []).append({
+                "agriculteur": row["agriculteur"], "date": pd.Timestamp(row["date"]),
+                "tonnes": float(row["tonnes"]), "region": row.get("region",""),
+                "accessibilite": row.get("accessibilite",""),
+            })
+        return {c: pd.DataFrame(rows) for c, rows in out.items()}
+    except Exception:
+        return {}
 
 def _load_all_rectifie(sb):
     if sb is None: return {},{}
@@ -242,6 +326,11 @@ def _parse_rectification(uploaded_file):
     col_comm=next((c for c in cols if "responsable" in str(c).lower() or "commercial" in str(c).lower()),cols[0] if cols else None)
     col_agri=next((c for c in cols if "agriculteur" in str(c).lower()),None)
     col_tonnage=next((c for c in cols if "tonnage" in str(c).lower()),None)
+    def _norm_col(c): return str(c).strip().lower().replace("é","e")
+    col_region=next((c for c in cols if _norm_col(c)=="region"),None)
+    if col_region is None:
+        col_region=next((c for c in cols if "region" in _norm_col(c) and "regional" not in _norm_col(c)),None)
+    col_access=next((c for c in cols if "accessib" in str(c).lower()),None)
     parsed_dates=[]
     for c in cols[5:]:
         if isinstance(c,pd.Timestamp): parsed_dates.append((c,c));continue
@@ -267,11 +356,14 @@ def _parse_rectification(uploaded_file):
                 if known.upper() in comm.upper() or comm.upper() in known.upper():
                     comm_detected=known;break
         ton=pd.to_numeric(row.get(col_tonnage,0),errors="coerce") if col_tonnage else 0
+        region=str(row.get(col_region,"") or "").strip() if col_region else ""
+        access=str(row.get(col_access,"") or "").strip() if col_access else ""
         for oc,date in parsed_dates:
             val=pd.to_numeric(row.get(oc,0),errors="coerce")
             if pd.notna(val) and val>0:
                 rows.append({"agriculteur":agri,"date":date,"tonnes":float(val),
-                             "tonnage_total":float(ton) if pd.notna(ton) else 0})
+                             "tonnage_total":float(ton) if pd.notna(ton) else 0,
+                             "region":region,"accessibilite":access})
     if not rows: return comm_detected,None,"Aucune donnee trouvee"
     df_rows=pd.DataFrame(rows)
     daily=df_rows.groupby("date")["tonnes"].sum().reset_index().sort_values("date")
@@ -496,17 +588,25 @@ def build_effective_planning(p, sb=None):
     p: DataFrame planning (colonnes Date, Commercial, Usine, Tonnes/Jour, ...)
     sb: client Supabase (ou None)
     Retourne une COPIE de p avec Tonnes/Jour corrige selon la cascade des
-    Plans Rectifies. Deux passes:
-      1) Par commercial (source: fichiers reference_interne commerciaux,
-         priorite upload session > Supabase > reference) — TOUJOURS active,
-         garantit que le total par commercial == exactement ce qui a ete
-         uploade.
+    Plans Rectifies.
+
+      1) Par commercial — SUBSTITUTION EXACTE quand un detail granulaire
+         (par agriculteur+date) est disponible (upload session > Supabase).
+         Les lignes OR-Tools de ce commercial sont remplacees par les
+         valeurs EXACTES de l'upload (aucun scaling, aucun arrondi —
+         garantit que chaque chiffre journalier affiche est identique au
+         fichier source, sans valeur parasite type 11/13/21). L'Usine de
+         chaque agriculteur est deduite de l'assignation OR-Tools la plus
+         frequente pour cet agriculteur (a cette date si connue, sinon sa
+         destination dominante toutes dates confondues).
+         Si aucun detail granulaire n'existe (cas rare : rien uploade
+         encore pour ce commercial), on retombe sur l'ancien scaling
+         proportionnel a partir du total journalier (upload > Supabase >
+         reference interne).
       2) Par usine — UNIQUEMENT si une correction explicite existe dans
          Supabase pour cette usine (override intentionnel de l'admin).
-         Si rien dans Supabase, cette passe est ignoree (on n'utilise PAS
-         le fallback de reference statique ici, sinon il ecraserait
-         silencieusement la Passe 1 et ferait deriver les totaux par
-         commercial loin des valeurs uploadees).
+         Jamais via le fallback de reference statique (sinon il ecraserait
+         silencieusement la Passe 1).
     """
     if p is None or p.empty or "Commercial" not in p.columns or "Date" not in p.columns:
         return p
@@ -519,17 +619,95 @@ def build_effective_planning(p, sb=None):
     p["Tonnes/Jour"] = pd.to_numeric(p["Tonnes/Jour"], errors="coerce").fillna(0)
 
     uploaded_sess = st.session_state.get("comp_uploaded", {})
+    uploaded_raw  = st.session_state.get("comp_raw", {})
     sb_comm = st.session_state.get("_sb_comm")
     sb_usine = st.session_state.get("_sb_usine")
     if sb_comm is None or sb_usine is None:
         sb_comm, sb_usine = _load_all_rectifie(sb)
         st.session_state["_sb_comm"] = sb_comm
         st.session_state["_sb_usine"] = sb_usine
+    sb_detail = st.session_state.get("_sb_detail")
+    if sb_detail is None:
+        sb_detail = _load_all_rectifie_detail(sb)
+        st.session_state["_sb_detail"] = sb_detail
 
+    def _get_detail_df(comm):
+        """Detail granulaire (agriculteur,date,tonnes,region,accessibilite) —
+        priorite upload session (le plus recent) > Supabase."""
+        d = uploaded_raw.get(comm)
+        if isinstance(d, pd.DataFrame) and not d.empty:
+            return d
+        d = sb_detail.get(comm)
+        if isinstance(d, pd.DataFrame) and not d.empty:
+            return d
+        return None
+
+    def _build_agri_usine_map(comm):
+        """Deduit l'usine de chaque agriculteur depuis l'assignation OR-Tools
+        d'origine: mapping precis (agriculteur,date) si connu, sinon usine
+        dominante de cet agriculteur toutes dates confondues."""
+        sub = p[p["Commercial"] == comm]
+        if sub.empty or "Usine" not in sub.columns:
+            return {}, {}
+        s = sub.copy()
+        s["_k"] = s["Agriculteur"].astype(str).str.upper().str.strip()
+        s["_d"] = s["Date"].dt.date
+        g = s.groupby(["_k", "_d", "Usine"])["Tonnes/Jour"].sum().reset_index()
+        g = g.sort_values("Tonnes/Jour", ascending=False).drop_duplicates(["_k", "_d"])
+        exact_map = {(row["_k"], row["_d"]): row["Usine"] for _, row in g.iterrows()}
+        g2 = s.groupby(["_k", "Usine"])["Tonnes/Jour"].sum().reset_index()
+        g2 = g2.sort_values("Tonnes/Jour", ascending=False).drop_duplicates("_k")
+        global_map = dict(zip(g2["_k"], g2["Usine"]))
+        return exact_map, global_map
+
+    EXTRA_COLS = ["Région","Accessibilité","Type Véhicule","Véhicules Requis",
+                  "Disponibles","Manquants (à louer)","Nb Voyages","Pic de Récolte"]
+    for c in EXTRA_COLS:
+        if c not in p.columns:
+            p[c] = ""
+
+    comms_with_detail = []
+    new_rows_by_comm = {}
+    for comm in p["Commercial"].dropna().unique():
+        detail_df = _get_detail_df(comm)
+        if detail_df is None:
+            continue
+        comms_with_detail.append(comm)
+        exact_map, global_map = _build_agri_usine_map(comm)
+        comm_sub = p[p["Commercial"] == comm]
+        comm_default_usine = ""
+        if "Usine" in comm_sub.columns and not comm_sub.empty:
+            _m = comm_sub.groupby("Usine")["Tonnes/Jour"].sum().sort_values(ascending=False)
+            comm_default_usine = _m.index[0] if not _m.empty else ""
+        recs = []
+        for _, r in detail_df.iterrows():
+            agri = str(r["agriculteur"]).strip()
+            d = pd.Timestamp(r["date"])
+            key = agri.upper().strip()
+            usine = (exact_map.get((key, d.date())) or global_map.get(key)
+                     or comm_default_usine or "(usine non assignee)")
+            recs.append({
+                "Date": d, "Commercial": comm, "Agriculteur": agri, "Usine": usine,
+                "Tonnes/Jour": float(r["tonnes"]),
+                "Région": r.get("region","") or "", "Accessibilité": r.get("accessibilite","") or "",
+                "Type Véhicule": "", "Véhicules Requis": "", "Disponibles": "",
+                "Manquants (à louer)": "", "Nb Voyages": "",
+                "Pic de Récolte": "🟡 PIC" if PIC_S <= d.date() <= PIC_E else "",
+            })
+        new_rows_by_comm[comm] = recs
+
+    if comms_with_detail:
+        p = p[~p["Commercial"].isin(comms_with_detail)].copy()
+        all_new = [rec for recs in new_rows_by_comm.values() for rec in recs]
+        if all_new:
+            p = pd.concat([p, pd.DataFrame(all_new)], ignore_index=True)
+
+    # ── Commerciaux SANS detail granulaire (rien uploade encore) : ancien
+    # comportement de scaling proportionnel a partir du total journalier,
+    # pour ne jamais laisser un commercial non corrige. ─────────────────
     extra_rows = []
 
     def _apply_correction(mask, group_df, rect_dict, default_col, default_val):
-        """Applique la correction (scaling proportionnel) pour un sous-ensemble de p."""
         if not rect_dict:
             return
         rect_dict = {str(k): float(v) for k, v in rect_dict.items()}
@@ -559,8 +737,9 @@ def build_effective_planning(p, sb=None):
                 row[default_col] = default_val
                 extra_rows.append(row)
 
-    # ── Passe 1 : correction par COMMERCIAL ──────────────────────
     for comm in p["Commercial"].dropna().unique():
+        if comm in comms_with_detail:
+            continue
         rect_dict, _src = _get_man_dict(comm, uploaded_sess, sb_comm)
         mask = p["Commercial"] == comm
         sub = p[mask]
@@ -569,7 +748,6 @@ def build_effective_planning(p, sb=None):
             m = sub["Usine"].mode()
             usine_default = m.iloc[0] if not m.empty else ""
         _apply_correction(mask, sub, rect_dict, "Usine", usine_default)
-        # le commercial des lignes ajoutees pour ce comm
         for r in extra_rows:
             if r["Commercial"] == "":
                 r["Commercial"] = comm
@@ -631,19 +809,286 @@ def _round_preserving_total(df, group_cols=("Commercial", "Date")):
     return out
 
 
-def generate_planning_wide_excel(p_display):
-    """
-    Genere l'Excel "colonnes dates" demande, a partir du planning DEJA CORRIGE
-    (p_display = sortie de build_effective_planning, eventuellement enrichie
-    des colonnes Disponibles/Manquants calculees dans le dashboard).
+def _write_transport_period_sheet(wb, sheet_name, title, df_usine, df_detail, period_label):
+    """Construit une feuille Transport (Jour ou Semaine) avec 2 tables:
+    A) Disponibilite flotte par usine (Date/Semaine | Type Vehicule | Tonnes
+       requises | Voyages requis | Camions disponibles | Manquants a louer)
+    B) Detail par commercial et region (qui a besoin de quoi)."""
+    ws = wb.create_sheet(sheet_name)
+    HDR = _hf("1F3864")
+    REDF = _hf("FFC7CE"); GRNF = _hf("E2EFDA")
 
-    Colonnes: Date | Commercial | Agriculteur | Usine | Tonnes/Jour |
-              Type Vehicule | Vehicules Requis | Disponibles |
-              Manquants (a louer) | Nb Voyages | Pic de Recolte |
-              20/06/2026 | 21/06/2026 | ... | 25/08/2026
-    Une ligne par (Commercial, Agriculteur, Usine).
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=8)
+    ws.cell(1, 1).value = title
+    ws.cell(1, 1).font = _ft(bold=True, size=12, white=True)
+    ws.cell(1, 1).fill = HDR; ws.cell(1, 1).alignment = _CTR
+    ws.row_dimensions[1].height = 26
+
+    row = 3
+    ws.cell(row, 1).value = "A) Disponibilité de la flotte par usine"
+    ws.cell(row, 1).font = _ft(bold=True, size=11)
+    row += 1
+    HDRS_A = [period_label, "Type Véhicule", "Tonnes requises", "Voyages requis",
+              "Camions disponibles", "Camions manquants (à louer)", "Tonnage manquant (à louer)"]
+    for ci, h in enumerate(HDRS_A, 1):
+        c = ws.cell(row, ci); c.value = h; c.fill = HDR; c.font = _ft(bold=True, size=9, white=True)
+        c.alignment = _CTR; c.border = _BORD
+    row += 1
+
+    if df_usine is not None and not df_usine.empty:
+        usine_order = list(USINE_HEX.keys())
+        usines = sorted(df_usine["Usine"].dropna().unique(),
+                         key=lambda u: (usine_order.index(u) if u in usine_order else len(usine_order), str(u)))
+        for usine in usines:
+            usine_hex = USINE_HEX.get(usine, "404040")
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=len(HDRS_A))
+            ws.cell(row, 1).value = f"📍 {usine}"
+            for ci in range(1, len(HDRS_A)+1):
+                ws.cell(row, ci).fill = _hf(usine_hex); ws.cell(row, ci).font = _ft(bold=True, size=10, white=True)
+                ws.cell(row, ci).border = _BORD; ws.cell(row, ci).alignment = _CTR if ci > 1 else _LFT
+            row += 1
+            start_data = row
+            sub = df_usine[df_usine["Usine"] == usine].sort_values(["Periode", "Type Véhicule"])
+            for _, r in sub.iterrows():
+                manquant = int(r["Camions manquants (a louer)"])
+                vals = [r["Periode"].strftime("%d/%m/%Y"), r["Type Véhicule"], round(r["Tonnes requises"], 1),
+                        int(r["Voyages requis"]), int(r["Camions disponibles"]), manquant,
+                        round(r["Tonnage manquant (a louer)"], 1)]
+                for ci, v in enumerate(vals, 1):
+                    c = ws.cell(row, ci); c.value = v; c.border = _BORD; c.alignment = _CTR
+                    if ci == 6:
+                        c.fill = REDF if manquant > 0 else GRNF
+                row += 1
+            end_data = row - 1
+            if end_data >= start_data:
+                ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
+                ws.cell(row, 1).value = f"Sous-total {usine}"
+                ws.cell(row, 1).font = Font(bold=True, italic=True, name="Calibri", size=9)
+                for ci in [3, 4, 6, 7]:
+                    col_l = get_column_letter(ci)
+                    ws.cell(row, ci).value = f"=SUM({col_l}{start_data}:{col_l}{end_data})"
+                    ws.cell(row, ci).font = _ft(bold=True, size=9)
+                for ci in range(1, len(HDRS_A)+1):
+                    ws.cell(row, ci).border = _BORD
+                    ws.cell(row, ci).fill = _hf(_tint_hex(usine_hex, 0.85))
+                row += 1
+            row += 1
+
+    row += 1
+    ws.cell(row, 1).value = "B) Détail par commercial et région"
+    ws.cell(row, 1).font = _ft(bold=True, size=11)
+    row += 1
+    HDRS_B = [period_label, "Usine", "Commercial", "Région", "Type Véhicule", "Tonnes requises", "Voyages requis"]
+    for ci, h in enumerate(HDRS_B, 1):
+        c = ws.cell(row, ci); c.value = h; c.fill = HDR; c.font = _ft(bold=True, size=9, white=True)
+        c.alignment = _CTR; c.border = _BORD
+    row += 1
+
+    if df_detail is not None and not df_detail.empty:
+        comm_order = list(COMM_HEX.keys())
+        sub = df_detail.sort_values(["Usine", "Commercial", "Periode", "Région", "Type Véhicule"])
+        for _, r in sub.iterrows():
+            comm_hex = COMM_HEX.get(r["Commercial"], "595959")
+            vals = [r["Periode"].strftime("%d/%m/%Y"), r["Usine"], r["Commercial"], r["Région"],
+                    r["Type Véhicule"], round(r["Tonnes requises"], 1), int(r["Voyages requis"])]
+            for ci, v in enumerate(vals, 1):
+                c = ws.cell(row, ci); c.value = v; c.border = _BORD; c.alignment = _CTR
+                c.fill = _hf(_tint_hex(comm_hex, 0.88))
+            row += 1
+
+    for ci, w in enumerate([13, 14, 16, 14, 17, 22, 17], 1):
+        ws.column_dimensions[get_column_letter(ci)].width = w
+    ws.freeze_panes = "A5"
+    return ws
+
+
+def _write_transport_semaine_detaillee(wb, detail, real_fleet):
+    """
+    Feuille 'Transport Semaine' detaillee, organisee par Commercial -> Semaine
+    -> Jour -> Usine -> Agriculteur, avec colonnes PPL/PL/SEMI requis,
+    disponibles (flotte de l'usine ce jour-la) et manquants (a louer).
+    Une ligne 'TOTAL SEMAINE <Usine>' par usine livree, a la fin de chaque
+    semaine, pour ce commercial.
+    """
+    real_fleet = real_fleet or {}
+    ws = wb.create_sheet("Transport Semaine")
+    VEH_COLS = ["PPL", "PL", "SEMI"]
+    HDRS = ["Date", "Agriculteur", "Usine", "PPL requis", "PL requis", "SEMI requis",
+            "PPL disponible", "PL disponible", "SEMI disponible",
+            "PPL manquant (à louer)", "PL manquant (à louer)", "SEMI manquant (à louer)"]
+    N = len(HDRS)
+    HDR = _hf("1F3864"); REDF = _hf("FFC7CE"); GRNF = _hf("E2EFDA")
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=N)
+    ws.cell(1, 1).value = "Besoins Transport par Semaine — detail par Commercial (calcule sur le Plan Rectifie, PPL/PL/SEMI uniquement)"
+    ws.cell(1, 1).font = _ft(bold=True, size=12, white=True)
+    ws.cell(1, 1).fill = HDR; ws.cell(1, 1).alignment = _CTR
+    ws.row_dimensions[1].height = 26
+    row = 3
+
+    if detail is None or detail.empty:
+        ws.cell(row, 1).value = "Aucune donnee."
+        return wb
+    detail = detail.copy()
+    detail["Date"] = pd.to_datetime(detail["Date"], errors="coerce")
+    detail = detail.dropna(subset=["Date"])
+    detail = detail[detail["Type Véhicule"].isin(VEH_COLS)]
+
+    # Disponibilite par (jour, usine, type) — globale tous commerciaux confondus
+    # (la flotte d'une usine est partagee, jamais sous-allouee par commercial)
+    usine_day = _tc.summarize_transport_usine(detail, real_fleet=real_fleet, period="day")
+    avail_lookup = {}
+    for _, r in usine_day.iterrows():
+        avail_lookup[(r["Periode"].date(), r["Usine"], r["Type Véhicule"])] = (
+            int(r["Camions disponibles"]), int(r["Camions manquants (a louer)"]))
+
+    def _fleet_count(usine, veh):
+        return len(real_fleet.get(usine, {}).get(veh, []))
+
+    comm_order = list(COMM_HEX.keys())
+    commercials = sorted(detail["Commercial"].dropna().unique(),
+                          key=lambda c: (comm_order.index(c) if c in comm_order else len(comm_order), str(c)))
+
+    for comm in commercials:
+        comm_hex = COMM_HEX.get(comm, "404040")
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=N)
+        ws.cell(row, 1).value = f"📍 {comm}"
+        for ci in range(1, N + 1):
+            ws.cell(row, ci).fill = _hf(comm_hex); ws.cell(row, ci).font = _ft(bold=True, size=12, white=True)
+            ws.cell(row, ci).border = _BORD
+        ws.cell(row, 1).alignment = _LFT
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+        sub_comm = detail[detail["Commercial"] == comm]
+        dates_comm = sorted(sub_comm["Date"].dt.date.unique())
+        if not dates_comm:
+            continue
+
+        weeks = []
+        cur = dates_comm[0]
+        while cur <= dates_comm[-1]:
+            wk_end = cur + pd.Timedelta(days=6)
+            weeks.append((cur, wk_end))
+            cur = wk_end + pd.Timedelta(days=1)
+
+        for wk_start, wk_end in weeks:
+            week_dates = [d for d in dates_comm if wk_start <= d <= wk_end]
+            if not week_dates:
+                continue
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=N)
+            ws.cell(row, 1).value = f"Semaine du {wk_start.strftime('%d/%m')} au {wk_end.strftime('%d/%m/%Y')}"
+            for ci in range(1, N + 1):
+                ws.cell(row, ci).fill = _hf(_tint_hex(comm_hex, 0.55)); ws.cell(row, ci).font = _ft(bold=True, size=10, white=True)
+                ws.cell(row, ci).border = _BORD
+            ws.cell(row, 1).alignment = _LFT
+            row += 1
+            for ci, h in enumerate(HDRS, 1):
+                c = ws.cell(row, ci); c.value = h; c.fill = _hf(_tint_hex(comm_hex, 0.8))
+                c.font = _ft(bold=True, size=9); c.alignment = _CTR; c.border = _BORD
+            row += 1
+
+            week_totals = defaultdict(lambda: defaultdict(int))   # [usine][veh] -> voyages requis semaine
+            week_manq   = defaultdict(lambda: defaultdict(int))   # [usine][veh] -> somme manquants quotidiens semaine
+
+            for d in week_dates:
+                day_sub = sub_comm[sub_comm["Date"].dt.date == d]
+                usines_today = sorted(day_sub["Usine"].dropna().unique())
+                for usine in usines_today:
+                    us_sub = day_sub[day_sub["Usine"] == usine]
+                    agris = sorted(us_sub["Agriculteur"].dropna().unique())
+                    day_usine_tot = {v: 0 for v in VEH_COLS}
+                    for agri in agris:
+                        ag_sub = us_sub[us_sub["Agriculteur"] == agri]
+                        counts = {v: int(ag_sub[ag_sub["Type Véhicule"] == v]["Voyages"].sum()) for v in VEH_COLS}
+                        if sum(counts.values()) == 0:
+                            continue
+                        vals = [d.strftime("%d/%m/%Y"), agri, usine,
+                                counts["PPL"] or "", counts["PL"] or "", counts["SEMI"] or "",
+                                "", "", "", "", "", ""]
+                        for ci, v in enumerate(vals, 1):
+                            c = ws.cell(row, ci); c.value = v; c.border = _BORD; c.alignment = _CTR
+                            if ci == 2: c.alignment = _LFT
+                        row += 1
+                        for v in VEH_COLS:
+                            day_usine_tot[v] += counts[v]
+                            week_totals[usine][v] += counts[v]
+                    disp = {v: avail_lookup.get((d, usine, v), (_fleet_count(usine, v), 0))[0] for v in VEH_COLS}
+                    manq = {v: avail_lookup.get((d, usine, v), (_fleet_count(usine, v), 0))[1] for v in VEH_COLS}
+                    for v in VEH_COLS:
+                        week_manq[usine][v] += manq[v]
+                    vals = ["", "", f"   ↳ Sous-total {usine}",
+                            day_usine_tot["PPL"] or "", day_usine_tot["PL"] or "", day_usine_tot["SEMI"] or "",
+                            disp["PPL"], disp["PL"], disp["SEMI"], manq["PPL"], manq["PL"], manq["SEMI"]]
+                    for ci, v in enumerate(vals, 1):
+                        c = ws.cell(row, ci); c.value = v; c.border = _BORD; c.alignment = _CTR
+                        if ci == 3:
+                            c.font = Font(bold=True, italic=True, name="Calibri", size=9)
+                        if ci in (10, 11, 12):
+                            try: c.fill = REDF if float(v) > 0 else GRNF
+                            except (ValueError, TypeError): pass
+                    row += 1
+
+            for usine, totals in week_totals.items():
+                disp_fixed = {v: _fleet_count(usine, v) for v in VEH_COLS}
+                manq_sum = {v: week_manq[usine][v] for v in VEH_COLS}
+                vals = ["", "", f"TOTAL SEMAINE {usine}",
+                        totals["PPL"] or "", totals["PL"] or "", totals["SEMI"] or "",
+                        disp_fixed["PPL"], disp_fixed["PL"], disp_fixed["SEMI"],
+                        manq_sum["PPL"], manq_sum["PL"], manq_sum["SEMI"]]
+                for ci, v in enumerate(vals, 1):
+                    c = ws.cell(row, ci); c.value = v; c.border = _BORD; c.alignment = _CTR
+                    c.fill = _hf(_tint_hex(comm_hex, 0.7))
+                    c.font = _ft(bold=True, size=9, white=True)
+                    if ci in (10, 11, 12):
+                        try: c.fill = REDF if float(v) > 0 else GRNF; c.font = _ft(bold=True, size=9)
+                        except (ValueError, TypeError): pass
+                row += 1
+            row += 1
+        row += 1
+
+    for ci, w in enumerate([12, 24, 16, 11, 10, 11, 13, 11, 13, 16, 14, 16], 1):
+        ws.column_dimensions[get_column_letter(ci)].width = w
+    ws.freeze_panes = "A4"
+    return wb
+
+
+def generate_transport_sheets(wb, p_corrige, real_fleet=None):
+    """Ajoute les feuilles 'Transport Jour' et 'Transport Semaine' au workbook
+    `wb` deja ouvert, calculees a partir du planning RECTIFIE (p_corrige),
+    jamais a partir des valeurs OR-Tools d'origine."""
+    if not TRANSPORT_CALC_AVAILABLE or p_corrige is None or p_corrige.empty:
+        return wb
+    real_fleet = real_fleet or {}
+    detail = _tc.build_transport_detail(p_corrige, real_fleet=real_fleet)
+    if detail.empty:
+        return wb
+    df_usine = _tc.summarize_transport_usine(detail, real_fleet=real_fleet, period="day")
+    df_detail = _tc.summarize_transport_detail(detail, period="day")
+    _write_transport_period_sheet(wb, "Transport Jour",
+                                   "Besoins Transport — par JOUR (calcule sur le Plan Rectifie)",
+                                   df_usine, df_detail, "Date")
+    _write_transport_semaine_detaillee(wb, detail, real_fleet)
+    return wb
+
+
+def generate_planning_wide_excel(p_display, real_fleet=None):
+    """
+    Genere l'Excel "colonnes dates", organise en sections par Commercial
+    puis par Usine, avec sous-totaux (formules Excel) et regroupement
+    pliable (boutons +/- Excel). Une ligne de donnees par
+    (Commercial, Usine, Agriculteur).
+
+    Structure de chaque section Commercial :
+      - bandeau d'entete colore (couleur de marque du commercial)
+      - pour chaque Usine livree : lignes agriculteurs (teinte claire de
+        la couleur du commercial) puis ligne "Sous-total <Usine>"
+      - ligne "TOTAL <Commercial>" (couleur pleine, formules SOMME)
+    Suivi d'une ligne "TOTAL GENERAL" en bas de feuille.
     """
     import io as _io
+    if real_fleet is None:
+        real_fleet = st.session_state.get("_real_fleet", {})
     if p_display is None or p_display.empty:
         wb = Workbook(); ws = wb.active; ws.title = "Vide"
         ws["A1"] = "Aucune donnee a exporter"
@@ -663,24 +1108,32 @@ def generate_planning_wide_excel(p_display):
             df[c] = ""
     df["Tonnes/Jour"] = pd.to_numeric(df["Tonnes/Jour"], errors="coerce").fillna(0)
     df["_T_int"] = _round_preserving_total(df, group_cols=("Commercial", "Date"))
+    df["Usine"] = df["Usine"].fillna("").astype(str).replace({"nan": "", "": "(usine non assignee)"})
 
     season_dates = list(pd.date_range("2026-06-20", "2026-08-25", freq="D"))
-
     FIXED_HDRS = ["Date","Commercial","Agriculteur","Usine","Tonnes/Jour","Type Véhicule",
                   "Véhicules Requis","Disponibles","Manquants (à louer)","Nb Voyages","Pic de Récolte"]
     DATE_HDRS = [d.strftime("%d/%m/%Y") for d in season_dates]
     ALL_HDRS = FIXED_HDRS + DATE_HDRS
     N = len(ALL_HDRS)
+    NUM_COLS = [5, 8, 9, 10]                       # colonnes numeriques sommables
+    DATE_COL_START = len(FIXED_HDRS) + 1
+    DATE_COL_END = len(FIXED_HDRS) + len(season_dates)
 
     wb = Workbook(); wb.remove(wb.active)
     ws = wb.create_sheet("Planning Rectifie")
+    ws.sheet_properties.outlinePr.summaryBelow = True
+    ws.sheet_view.showOutlineSymbols = True
 
     HDR  = _hf("1F3864")
     PICF = _hf("FFF2CC")
     GRNF = _hf("E2EFDA")
-    ALTF = _hf("F8F9FA")
-    WHTF = _hf("FFFFFF")
     REDF = _hf("FFC7CE")
+
+    COMM_ORDER  = list(COMM_HEX.keys())
+    USINE_ORDER = list(USINE_HEX.keys())
+    _ckey = lambda c: (COMM_ORDER.index(c), c) if c in COMM_ORDER else (len(COMM_ORDER), str(c))
+    _ukey = lambda u: (USINE_ORDER.index(u), u) if u in USINE_ORDER else (len(USINE_ORDER), str(u))
 
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=min(N, 30))
     ws.cell(1,1).value = "Planning Rectifie — base sur le plan corrige (Plans Rectifies prioritaires sur OR-Tools)"
@@ -698,48 +1151,131 @@ def generate_planning_wide_excel(p_display):
             c.fill = _hf("7D6608") if is_pic else _hf("1F4E79")
             c.font = _ft(bold=True, size=8, white=True)
     ws.row_dimensions[2].height = 36
+    ws.row_dimensions[1].outline_level = 0
+    ws.row_dimensions[2].outline_level = 0
 
-    groups = df.groupby(["Commercial","Agriculteur","Usine"], dropna=False)
+    def _sum_formula(col_letter, rows):
+        """SOMME Excel referencant une liste de lignes (contigues ou non)."""
+        if not rows:
+            return None
+        return f"=SUM({','.join(f'{col_letter}{r}' for r in rows)})"
+
+    def _write_label_row(r, label, fill_hex, text_color, bold, size, italic=False, outline=0, height=18):
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=4)
+        for ci in range(1, N+1):
+            cell = ws.cell(r, ci)
+            cell.fill = _hf(fill_hex); cell.border = _BORD; cell.alignment = _CTR
+            cell.font = Font(bold=bold, italic=italic, name="Calibri", size=size, color=text_color)
+        ws.cell(r, 2).value = label
+        ws.cell(r, 2).alignment = _LFT
+        ws.row_dimensions[r].height = height
+        ws.row_dimensions[r].outline_level = outline
+
+    def _write_sum_row(r, label, data_rows, fill_hex, text_color, bold, size, outline, italic=False, height=18):
+        """Ecrit une ligne de sous-total/total avec formules SOMME sur data_rows
+        (liste de numeros de ligne, contigus ou non) pour chaque colonne numerique
+        et chaque colonne date."""
+        _write_label_row(r, label, fill_hex, text_color, bold, size, italic, outline, height)
+        for col in NUM_COLS:
+            f = _sum_formula(get_column_letter(col), data_rows)
+            if f:
+                cell = ws.cell(r, col); cell.value = f
+                cell.number_format = "#,##0"
+        for ci2 in range(DATE_COL_START, DATE_COL_END + 1):
+            f = _sum_formula(get_column_letter(ci2), data_rows)
+            if f:
+                cell = ws.cell(r, ci2); cell.value = f
+                cell.number_format = "#,##0;;\"\""
+
+    comm_list = sorted(df["Commercial"].dropna().unique(), key=_ckey)
     row = 3
-    for (comm, agri, usine), grp in groups:
-        grp_daily = grp.groupby(grp["Date"].dt.date)["_T_int"].sum()
-        total = int(grp_daily.sum())
-        r0 = grp.iloc[0]
-        is_alt = row % 2 == 0
-        base_fill = ALTF if is_alt else WHTF
-        is_pic_any = any(PIC_S <= d <= PIC_E and v > 0 for d, v in grp_daily.items())
-        manq_val = r0.get("Manquants (à louer)", "")
-        fixed_vals = ["", comm, agri, usine, total if total else "",
-                      r0.get("Type Véhicule",""), r0.get("Véhicules Requis",""),
-                      r0.get("Disponibles",""), manq_val,
-                      r0.get("Nb Voyages",""), "⚡ PIC" if is_pic_any else ""]
-        for ci, val in enumerate(fixed_vals, 1):
-            cell = ws.cell(row, ci); cell.value = val; cell.border = _BORD; cell.alignment = _CTR
-            if ci == 9:
-                try:
-                    cell.fill = REDF if float(val) > 0 else base_fill
-                except (ValueError, TypeError):
-                    cell.fill = base_fill
-            else:
-                cell.fill = base_fill
-            cell.font = _ft(size=9, bold=(ci == 2))
-        for di, d in enumerate(season_dates):
-            val = int(grp_daily.get(d.date(), 0) or 0)
-            ci2 = len(FIXED_HDRS) + di + 1
-            cell = ws.cell(row, ci2)
-            cell.value = val if val > 0 else ""
-            cell.border = _BORD; cell.alignment = _CTR
-            is_pic_d = PIC_S <= d.date() <= PIC_E
-            cell.fill = PICF if (is_pic_d and val > 0) else (GRNF if val > 0 else base_fill)
-            cell.font = _ft(size=8)
-        ws.row_dimensions[row].height = 15
+    comm_total_rows = []   # lignes "TOTAL <commercial>" -> pour le total general
+
+    for comm in comm_list:
+        comm_hex = COMM_HEX.get(comm, "404040")
+        comm_tint = _tint_hex(comm_hex, 0.78)
+        comm_tint_alt = _tint_hex(comm_hex, 0.88)
+        sub_df = df[df["Commercial"] == comm]
+
+        header_row = row
+        _write_label_row(header_row, f"📍 {comm}", comm_hex, "FFFFFF", True, 11, outline=0, height=22)
         row += 1
 
-    for ci, w in enumerate([12,16,28,12,11,12,11,11,13,10,11], 1):
+        usine_list = sorted(sub_df["Usine"].dropna().unique(), key=_ukey)
+        usine_subtotal_rows = []
+
+        for usine in usine_list:
+            usine_df = sub_df[sub_df["Usine"] == usine]
+            groups = usine_df.groupby("Agriculteur", dropna=False)
+            usine_start = row
+            for agri, grp in sorted(groups, key=lambda kv: str(kv[0])):
+                grp_daily = grp.groupby(grp["Date"].dt.date)["_T_int"].sum()
+                total = int(grp_daily.sum())
+                r0 = grp.iloc[0]
+                is_alt = (row - usine_start) % 2 == 1
+                base_fill = _hf(comm_tint_alt if is_alt else comm_tint)
+                is_pic_any = any(PIC_S <= d <= PIC_E and v > 0 for d, v in grp_daily.items())
+                manq_val = r0.get("Manquants (à louer)", "")
+                ws.cell(row, 1).fill = _hf(comm_hex)
+                ws.cell(row, 1).border = _BORD
+                fixed_vals = ["", comm, agri, usine, total if total else "",
+                              r0.get("Type Véhicule",""), r0.get("Véhicules Requis",""),
+                              r0.get("Disponibles",""), manq_val,
+                              r0.get("Nb Voyages",""), "⚡ PIC" if is_pic_any else ""]
+                for ci, val in enumerate(fixed_vals, 1):
+                    if ci == 1:
+                        continue
+                    cell = ws.cell(row, ci); cell.value = val; cell.border = _BORD; cell.alignment = _CTR
+                    if ci == 9:
+                        try:
+                            cell.fill = REDF if float(val) > 0 else base_fill
+                        except (ValueError, TypeError):
+                            cell.fill = base_fill
+                    else:
+                        cell.fill = base_fill
+                    cell.font = _ft(size=9, bold=(ci == 3))
+                for di, d in enumerate(season_dates):
+                    val = int(grp_daily.get(d.date(), 0) or 0)
+                    ci2 = len(FIXED_HDRS) + di + 1
+                    cell = ws.cell(row, ci2)
+                    cell.value = val if val > 0 else ""
+                    cell.border = _BORD; cell.alignment = _CTR
+                    is_pic_d = PIC_S <= d.date() <= PIC_E
+                    cell.fill = PICF if (is_pic_d and val > 0) else (GRNF if val > 0 else base_fill)
+                    cell.font = _ft(size=8)
+                ws.row_dimensions[row].height = 15
+                ws.row_dimensions[row].outline_level = 2
+                row += 1
+            usine_end = row - 1
+            usine_hex = USINE_HEX.get(usine, "595959")
+            _write_sum_row(row, f"   ↳ Sous-total {usine}", list(range(usine_start, usine_end+1)),
+                            _tint_hex(usine_hex, 0.35), "FFFFFF", True, 9, outline=1, italic=True, height=16)
+            usine_subtotal_rows.append(row)
+            row += 1
+
+        comm_total_row = row
+        _write_sum_row(comm_total_row, f"TOTAL {comm}", usine_subtotal_rows,
+                        comm_hex, "FFFFFF", True, 10, outline=0, height=20)
+        comm_total_rows.append(comm_total_row)
+        row += 1
+
+    grand_total_row = row
+    _write_sum_row(grand_total_row, "TOTAL GENERAL", comm_total_rows,
+                    "0B132B", "FFFFFF", True, 12, outline=0, height=24)
+    row += 1
+
+    for ci, w in enumerate([4,13,34,16,11,12,11,11,13,10,11], 1):
         ws.column_dimensions[get_column_letter(ci)].width = w
     for di in range(len(season_dates)):
         ws.column_dimensions[get_column_letter(len(FIXED_HDRS) + di + 1)].width = 8
-    ws.freeze_panes = "L3"
+    ws.freeze_panes = "E3"
+    ws.auto_filter.ref = f"B2:{get_column_letter(N)}2"
+
+    if TRANSPORT_CALC_AVAILABLE:
+        try:
+            generate_transport_sheets(wb, p_display, real_fleet or {})
+        except Exception as e:
+            st.warning(f"Feuilles Transport non generees: {e}")
 
     buf = _io.BytesIO(); wb.save(buf); buf.seek(0)
     return buf.read()
@@ -775,6 +1311,9 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None, sb=None):
             except: pass
         st.session_state["comp_sb_loaded"]=True
 
+    if "_real_fleet" not in st.session_state:
+        st.session_state["_real_fleet"] = _load_flotte_reelle(sb) if TRANSPORT_CALC_AVAILABLE else {}
+
     sb_comm=st.session_state.get("_sb_comm",{})
     sb_usine=st.session_state.get("_sb_usine",{})
 
@@ -804,7 +1343,10 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None, sb=None):
             comm=cfn or cfd
             if comm and daily:
                 st.session_state["comp_uploaded"][comm]=daily
-                if isinstance(raw_or_err,pd.DataFrame): st.session_state["comp_raw"][comm]=raw_or_err
+                if isinstance(raw_or_err,pd.DataFrame):
+                    st.session_state["comp_raw"][comm]=raw_or_err
+                    _save_rectifie_detail(sb, comm, raw_or_err)
+                    st.session_state.setdefault("_sb_detail",{})[comm]=raw_or_err
                 ok=_save_rectifie(sb,comm,daily,"commercial")
                 if ok: st.session_state.get("_sb_comm",{})[comm]=daily
                 if "comp_excel_cache" in st.session_state: del st.session_state["comp_excel_cache"]
@@ -828,6 +1370,8 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None, sb=None):
                         _delete_rectifie(sb, c, "commercial")
                         st.session_state["_sb_comm"].pop(c, None)
                         st.session_state["comp_uploaded"].pop(c, None)
+                        st.session_state.get("_sb_detail",{}).pop(c, None)
+                        st.session_state["comp_raw"].pop(c, None)
                         if "comp_excel_cache" in st.session_state: del st.session_state["comp_excel_cache"]
                         st.rerun()
         st.markdown("---")
@@ -852,6 +1396,40 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None, sb=None):
                 st.session_state["comp_raw"]={}
                 if "comp_excel_cache" in st.session_state: del st.session_state["comp_excel_cache"]
                 st.rerun()
+
+    st.markdown("---")
+    st.subheader("Flotte de transport reelle (pour le tableau Transport)")
+    st.caption("Fichier transport_etat_final.xlsx (ou transport_disponible.xlsx) — feuille "
+               "'liste confirmé' avec colonnes Usine/Tonnage/Type Vehicule/Confirmation/Contrat. "
+               "Sauvegarde dans Supabase, persistant entre sessions.")
+    if TRANSPORT_CALC_AVAILABLE:
+        col_fu, col_fs = st.columns([3, 2])
+        with col_fu:
+            fleet_file = st.file_uploader("Fichier flotte", type=["xlsx", "xls"],
+                                           label_visibility="collapsed", key="fleet_uploader")
+        if fleet_file:
+            parsed, err = _tc.parse_real_fleet_file(fleet_file)
+            if err:
+                st.warning(f"Lecture flotte: {err}")
+            elif parsed:
+                st.session_state["_real_fleet"] = parsed
+                ok = _save_flotte_reelle(sb, parsed)
+                nb = sum(len(v) for vt in parsed.values() for v in vt.values())
+                st.success(f"{'Supabase sauvegarde' if ok else 'Charge (session)'}: {nb} camions sur {len(parsed)} usines")
+                if "comp_excel_cache" in st.session_state: del st.session_state["comp_excel_cache"]
+            else:
+                st.warning("Aucune flotte detectee dans ce fichier.")
+        with col_fs:
+            rf = st.session_state.get("_real_fleet", {})
+            if rf:
+                for u, vt in sorted(rf.items()):
+                    n = sum(len(v) for v in vt.values())
+                    st.markdown(f"🔵 **{u}** — {n} camions")
+            else:
+                st.markdown("⚪ Aucune flotte chargee — le tableau Transport utilisera des "
+                             "capacites theoriques (0 camion disponible affiche) jusqu'a l'import.")
+    else:
+        st.info("Module transport_calc.py non deploye — tableau Transport indisponible pour l'instant.")
 
     st.divider()
     col_exp1,col_exp2=st.columns([2,3])
