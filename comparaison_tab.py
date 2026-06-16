@@ -737,10 +737,13 @@ def build_effective_planning(p, sb=None):
                 row[default_col] = default_val
                 extra_rows.append(row)
 
+    correction_mode = {c: "exact (detail granulaire)" for c in comms_with_detail}
     for comm in p["Commercial"].dropna().unique():
         if comm in comms_with_detail:
             continue
         rect_dict, _src = _get_man_dict(comm, uploaded_sess, sb_comm)
+        correction_mode[comm] = (f"scaling proportionnel (pas de detail exact — source: {_src})"
+                                  if rect_dict else "aucune correction (OR-Tools brut)")
         mask = p["Commercial"] == comm
         sub = p[mask]
         usine_default = ""
@@ -776,6 +779,7 @@ def build_effective_planning(p, sb=None):
                 p[cols_needed] = ""
         p = pd.concat([p, pd.DataFrame(extra_rows)], ignore_index=True)
 
+    st.session_state["_correction_mode"] = correction_mode
     return p
 
 
@@ -1357,13 +1361,19 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None, sb=None):
 
     with col_st:
         st.markdown("**Statut :**")
+        sb_detail_cache = st.session_state.get("_sb_detail", {})
+        any_scaling = False
         for c in MANUAL_STATS:
             d,src=_get_man_dict(c,st.session_state["comp_uploaded"],sb_comm)
             t=sum(d.values());n=sum(1 for v in d.values() if v>0)
             icon = "🟢" if src=="fichier uploade" else ("🔵" if src=="Supabase" else "⚪")
+            has_detail = (isinstance(st.session_state["comp_raw"].get(c), pd.DataFrame) and not st.session_state["comp_raw"].get(c).empty) or \
+                         (isinstance(sb_detail_cache.get(c), pd.DataFrame) and not sb_detail_cache.get(c).empty)
+            detail_tag = " · chiffres EXACTS" if has_detail else " · ⚠️ SCALING (detail manquant)"
+            if not has_detail and src != "reference interne": any_scaling = True
             col_a,col_b = st.columns([4,1])
             with col_a:
-                st.markdown(f"{icon} **{c.split()[0]}** — {n}j | {int(t)}t ({src})")
+                st.markdown(f"{icon} **{c.split()[0]}** — {n}j | {int(t)}t ({src}){detail_tag}")
             with col_b:
                 if src=="Supabase":
                     if st.button("↺", key=f"reset_{c}", help=f"Reinitialiser {c} -> reference interne (si Supabase contient une valeur perimee)"):
@@ -1374,6 +1384,10 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None, sb=None):
                         st.session_state["comp_raw"].pop(c, None)
                         if "comp_excel_cache" in st.session_state: del st.session_state["comp_excel_cache"]
                         st.rerun()
+        if any_scaling:
+            st.warning("⚠️ Au moins un commercial utilise le scaling proportionnel au lieu des "
+                       "chiffres exacts (detail granulaire absent de Supabase/session). "
+                       "Reimporte son fichier ci-dessus pour corriger.")
         st.markdown("---")
         st.markdown("**Usines :**")
         for u in USINE_CAPS:
