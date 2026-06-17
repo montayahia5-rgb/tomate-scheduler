@@ -702,7 +702,33 @@ def build_effective_planning(p, sb=None):
         p = p[~p["Commercial"].isin(comms_with_detail)].copy()
         all_new = [rec for recs in new_rows_by_comm.values() for rec in recs]
         if all_new:
-            p = pd.concat([p, pd.DataFrame(all_new)], ignore_index=True)
+            df_new = pd.DataFrame(all_new)
+            if TRANSPORT_CALC_AVAILABLE:
+                real_fleet = st.session_state.get("_real_fleet", {})
+                for idx, row in df_new.iterrows():
+                    tons = float(row.get("Tonnes/Jour", 0) or 0)
+                    if tons <= 0:
+                        continue
+                    acc_raw = row.get("Accessibilité", "")
+                    acc = _tc.normalize_acc(acc_raw)
+                    allowed = _tc.ACCESS_VEHICLES.get(acc, _tc.ACCESS_VEHICLES["NAN"])
+                    usine = str(row.get("Usine", "") or "")
+                    region = str(row.get("Région", "") or "")
+                    vehicles = _tc.choose_vehicles(tons, allowed, usine=usine,
+                                                    region=region, real_fleet=real_fleet)
+                    if vehicles:
+                        veh_type = vehicles[0].get("vehicle", "PL")
+                        parts = []
+                        for v in vehicles:
+                            load = v.get("tons_each", 0)
+                            n = v.get("trips", 1)
+                            disp = int(load) if float(load) == int(float(load)) else round(float(load), 1)
+                            parts.append(f"{v['vehicle']}({disp}t)" if n == 1 else f"{v['vehicle']} x{n}({disp}t)")
+                        trips = sum(v.get("trips", 1) for v in vehicles)
+                        df_new.at[idx, "Type Véhicule"] = veh_type
+                        df_new.at[idx, "Véhicules Requis"] = " | ".join(parts)
+                        df_new.at[idx, "Nb Voyages"] = trips
+            p = pd.concat([p, df_new], ignore_index=True)
 
     # ── Commerciaux SANS detail granulaire (rien uploade encore) : ancien
     # comportement de scaling proportionnel a partir du total journalier,
