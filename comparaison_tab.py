@@ -781,6 +781,9 @@ def build_effective_planning(p, sb=None):
         p = pd.concat([p, pd.DataFrame(extra_rows)], ignore_index=True)
 
     st.session_state["_correction_mode"] = correction_mode
+    for _nc in ["Tonnes/Jour", "Nb Voyages"]:
+        if _nc in p.columns:
+            p[_nc] = pd.to_numeric(p[_nc], errors="coerce").fillna(0)
     return p
 
 
