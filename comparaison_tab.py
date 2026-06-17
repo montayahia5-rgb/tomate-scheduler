@@ -663,9 +663,10 @@ def build_effective_planning(p, sb=None):
 
     EXTRA_COLS = ["Région","Accessibilité","Type Véhicule","Véhicules Requis",
                   "Disponibles","Manquants (à louer)","Nb Voyages","Pic de Récolte"]
+    NUMERIC_EXTRA = {"Nb Voyages", "Disponibles", "Manquants (à louer)"}
     for c in EXTRA_COLS:
         if c not in p.columns:
-            p[c] = ""
+            p[c] = 0 if c in NUMERIC_EXTRA else ""
 
     comms_with_detail = []
     new_rows_by_comm = {}
@@ -691,8 +692,8 @@ def build_effective_planning(p, sb=None):
                 "Date": d, "Commercial": comm, "Agriculteur": agri, "Usine": usine,
                 "Tonnes/Jour": float(r["tonnes"]),
                 "Région": r.get("region","") or "", "Accessibilité": r.get("accessibilite","") or "",
-                "Type Véhicule": "", "Véhicules Requis": "", "Disponibles": "",
-                "Manquants (à louer)": "", "Nb Voyages": "",
+                "Type Véhicule": "", "Véhicules Requis": "", "Disponibles": 0,
+                "Manquants (à louer)": 0, "Nb Voyages": 0,
                 "Pic de Récolte": "🟡 PIC" if PIC_S <= d.date() <= PIC_E else "",
             })
         new_rows_by_comm[comm] = recs
@@ -781,9 +782,9 @@ def build_effective_planning(p, sb=None):
         p = pd.concat([p, pd.DataFrame(extra_rows)], ignore_index=True)
 
     st.session_state["_correction_mode"] = correction_mode
-    for _nc in ["Tonnes/Jour", "Nb Voyages"]:
+    for _nc in ["Tonnes/Jour", "Nb Voyages", "Disponibles", "Manquants (à louer)"]:
         if _nc in p.columns:
-            p[_nc] = pd.to_numeric(p[_nc], errors="coerce").fillna(0)
+            p[_nc] = pd.to_numeric(p[_nc], errors="coerce").fillna(0).astype(float)
     return p
 
 
