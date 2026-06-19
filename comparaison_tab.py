@@ -824,6 +824,7 @@ def build_effective_planning(p, sb=None):
     for _nc in ["Tonnes/Jour", "Nb Voyages", "Disponibles", "Manquants (à louer)"]:
         if _nc in p.columns:
             p[_nc] = pd.to_numeric(p[_nc], errors="coerce").fillna(0).astype(float)
+    st.session_state["_p_full_with_acc"] = p.copy()
     return p
 
 
@@ -960,15 +961,16 @@ def _write_transport_semaine_detaillee(wb, detail, real_fleet):
     """
     real_fleet = real_fleet or {}
     ws = wb.create_sheet("Transport Semaine")
-    VEH_COLS = ["PPL", "PL", "SEMI"]
-    HDRS = ["Date", "Agriculteur", "Usine", "PPL requis", "PL requis", "SEMI requis",
-            "PPL disponible", "PL disponible", "SEMI disponible",
-            "PPL manquant (à louer)", "PL manquant (à louer)", "SEMI manquant (à louer)"]
+    VEH_COLS = ["TRACTEUR", "PPL", "PL", "SEMI"]
+    HDRS = ["Date", "Agriculteur", "Usine",
+            "TRACTEUR requis", "PPL requis", "PL requis", "SEMI requis",
+            "TRACTEUR disponible", "PPL disponible", "PL disponible", "SEMI disponible",
+            "TRACTEUR manquant (à louer)", "PPL manquant (à louer)", "PL manquant (à louer)", "SEMI manquant (à louer)"]
     N = len(HDRS)
     HDR = _hf("1F3864"); REDF = _hf("FFC7CE"); GRNF = _hf("E2EFDA")
 
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=N)
-    ws.cell(1, 1).value = "Besoins Transport par Semaine — detail par Commercial (calcule sur le Plan Rectifie, PPL/PL/SEMI uniquement)"
+    ws.cell(1, 1).value = "Besoins Transport par Semaine — detail par Commercial (calcule sur le Plan Rectifie)"
     ws.cell(1, 1).font = _ft(bold=True, size=12, white=True)
     ws.cell(1, 1).fill = HDR; ws.cell(1, 1).alignment = _CTR
     ws.row_dimensions[1].height = 26
@@ -1051,9 +1053,9 @@ def _write_transport_semaine_detaillee(wb, detail, real_fleet):
                         counts = {v: int(ag_sub[ag_sub["Type Véhicule"] == v]["Voyages"].sum()) for v in VEH_COLS}
                         if sum(counts.values()) == 0:
                             continue
-                        vals = [d.strftime("%d/%m/%Y"), agri, usine,
-                                counts["PPL"] or "", counts["PL"] or "", counts["SEMI"] or "",
-                                "", "", "", "", "", ""]
+                        vals = [d.strftime("%d/%m/%Y"), agri, usine] + \
+                                [counts[v] or "" for v in VEH_COLS] + \
+                                [""] * (len(VEH_COLS) * 2)
                         for ci, v in enumerate(vals, 1):
                             c = ws.cell(row, ci); c.value = v; c.border = _BORD; c.alignment = _CTR
                             if ci == 2: c.alignment = _LFT
@@ -1065,14 +1067,17 @@ def _write_transport_semaine_detaillee(wb, detail, real_fleet):
                     manq = {v: avail_lookup.get((d, usine, v), (_fleet_count(usine, v), 0))[1] for v in VEH_COLS}
                     for v in VEH_COLS:
                         week_manq[usine][v] += manq[v]
-                    vals = ["", "", f"   ↳ Sous-total {usine}",
-                            day_usine_tot["PPL"] or "", day_usine_tot["PL"] or "", day_usine_tot["SEMI"] or "",
-                            disp["PPL"], disp["PL"], disp["SEMI"], manq["PPL"], manq["PL"], manq["SEMI"]]
+                    manq_col_start = 3 + len(VEH_COLS) * 2 + 1
+                    manq_col_end = 3 + len(VEH_COLS) * 3
+                    vals = ["", "", f"   ↳ Sous-total {usine}"] + \
+                            [day_usine_tot[v] or "" for v in VEH_COLS] + \
+                            [disp[v] for v in VEH_COLS] + \
+                            [manq[v] for v in VEH_COLS]
                     for ci, v in enumerate(vals, 1):
                         c = ws.cell(row, ci); c.value = v; c.border = _BORD; c.alignment = _CTR
                         if ci == 3:
                             c.font = Font(bold=True, italic=True, name="Calibri", size=9)
-                        if ci in (10, 11, 12):
+                        if manq_col_start <= ci <= manq_col_end:
                             try: c.fill = REDF if float(v) > 0 else GRNF
                             except (ValueError, TypeError): pass
                     row += 1
@@ -1080,22 +1085,24 @@ def _write_transport_semaine_detaillee(wb, detail, real_fleet):
             for usine, totals in week_totals.items():
                 disp_fixed = {v: _fleet_count(usine, v) for v in VEH_COLS}
                 manq_sum = {v: week_manq[usine][v] for v in VEH_COLS}
-                vals = ["", "", f"TOTAL SEMAINE {usine}",
-                        totals["PPL"] or "", totals["PL"] or "", totals["SEMI"] or "",
-                        disp_fixed["PPL"], disp_fixed["PL"], disp_fixed["SEMI"],
-                        manq_sum["PPL"], manq_sum["PL"], manq_sum["SEMI"]]
+                manq_col_start = 3 + len(VEH_COLS) * 2 + 1
+                manq_col_end = 3 + len(VEH_COLS) * 3
+                vals = ["", "", f"TOTAL SEMAINE {usine}"] + \
+                        [totals[v] or "" for v in VEH_COLS] + \
+                        [disp_fixed[v] for v in VEH_COLS] + \
+                        [manq_sum[v] for v in VEH_COLS]
                 for ci, v in enumerate(vals, 1):
                     c = ws.cell(row, ci); c.value = v; c.border = _BORD; c.alignment = _CTR
                     c.fill = _hf(_tint_hex(comm_hex, 0.7))
                     c.font = _ft(bold=True, size=9, white=True)
-                    if ci in (10, 11, 12):
+                    if manq_col_start <= ci <= manq_col_end:
                         try: c.fill = REDF if float(v) > 0 else GRNF; c.font = _ft(bold=True, size=9)
                         except (ValueError, TypeError): pass
                 row += 1
             row += 1
         row += 1
 
-    for ci, w in enumerate([12, 24, 16, 11, 10, 11, 13, 11, 13, 16, 14, 16], 1):
+    for ci, w in enumerate([12, 24, 16, 11, 11, 10, 11, 13, 13, 11, 13, 16, 16, 14, 16], 1):
         ws.column_dimensions[get_column_letter(ci)].width = w
     ws.freeze_panes = "A4"
     return wb
@@ -1151,7 +1158,8 @@ def generate_planning_wide_excel(p_display, real_fleet=None):
         buf = _io.BytesIO(); wb.save(buf); buf.seek(0); return buf.read()
 
     for c in ["Commercial","Agriculteur","Usine","Tonnes/Jour","Type Véhicule",
-              "Véhicules Requis","Disponibles","Manquants (à louer)","Nb Voyages","Pic de Récolte"]:
+              "Véhicules Requis","Disponibles","Manquants (à louer)","Nb Voyages","Pic de Récolte",
+              "Accessibilité","Région"]:
         if c not in df.columns:
             df[c] = ""
     df["Tonnes/Jour"] = pd.to_numeric(df["Tonnes/Jour"], errors="coerce").fillna(0)
@@ -1321,7 +1329,8 @@ def generate_planning_wide_excel(p_display, real_fleet=None):
 
     if TRANSPORT_CALC_AVAILABLE:
         try:
-            generate_transport_sheets(wb, p_display, real_fleet or {})
+            p_for_transport = st.session_state.get("_p_full_with_acc", p_display)
+            generate_transport_sheets(wb, p_for_transport, real_fleet or {})
         except Exception as e:
             st.warning(f"Feuilles Transport non generees: {e}")
 
