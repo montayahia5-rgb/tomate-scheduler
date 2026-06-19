@@ -222,11 +222,24 @@ def _save_rectifie_detail(sb, comm, df_raw):
 
 def _load_all_rectifie_detail(sb):
     """Charge le detail granulaire de tous les commerciaux depuis Supabase.
+    Avec PAGINATION (Supabase limite a 1000 lignes par requete, et le detail
+    granulaire contient ~2800 lignes pour 5 commerciaux).
     Retourne {commercial: DataFrame(agriculteur,date,tonnes,region,accessibilite)}."""
     if sb is None: return {}
     try:
-        data = sb.table("plan_rectifie_detail").select(
-            "entity_name,agriculteur,date,tonnes,region,accessibilite").execute().data
+        data = []
+        offset = 0
+        page_size = 1000
+        while True:
+            batch = sb.table("plan_rectifie_detail").select(
+                "entity_name,agriculteur,date,tonnes,region,accessibilite"
+            ).range(offset, offset + page_size - 1).execute().data
+            if not batch:
+                break
+            data.extend(batch)
+            if len(batch) < page_size:
+                break
+            offset += page_size
         if not data: return {}
         out = {}
         for row in data:
@@ -628,7 +641,7 @@ def build_effective_planning(p, sb=None):
         st.session_state["_sb_comm"] = sb_comm
         st.session_state["_sb_usine"] = sb_usine
     sb_detail = st.session_state.get("_sb_detail")
-    if sb_detail is None:
+    if sb_detail is None or not st.session_state.get("comp_raw"):
         sb_detail = _load_all_rectifie_detail(sb)
         st.session_state["_sb_detail"] = sb_detail
 
