@@ -375,6 +375,17 @@ def choose_vehicles(tons, allowed_raw, usine=None, region=None, semi_coeff=1.0, 
                         primary = alt
                         break
 
+    # ── FIX: Préférer PPL quand tonnage ≤ PPL_max et PPL est autorisé ──
+    # Si PL/PPL autorisés et tonnage ≤ 14t → PPL est plus adapté que PL
+    # (PL min = 15t, charger 10t dans un PL = sous-utilisation)
+    if "PPL" in allowed and primary == "PL":
+        ppl_mn, ppl_mx = FLEET_CAPACITY.get("PPL", (6, 14))
+        pl_mn, _ = FLEET_CAPACITY.get("PL", (15, 25))
+        if tons <= ppl_mx and tons >= ppl_mn * 0.8:
+            primary = "PPL"
+        elif tons < pl_mn and tons >= ppl_mn * 0.5:
+            primary = "PPL"
+
     result = _alloc(primary, tons)
     if not result:
         result = [{"vehicle": primary, "trips": 1, "tons_each": round(tons, 2)}]
@@ -408,6 +419,8 @@ def build_transport_detail(p_corrige, real_fleet=None):
     if p_corrige is None or p_corrige.empty:
         return pd.DataFrame(columns=["Date", "Commercial", "Agriculteur", "Usine", "Région", "Type Véhicule", "Voyages", "Tonnes"])
 
+    # Detecter si Accessibilite est une VRAIE colonne du DataFrame
+    _has_accessibilite = "Accessibilité" in p_corrige.columns
     rows = []
     for _, r in p_corrige.iterrows():
         tons = float(r.get("Tonnes/Jour", 0) or 0)
@@ -415,10 +428,23 @@ def build_transport_detail(p_corrige, real_fleet=None):
             continue
         usine = str(r.get("Usine", "") or "").strip()
         region = str(r.get("Région", "") or "").strip()
-        acc_raw = r.get("Accessibilité", "")
-        acc = normalize_acc(acc_raw)
-        allowed = ACCESS_VEHICLES.get(acc, ACCESS_VEHICLES["NAN"])
-        vehicles = choose_vehicles(tons, allowed, usine=usine, region=region, real_fleet=real_fleet)
+
+        if _has_accessibilite:
+            # Accessibilite disponible -> recalculer les vehicules (meilleure precision)
+            acc_raw = str(r.get("Accessibilité", "") or "").strip()
+            acc = normalize_acc(acc_raw)
+            allowed = ACCESS_VEHICLES.get(acc, ACCESS_VEHICLES["NAN"])
+            vehicles = choose_vehicles(tons, allowed, usine=usine, region=region, real_fleet=real_fleet)
+        else:
+            # Pas d'Accessibilite (p_display du dashboard) -> se fier au
+            # Type Vehicule deja calcule par build_effective_planning
+            existing_veh = str(r.get("Type Véhicule", "") or "").strip().upper()
+            if existing_veh and existing_veh in FLEET_CAPACITY:
+                allowed = [existing_veh]
+                vehicles = choose_vehicles(tons, allowed, usine=usine, region=region, real_fleet=real_fleet)
+            else:
+                allowed = ACCESS_VEHICLES["NAN"]
+                vehicles = choose_vehicles(tons, allowed, usine=usine, region=region, real_fleet=real_fleet)
         if not vehicles:
             vehicles = [{"vehicle": allowed[0] if allowed else "PL", "trips": 1, "tons_each": tons}]
         for v in vehicles:
