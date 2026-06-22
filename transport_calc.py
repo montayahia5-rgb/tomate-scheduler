@@ -174,13 +174,18 @@ def parse_real_fleet_file(file_obj):
         sheet = "liste confirmé" if "liste confirmé" in xl.sheet_names else xl.sheet_names[0]
         df = pd.read_excel(file_obj, sheet_name=sheet)
         cols_upper = [str(c).strip().lower() for c in df.columns]
-        if "usine" in cols_upper and "tonnage" in cols_upper:
+        # Normaliser les accents pour la détection des colonnes
+        def _norm(s): return (s.replace("é","e").replace("è","e").replace("ê","e")
+                               .replace("à","a").replace("â","a").replace("î","i")
+                               .replace("ô","o").replace("û","u").replace("ç","c"))
+        cols_norm = [_norm(c) for c in cols_upper]
+        if "usine" in cols_norm and "tonnage" in cols_norm:
             df.columns = [str(c).strip() for c in df.columns]
-            usine_col = next(c for c in df.columns if c.lower() == "usine")
-            ton_col   = next(c for c in df.columns if c.lower() == "tonnage")
-            type_col  = next(c for c in df.columns if "type" in c.lower() and "vehicule" in c.lower())
-            conf_col  = next((c for c in df.columns if c.lower() in ("confirmation", "actif")), None)
-            cont_col  = next((c for c in df.columns if c.lower() == "contrat"), None)
+            usine_col = next(c for c in df.columns if _norm(c.lower()) == "usine")
+            ton_col   = next(c for c in df.columns if _norm(c.lower()) == "tonnage")
+            type_col  = next(c for c in df.columns if "type" in _norm(c.lower()) and "vehicule" in _norm(c.lower()))
+            conf_col  = next((c for c in df.columns if _norm(c.lower()) in ("confirmation", "actif")), None)
+            cont_col  = next((c for c in df.columns if _norm(c.lower()) == "contrat"), None)
             df["_usine"]   = df[usine_col].astype(str).str.strip().str.upper()
             df["_tonnage"] = pd.to_numeric(df[ton_col], errors="coerce")
             df["_type"]    = df[type_col].astype(str).str.strip().str.upper()
