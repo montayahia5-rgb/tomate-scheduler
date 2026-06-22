@@ -1552,7 +1552,7 @@ def render_comparaison_tab(planning_df=None, df_to_xlsx_styled=None, sb=None):
 
     st.divider()
 
-    c1,c2,c3,c4=st.tabs(["Courbes par commercial","Par usine","Statistiques globales","Etat optimizer"])
+    c1,c2,c3,c4,c5=st.tabs(["Courbes par commercial","Par usine","Statistiques globales","Etat optimizer","🚛 Transport Semaine"])
 
     with c1:
         sel_comm=st.selectbox("Choisir un commercial",list(MANUAL_STATS.keys()),key="comp_sel_comm")
@@ -1700,3 +1700,352 @@ MAKKI  : +115t (+0.5%)
 ACHREF : 0t (parfait)
 KHALIL : -139t (-0.8%)
 JILANI : -125t (-1.8%)""")
+
+    # ══════════════════════════════════════════════════════════════
+    # ONGLET 5 — TRANSPORT SEMAINE
+    # ══════════════════════════════════════════════════════════════
+    with c5:
+        if not TRANSPORT_CALC_AVAILABLE:
+            st.info("Module transport_calc.py non deploye — onglet Transport indisponible.")
+        else:
+            TRACTEUR_MAX = 6
+            TRACTEUR_CAP = 10.0
+
+            p_tr = build_effective_planning(planning_df, sb=sb)
+            p_full_tr = st.session_state.get("_p_full_with_acc", p_tr)
+            real_fleet_tr = st.session_state.get("_real_fleet", {})
+
+            @st.cache_data(show_spinner=False, ttl=300)
+            def _compute_transport_weekly(p_hash):
+                detail = _tc.build_transport_detail(p_full_tr, real_fleet=real_fleet_tr)
+                detail["Date"] = pd.to_datetime(detail["Date"])
+                # Max journalier par (date, commercial, type)
+                daily = detail.groupby(["Date","Commercial","Type Véhicule"])["Voyages"].sum().reset_index()
+                daily["Week_start"] = daily["Date"].dt.to_period("W-SUN").apply(lambda w: w.start_time.date())
+                daily["Week_end"]   = daily["Date"].dt.to_period("W-SUN").apply(lambda w: w.end_time.date())
+                # Cap TRACTEUR = 6, excédent -> PPL
+                rows_c = []
+                for _, row in daily.iterrows():
+                    vt = row["Type Véhicule"]; trips = row["Voyages"]
+                    if vt == "TRACTEUR" and trips > TRACTEUR_MAX:
+                        excess = trips - TRACTEUR_MAX
+                        ppl_extra = -(-int(excess * TRACTEUR_CAP) // 14)
+                        rows_c.append({**row.to_dict(), "Voyages": TRACTEUR_MAX})
+                        rows_c.append({**row.to_dict(), "Type Véhicule": "PPL", "Voyages": ppl_extra})
+                    else:
+                        rows_c.append(row.to_dict())
+                dc = pd.DataFrame(rows_c)
+                wk_max = dc.groupby(["Week_start","Week_end","Commercial","Type Véhicule"])["Voyages"].max().reset_index()
+                wk_max["Voyages"] = wk_max["Voyages"].astype(int)
+
+                # Tableau par usine : MAX journalier par (date, comm, usine, type)
+                daily_u = detail.groupby(["Date","Commercial","Usine","Type Véhicule"])["Voyages"].sum().reset_index()
+                daily_u["Week_start"] = daily_u["Date"].dt.to_period("W-SUN").apply(lambda w: w.start_time.date())
+                daily_u["Week_end"]   = daily_u["Date"].dt.to_period("W-SUN").apply(lambda w: w.end_time.date())
+                rows_u = []
+                for _, row in daily_u.iterrows():
+                    vt = row["Type Véhicule"]; trips = row["Voyages"]
+                    if vt == "TRACTEUR" and trips > TRACTEUR_MAX:
+                        excess = trips - TRACTEUR_MAX
+                        ppl_extra = -(-int(excess * TRACTEUR_CAP) // 14)
+                        rows_u.append({**row.to_dict(), "Voyages": TRACTEUR_MAX})
+                        rows_u.append({**row.to_dict(), "Type Véhicule": "PPL", "Voyages": ppl_extra})
+                    else:
+                        rows_u.append(row.to_dict())
+                dcu = pd.DataFrame(rows_u)
+                wk_usine = dcu.groupby(["Week_start","Week_end","Commercial","Usine","Type Véhicule"])["Voyages"].max().reset_index()
+                wk_usine["Voyages"] = wk_usine["Voyages"].astype(int)
+                return wk_max, wk_usine
+
+            try:
+                _ph = str(len(p_full_tr)) if p_full_tr is not None and not p_full_tr.empty else "0"
+                wk_max, wk_usine = _compute_transport_weekly(_ph)
+            except Exception as _e:
+                st.error(f"Erreur calcul transport: {_e}")
+                wk_max, wk_usine = pd.DataFrame(), pd.DataFrame()
+
+            # ── Constantes style ──
+            _VEH_ORDER  = ["TRACTEUR","PPL","PL","SEMI"]
+            _VEH_EMOJI  = {"TRACTEUR":"🚜","PPL":"🟣","PL":"🔵","SEMI":"🟢"}
+            _VEH_COLOR  = {"TRACTEUR":"#833C00","PPL":"#7030A0","PL":"#2E75B6","SEMI":"#1E8449"}
+            _COMM_COLOR = {
+                "FEDI":"#1A5276","MAKKI BEN SALAH":"#1F7A1F",
+                "KHALIL":"#7D3C98","ACHREF AJLANI":"#C0392B","JILANI OBAY":"#D4AC0D",
+            }
+            _COMM_ORDER = ["FEDI","MAKKI BEN SALAH","KHALIL","ACHREF AJLANI","JILANI OBAY"]
+            _USINE_ORDER = ["SICAM","TUCAL","COMOCAP","ELFALLEH","ABIDA"]
+
+            # ─────────────────────────────────────────────
+            # TABLEAU 1 — BESOIN PAR SEMAINE PAR COMMERCIAL
+            # ─────────────────────────────────────────────
+            st.markdown("""
+<div style='background:#1a2332;border:1px solid #2E75B6;border-radius:10px;
+padding:14px 18px;margin-bottom:16px'>
+  <div style='font-size:1.05rem;font-weight:700;color:#f0f6fc'>
+    📊 Tableau 1 — Besoin en bennes par semaine par commercial
+  </div>
+  <div style='font-size:.8rem;color:#8b949e;margin-top:4px'>
+    MAX journalier de la semaine = nb bennes simultanées requises •
+    TRACTEUR limité à <b style='color:#FFC107'>6 max</b> • excédent redistributé en PPL
+  </div>
+</div>""", unsafe_allow_html=True)
+
+            if not wk_max.empty:
+                all_weeks = sorted(wk_max["Week_start"].unique())
+                week_labels = {wd: f"{str(wd)[5:]} → {str((pd.Timestamp(wd)+pd.Timedelta(days=6)).date())[5:]}"
+                               for wd in all_weeks}
+
+                # Sélecteur commercial
+                sel_comm_tr = st.selectbox("Filtrer par commercial (ou Tous)",
+                                           ["Tous"] + _COMM_ORDER,
+                                           key="tr_sel_comm")
+                comms_to_show = _COMM_ORDER if sel_comm_tr == "Tous" else [sel_comm_tr]
+
+                for comm in comms_to_show:
+                    sub = wk_max[wk_max["Commercial"] == comm]
+                    if sub.empty:
+                        continue
+                    vehs = [v for v in _VEH_ORDER if v in sub["Type Véhicule"].values]
+                    comm_hex = _COMM_COLOR.get(comm, "#404040")
+
+                    # En-tête commercial
+                    st.markdown(f"""
+<div style='background:{comm_hex};border-radius:8px 8px 0 0;
+padding:8px 14px;margin-top:12px;margin-bottom:0'>
+  <span style='color:white;font-weight:700;font-size:.95rem'>{comm}</span>
+</div>""", unsafe_allow_html=True)
+
+                    # Construction DataFrame pivot
+                    pivot_rows = []
+                    for vt in vehs:
+                        vt_sub = sub[sub["Type Véhicule"] == vt]
+                        row_d = {"Type": f"{_VEH_EMOJI.get(vt,'')} {vt}"}
+                        for wd in all_weeks:
+                            wk_row = vt_sub[vt_sub["Week_start"] == wd]
+                            val = int(wk_row["Voyages"].sum()) if not wk_row.empty else 0
+                            row_d[week_labels[wd]] = val if val > 0 else ""
+                        pivot_rows.append(row_d)
+
+                    df_piv = pd.DataFrame(pivot_rows)
+                    # Style: cellules non vides colorées selon type véhicule
+                    week_cols = [c for c in df_piv.columns if c != "Type"]
+
+                    def _style_tr_row(row):
+                        vt_name = str(row["Type"]).split()[-1] if row["Type"] else ""
+                        col = _VEH_COLOR.get(vt_name, "#444")
+                        styles = [f"background-color:{col}33;color:white;font-weight:600"] + [
+                            (f"background-color:{col}22;font-weight:700;text-align:center"
+                             if str(v) not in ("","0") else "color:#555;text-align:center")
+                            for v in row[week_cols]
+                        ]
+                        return styles
+
+                    styled = df_piv.style.apply(_style_tr_row, axis=1)
+                    st.dataframe(styled, use_container_width=True, hide_index=True,
+                                 height=min(38 * len(pivot_rows) + 40, 200))
+
+                # Note TRACTEUR
+                st.markdown("""
+<div style='background:#2D1B00;border:1px solid #FFC107;border-radius:6px;
+padding:8px 14px;margin-top:12px;font-size:.82rem;color:#FFC107'>
+  ⚠️ <b>TRACTEUR</b> : limité à 6 disponibles max — l'excédent est comptabilisé en PPL (≈14t/voyage)
+</div>""", unsafe_allow_html=True)
+
+                # Bouton export
+                if st.button("📥 Exporter Tableau 1 (Excel)", key="exp_tr1"):
+                    import io as _io, openpyxl as _oxl
+                    from openpyxl.styles import PatternFill as _PF, Font as _FN, Alignment as _AL, Border as _BD, Side as _SD
+                    from openpyxl.utils import get_column_letter as _gcl
+                    def _hf(c): return _PF("solid",start_color=c,end_color=c)
+                    def _bd(): s=_SD(style="thin",color="CCCCCC"); return _BD(left=s,right=s,top=s,bottom=s)
+                    _CTR=_AL(horizontal="center",vertical="center")
+                    wb_e=_oxl.Workbook(); ws_e=wb_e.active; ws_e.title="Besoin par Semaine"
+                    _all_w=sorted(wk_max["Week_start"].unique())
+                    _wlbls=[f"{str(w)[5:]}→{str((pd.Timestamp(w)+pd.Timedelta(days=6)).date())[5:]}" for w in _all_w]
+                    _nc=2+len(_wlbls)
+                    ws_e.merge_cells(f"A1:{_gcl(_nc)}1")
+                    ws_e["A1"]="BESOIN TRANSPORT PAR SEMAINE — Cap TRACTEUR: 6 max"
+                    ws_e["A1"].fill=_hf("0B132B"); ws_e["A1"].font=_FN(bold=True,color="FFFFFF",name="Calibri",size=13); ws_e["A1"].alignment=_CTR
+                    ws_e.row_dimensions[1].height=28
+                    for _ci,_t in enumerate(["Commercial","Type Véhicule"],1):
+                        _c=ws_e.cell(2,_ci); _c.value=_t; _c.fill=_hf("2C3E50"); _c.font=_FN(bold=True,color="FFFFFF",name="Calibri",size=10); _c.alignment=_CTR; _c.border=_bd()
+                    for _ci,_l in enumerate(_wlbls,3):
+                        _c=ws_e.cell(2,_ci); _c.value=_l; _c.fill=_hf("2C3E50"); _c.font=_FN(bold=True,color="FFFFFF",name="Calibri",size=10); _c.alignment=_CTR; _c.border=_bd()
+                    ws_e.row_dimensions[2].height=22
+                    _VLC={"TRACTEUR":"833C00","PPL":"7030A0","PL":"2E75B6","SEMI":"1E8449"}
+                    _VLL={"TRACTEUR":"F5E6DF","PPL":"EDE7F6","PL":"DEEBF7","SEMI":"E2EFDA"}
+                    _CCX={"FEDI":"1A5276","MAKKI BEN SALAH":"1F7A1F","KHALIL":"7D3C98","ACHREF AJLANI":"C0392B","JILANI OBAY":"D4AC0D"}
+                    _er=3
+                    for _cm in _COMM_ORDER:
+                        _sb=wk_max[wk_max["Commercial"]==_cm]
+                        if _sb.empty: continue
+                        _chx=_CCX.get(_cm,"404040"); _vs=[v for v in _VEH_ORDER if v in _sb["Type Véhicule"].values]
+                        _ms=_er
+                        for _vi,_vt in enumerate(_vs):
+                            _vs2=_sb[_sb["Type Véhicule"]==_vt]; _vhx=_VLC.get(_vt,"404040"); _vlt=_VLL.get(_vt,"F5F5F5")
+                            ws_e.cell(_er,1).value=_cm if _vi==0 else ""; ws_e.cell(_er,1).fill=_hf(_chx); ws_e.cell(_er,1).font=_FN(bold=True,color="FFFFFF",name="Calibri",size=10); ws_e.cell(_er,1).alignment=_CTR; ws_e.cell(_er,1).border=_bd()
+                            ws_e.cell(_er,2).value=_vt; ws_e.cell(_er,2).fill=_hf(_vhx); ws_e.cell(_er,2).font=_FN(bold=True,color="FFFFFF",name="Calibri",size=10); ws_e.cell(_er,2).alignment=_CTR; ws_e.cell(_er,2).border=_bd()
+                            for _ci2,_wd in enumerate(_all_w,3):
+                                _wr=_vs2[_vs2["Week_start"]==_wd]; _vl=int(_wr["Voyages"].sum()) if not _wr.empty else 0
+                                _cc=ws_e.cell(_er,_ci2); _cc.border=_bd()
+                                if _vl>0: _cc.value=_vl; _cc.fill=_hf(_vlt); _cc.font=_FN(bold=True,name="Calibri",size=11); _cc.alignment=_CTR
+                                else: _cc.value="—"; _cc.fill=_hf("F8F8F8"); _cc.font=_FN(color="CCCCCC",name="Calibri",size=9); _cc.alignment=_CTR
+                            ws_e.row_dimensions[_er].height=20; _er+=1
+                        if len(_vs)>1:
+                            ws_e.merge_cells(start_row=_ms,start_column=1,end_row=_er-1,end_column=1)
+                            ws_e.cell(_ms,1).alignment=_AL(horizontal="center",vertical="center",wrap_text=True)
+                        for _ci2 in range(1,_nc+1): ws_e.cell(_er,_ci2).fill=_hf("ECF0F1"); _er+=1
+                    ws_e.column_dimensions["A"].width=20; ws_e.column_dimensions["B"].width=12
+                    for _ci in range(3,_nc+1): ws_e.column_dimensions[_gcl(_ci)].width=14
+                    ws_e.freeze_panes="C3"
+                    _buf=_io.BytesIO(); wb_e.save(_buf); _buf.seek(0)
+                    st.download_button("💾 Telecharger Tableau 1", data=_buf.getvalue(),
+                                       file_name="transport_besoin_semaines.xlsx",
+                                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+            st.divider()
+
+            # ─────────────────────────────────────────────────────
+            # TABLEAU 2 — BESOIN PAR USINE PAR SEMAINE PAR COMMERCIAL
+            # ─────────────────────────────────────────────────────
+            st.markdown("""
+<div style='background:#1a2332;border:1px solid #1E8449;border-radius:10px;
+padding:14px 18px;margin-bottom:16px'>
+  <div style='font-size:1.05rem;font-weight:700;color:#f0f6fc'>
+    🏭 Tableau 2 — Besoin par Usine × Semaine × Commercial
+  </div>
+  <div style='font-size:.8rem;color:#8b949e;margin-top:4px'>
+    Pour chaque usine : nb bennes max par semaine décomposé par commercial et type de véhicule
+  </div>
+</div>""", unsafe_allow_html=True)
+
+            if not wk_usine.empty:
+                all_weeks_u = sorted(wk_usine["Week_start"].unique())
+                wlbls_u = {wd: f"{str(wd)[5:]} → {str((pd.Timestamp(wd)+pd.Timedelta(days=6)).date())[5:]}"
+                           for wd in all_weeks_u}
+
+                # Filtres
+                col_fu1, col_fu2, col_fu3 = st.columns(3)
+                with col_fu1:
+                    sel_usine_tr = st.selectbox("Usine", ["Toutes"] + _USINE_ORDER, key="tr_sel_usine")
+                with col_fu2:
+                    sel_veh_tr = st.selectbox("Type Véhicule", ["Tous"] + _VEH_ORDER, key="tr_sel_veh")
+                with col_fu3:
+                    sel_comm_tr2 = st.selectbox("Commercial", ["Tous"] + _COMM_ORDER, key="tr_sel_comm2")
+
+                usines_show = _USINE_ORDER if sel_usine_tr == "Toutes" else [sel_usine_tr]
+                vehs_show   = _VEH_ORDER   if sel_veh_tr   == "Tous"   else [sel_veh_tr]
+                comms_show  = _COMM_ORDER  if sel_comm_tr2 == "Tous"   else [sel_comm_tr2]
+
+                for usine in usines_show:
+                    sub_u = wk_usine[
+                        (wk_usine["Usine"] == usine) &
+                        (wk_usine["Type Véhicule"].isin(vehs_show)) &
+                        (wk_usine["Commercial"].isin(comms_show))
+                    ]
+                    if sub_u.empty:
+                        continue
+
+                    # Couleur usine
+                    _USINE_HEX = {"SICAM":"0B3954","TUCAL":"2C0A3B","COMOCAP":"0B4F6C",
+                                  "ELFALLEH":"145A32","ABIDA":"641E16"}
+                    uhex = _USINE_HEX.get(usine, "2C3E50")
+
+                    st.markdown(f"""
+<div style='background:{uhex};border-radius:8px 8px 0 0;
+padding:8px 14px;margin-top:14px'>
+  <span style='color:white;font-weight:700;font-size:.95rem'>🏭 {usine}</span>
+</div>""", unsafe_allow_html=True)
+
+                    # Construire pivot: lignes = (Commercial, Type), colonnes = semaines
+                    pivot_u_rows = []
+                    for comm in comms_show:
+                        for vt in vehs_show:
+                            sub_cv = sub_u[(sub_u["Commercial"]==comm) & (sub_u["Type Véhicule"]==vt)]
+                            if sub_cv.empty:
+                                continue
+                            row_u = {"Commercial": comm, "Type": f"{_VEH_EMOJI.get(vt,'')} {vt}"}
+                            any_val = False
+                            for wd in all_weeks_u:
+                                wk_r = sub_cv[sub_cv["Week_start"]==wd]
+                                val = int(wk_r["Voyages"].sum()) if not wk_r.empty else 0
+                                row_u[wlbls_u[wd]] = val if val > 0 else ""
+                                if val > 0: any_val = True
+                            if any_val:
+                                pivot_u_rows.append(row_u)
+
+                    if not pivot_u_rows:
+                        st.caption("— Aucune donnée pour cette combinaison —")
+                        continue
+
+                    df_upiv = pd.DataFrame(pivot_u_rows)
+                    week_cols_u = [c for c in df_upiv.columns if c not in ("Commercial","Type")]
+
+                    def _style_u_row(row):
+                        comm_name = str(row.get("Commercial",""))
+                        vt_name   = str(row.get("Type","")).split()[-1]
+                        cc  = _COMM_COLOR.get(comm_name,"#444")
+                        vc  = _VEH_COLOR.get(vt_name,"#444")
+                        styles = [
+                            f"background-color:{cc}44;color:white;font-weight:600",
+                            f"background-color:{vc}33;color:white;font-weight:600",
+                        ] + [
+                            (f"background-color:{vc}22;font-weight:700;text-align:center"
+                             if str(v) not in ("","0") else "color:#555;text-align:center")
+                            for v in row[week_cols_u]
+                        ]
+                        return styles
+
+                    styled_u = df_upiv.style.apply(_style_u_row, axis=1)
+                    st.dataframe(styled_u, use_container_width=True, hide_index=True,
+                                 height=min(38 * len(pivot_u_rows) + 42, 320))
+
+                # Bouton export Tableau 2
+                if st.button("📥 Exporter Tableau 2 (Excel)", key="exp_tr2"):
+                    import io as _io2, openpyxl as _oxl2
+                    from openpyxl.styles import PatternFill as _PF2, Font as _FN2, Alignment as _AL2, Border as _BD2, Side as _SD2
+                    from openpyxl.utils import get_column_letter as _gcl2
+                    def _hf2(c): return _PF2("solid",start_color=c,end_color=c)
+                    def _bd2(): s=_SD2(style="thin",color="CCCCCC"); return _BD2(left=s,right=s,top=s,bottom=s)
+                    _CTR2=_AL2(horizontal="center",vertical="center")
+                    _VLC2={"TRACTEUR":"833C00","PPL":"7030A0","PL":"2E75B6","SEMI":"1E8449"}
+                    _VLL2={"TRACTEUR":"F5E6DF","PPL":"EDE7F6","PL":"DEEBF7","SEMI":"E2EFDA"}
+                    _CCX2={"FEDI":"1A5276","MAKKI BEN SALAH":"1F7A1F","KHALIL":"7D3C98","ACHREF AJLANI":"C0392B","JILANI OBAY":"D4AC0D"}
+                    _UHX2={"SICAM":"0B3954","TUCAL":"2C0A3B","COMOCAP":"0B4F6C","ELFALLEH":"145A32","ABIDA":"641E16"}
+                    wb2=_oxl2.Workbook(); ws2e=wb2.active; ws2e.title="Usine x Semaine"
+                    _aw2=sorted(wk_usine["Week_start"].unique())
+                    _wl2=[f"{str(w)[5:]}→{str((pd.Timestamp(w)+pd.Timedelta(days=6)).date())[5:]}" for w in _aw2]
+                    _nc2=3+len(_wl2)
+                    ws2e.merge_cells(f"A1:{_gcl2(_nc2)}1")
+                    ws2e["A1"]="BESOIN TRANSPORT PAR USINE x SEMAINE x COMMERCIAL — Saison 2026"
+                    ws2e["A1"].fill=_hf2("0B132B"); ws2e["A1"].font=_FN2(bold=True,color="FFFFFF",name="Calibri",size=12); ws2e["A1"].alignment=_CTR2
+                    ws2e.row_dimensions[1].height=26
+                    for _ci3,_t3 in enumerate(["Usine","Commercial","Type Véhicule"],1):
+                        _c3=ws2e.cell(2,_ci3); _c3.value=_t3; _c3.fill=_hf2("2C3E50"); _c3.font=_FN2(bold=True,color="FFFFFF",name="Calibri",size=10); _c3.alignment=_CTR2; _c3.border=_bd2()
+                    for _ci3,_l3 in enumerate(_wl2,4):
+                        _c3=ws2e.cell(2,_ci3); _c3.value=_l3; _c3.fill=_hf2("2C3E50"); _c3.font=_FN2(bold=True,color="FFFFFF",name="Calibri",size=10); _c3.alignment=_CTR2; _c3.border=_bd2()
+                    ws2e.row_dimensions[2].height=22
+                    _er2=3
+                    for _us2 in _USINE_ORDER:
+                        _uhx2=_UHX2.get(_us2,"2C3E50")
+                        for _cm2 in _COMM_ORDER:
+                            for _vt2 in _VEH_ORDER:
+                                _sv2=wk_usine[(wk_usine["Usine"]==_us2)&(wk_usine["Commercial"]==_cm2)&(wk_usine["Type Véhicule"]==_vt2)]
+                                if _sv2.empty or _sv2["Voyages"].sum()==0: continue
+                                _vhx2=_VLC2.get(_vt2,"404040"); _vlt2=_VLL2.get(_vt2,"F5F5F5"); _chx2=_CCX2.get(_cm2,"404040")
+                                ws2e.cell(_er2,1).value=_us2; ws2e.cell(_er2,1).fill=_hf2(_uhx2); ws2e.cell(_er2,1).font=_FN2(bold=True,color="FFFFFF",name="Calibri",size=10); ws2e.cell(_er2,1).alignment=_CTR2; ws2e.cell(_er2,1).border=_bd2()
+                                ws2e.cell(_er2,2).value=_cm2; ws2e.cell(_er2,2).fill=_hf2(_chx2); ws2e.cell(_er2,2).font=_FN2(bold=True,color="FFFFFF",name="Calibri",size=10); ws2e.cell(_er2,2).alignment=_CTR2; ws2e.cell(_er2,2).border=_bd2()
+                                ws2e.cell(_er2,3).value=_vt2; ws2e.cell(_er2,3).fill=_hf2(_vhx2); ws2e.cell(_er2,3).font=_FN2(bold=True,color="FFFFFF",name="Calibri",size=10); ws2e.cell(_er2,3).alignment=_CTR2; ws2e.cell(_er2,3).border=_bd2()
+                                for _ci4,_wd2 in enumerate(_aw2,4):
+                                    _wr2=_sv2[_sv2["Week_start"]==_wd2]; _vl2=int(_wr2["Voyages"].sum()) if not _wr2.empty else 0
+                                    _cc2=ws2e.cell(_er2,_ci4); _cc2.border=_bd2()
+                                    if _vl2>0: _cc2.value=_vl2; _cc2.fill=_hf2(_vlt2); _cc2.font=_FN2(bold=True,name="Calibri",size=11); _cc2.alignment=_CTR2
+                                    else: _cc2.value="—"; _cc2.fill=_hf2("F8F8F8"); _cc2.font=_FN2(color="CCCCCC",name="Calibri",size=9); _cc2.alignment=_CTR2
+                                ws2e.row_dimensions[_er2].height=18; _er2+=1
+                    ws2e.column_dimensions["A"].width=12; ws2e.column_dimensions["B"].width=20; ws2e.column_dimensions["C"].width=12
+                    for _ci in range(4,_nc2+1): ws2e.column_dimensions[_gcl2(_ci)].width=14
+                    ws2e.freeze_panes="D3"
+                    _buf2=_io2.BytesIO(); wb2.save(_buf2); _buf2.seek(0)
+                    st.download_button("💾 Telecharger Tableau 2", data=_buf2.getvalue(),
+                                       file_name="transport_usine_semaine.xlsx",
+                                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
