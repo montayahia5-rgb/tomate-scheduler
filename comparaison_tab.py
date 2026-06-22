@@ -1157,6 +1157,23 @@ def generate_planning_wide_excel(p_display, real_fleet=None):
         ws["A1"] = "Aucune donnee a exporter"
         buf = _io.BytesIO(); wb.save(buf); buf.seek(0); return buf.read()
 
+    # ── Enrichir avec Accessibilité et Région depuis _p_full_with_acc ──
+    # p_display (issu du dashboard Tab1) ne contient pas Accessibilité/Région
+    # car le dashboard les retire lors de la construction de p_display.
+    # Sans ces colonnes, choose_vehicles() dans build_transport_detail() ne peut
+    # pas déterminer le bon type de véhicule (SEMI pour ACHREF, TRACTEUR pour FEDI).
+    _p_full = st.session_state.get("_p_full_with_acc")
+    if _p_full is not None and not _p_full.empty:
+        for _col in ["Accessibilité", "Région"]:
+            if _col not in df.columns and _col in _p_full.columns:
+                # Merge sur (Date, Commercial, Agriculteur, Usine)
+                _key_cols = [c for c in ["Date","Commercial","Agriculteur","Usine"] if c in df.columns and c in _p_full.columns]
+                _src = _p_full[_key_cols + [_col]].copy()
+                _src["Date"] = pd.to_datetime(_src["Date"], errors="coerce")
+                df = df.merge(_src.drop_duplicates(_key_cols), on=_key_cols, how="left")
+            elif _col not in df.columns:
+                df[_col] = ""
+
     for c in ["Commercial","Agriculteur","Usine","Tonnes/Jour","Type Véhicule",
               "Véhicules Requis","Disponibles","Manquants (à louer)","Nb Voyages","Pic de Récolte",
               "Accessibilité","Région"]:
