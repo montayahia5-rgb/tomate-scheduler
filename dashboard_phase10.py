@@ -37,6 +37,12 @@ try:
 except ImportError:
     COMPARAISON_AVAILABLE = False
 
+try:
+    from agro_performance import render_agro_tab
+    AGRO_AVAILABLE = True
+except ImportError:
+    AGRO_AVAILABLE = False
+
 # set_page_config MUST be the very first Streamlit call
 st.set_page_config(
     page_title="🍅 Tomate Planning 2026",
@@ -2116,9 +2122,10 @@ if CURRENT_ROLE == "usine":
     tab1 = tab2 = tab3
     tab5 = tab6 = tab9 = tab10 = tab4
     tab7 = tab8 = tab4
+    tab_agro = tab4   # usine : redirige vers Transport (tab non visible)
 
 elif CURRENT_ROLE == "commercial":
-    tab1, tab2, tab6, tab4, tab9, tab10, tab_comp = st.tabs([
+    tab1, tab2, tab6, tab4, tab9, tab10, tab_comp, tab_agro = st.tabs([
         "📅 Planning Journalier",
         "👤 Par Commercial",
         "📈 Mes Prévisions 25/26",
@@ -2126,13 +2133,14 @@ elif CURRENT_ROLE == "commercial":
         "🌾 Mes Agriculteurs",
         "📤 Upload Planning",
         "📊 Comparaison Plans",
+        "🌱 Performance Agro",
     ])
     tab3 = tab1
     tab5 = tab7 = tab8 = tab4
 
 else:
     # Directeur : all tabs
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab_comp = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab_comp, tab_agro = st.tabs([
         "📅 Planning Journalier",
         "👤 Par Commercial",
         "🏭 Par Usine",
@@ -2144,6 +2152,7 @@ else:
         "🌾 Gestion Agriculteurs",
         "📤 Upload Planning",
         "📊 Comparaison Plans",
+        "🌱 Performance Agro",
     ])
 
 # ── TAB 1: DAILY PLANNING ────────────────────────────────────
@@ -5684,3 +5693,21 @@ with tab_comp:
     else:
         st.error("comparaison_tab.py introuvable")
         st.info("Mets comparaison_tab.py dans le meme dossier que dashboard_phase10.py")
+# ── TAB PERFORMANCE AGRONOMIQUE ─────────────────────────────
+with tab_agro:
+    if CURRENT_ROLE == "usine":
+        st.info("🔒 Onglet réservé aux commerciaux et au directeur.")
+    elif AGRO_AVAILABLE:
+        render_agro_tab(
+            sb=get_supabase(),
+            planning_df=planning,
+            CURRENT_ROLE=CURRENT_ROLE,
+            CURRENT_NAME=CURRENT_NAME,
+        )
+    else:
+        st.error("❌ agro_performance.py introuvable dans le dossier.")
+        st.info(
+            "Place le fichier `agro_performance.py` dans le même dossier "
+            "que `dashboard_phase10.py`, puis relance l'application."
+        )
+
