@@ -1,304 +1,482 @@
-# ============================================================
-# agro_performance.py — Module Performance Agronomique
-# Onglet "🌱 Performance Agronomique" du dashboard tomate 2026
-#
-# À placer dans le même dossier que dashboard_phase10.py
-# Import dans dashboard_phase10.py :
-#   from agro_performance import render_agro_tab
-#
-# Supabase : créer la table agri_performance (SQL ci-dessous)
-# ============================================================
+# -*- coding: utf-8 -*-
+"""
+agro_performance.py — Module Performance Agronomique v2
+=======================================================
+3 sources de données :
+  • ROYAL  / Bourak  → Plan Livré / Extra / Plan Actif (plants)
+  • SOTUSFA          → Intrants (engrais, pesticides, irrigation)
+  • Saisie manuelle  → Hectares + Tonnage récolté
+
+Calculs clés :
+  Taux de prise (%)   = Plan Actif / Plan Livré × 100
+  kg tomate/plant     = Tonnage(t)×1000 / Plan Actif
+  DAP/plant actif     = DAP(kg) / Plan Actif
+  Coût intrants/tonne = Total Intrants(TND) / Tonnage(t)
+  Rendement t/ha      = Tonnage(t) / Hectares
+
+Intégration dashboard_phase10.py :
+  from agro_performance import render_agro_tab
+  with tab_agro:
+      render_agro_tab(sb=get_supabase(), CURRENT_ROLE=..., CURRENT_NAME=...)
+"""
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import io
+import io, re
+from collections import defaultdict
 
 # ══════════════════════════════════════════════════════════════
 # CONSTANTES AGRONOMIQUES
 # ══════════════════════════════════════════════════════════════
-
-# Densité de plantation standard tomate Tunisie (plants/ha)
+RENDEMENT_REF = {
+    "CAP BON 1": 44.5, "CAP BON 2": 41.0, "NORD": 34.0,
+    "KAIROUAN":  31.5, "BOUFICHA":  37.0,
+    "GAFSA / KASSRINE": 28.5, "SIDI BOUZID": 27.0,
+}
 DENSITE_PLANTS = {
-    "CAP BON 1":          25000,
-    "CAP BON 2":          25000,
-    "NORD":               22000,
-    "KAIROUAN":           20000,
-    "GAFSA / KASSRINE":   18000,
-    "SIDI BOUZID":        18000,
-    "BOUFICHA":           22000,
+    "CAP BON 1": 25000, "CAP BON 2": 25000, "NORD": 22000,
+    "KAIROUAN":  20000, "BOUFICHA":  22000,
+    "GAFSA / KASSRINE": 18000, "SIDI BOUZID": 18000,
 }
-DENSITE_DEFAULT = 22000
-
-# Rendement moyen national tomate industrielle Tunisie (t/ha)
-RENDEMENT_MOYEN_NATIONAL = 35.0
-
-# Rendement moyen par région (t/ha) — références terrain 2025
-RENDEMENT_MOYEN_REGION = {
-    "CAP BON 1":          45.0,
-    "CAP BON 2":          42.0,
-    "NORD":               35.0,
-    "KAIROUAN":           30.0,
-    "GAFSA / KASSRINE":   28.0,
-    "SIDI BOUZID":        28.0,
-    "BOUFICHA":           38.0,
+SCORE_SEUILS = [
+    (1.15, "⭐ Excellent",   "#1E8449"),
+    (1.05, "✅ Bon",          "#2E86C1"),
+    (0.90, "🟡 Moyen",        "#D4AC0D"),
+    (0.75, "🟠 Faible",       "#CA6F1E"),
+    (0.00, "🔴 Sous-perf.",   "#C0392B"),
+]
+COMM_COLORS = {
+    "FEDI": "#1A5276", "MAKKI BEN SALAH": "#1F7A1F",
+    "KHALIL": "#7D3C98", "ACHREF AJLANI": "#C0392B", "JILANI OBAY": "#D4AC0D",
 }
 
-# Doses de référence (kg/ha) — bonnes pratiques Tunisie
-REF_DOSES = {
-    "DAP":      {"optimal": 150, "max": 250, "unit": "kg/ha"},
-    "FUMURE":   {"optimal": 200, "max": 400, "unit": "kg/ha"},
-    "FUMIER":   {"optimal": 20000, "max": 40000, "unit": "kg/ha"},
-    "PESTICIDE":{"optimal": 3, "max": 8, "unit": "L/ha"},
-}
+# ══════════════════════════════════════════════════════════════
+# PARSERS — lecture des fichiers Excel source
+# ══════════════════════════════════════════════════════════════
 
-# Seuils de performance (indice rendement vs. moyenne région)
-SCORE_LABELS = {
-    (1.15, 999):  ("⭐ Excellent",    "#1E8449"),
-    (1.05, 1.15): ("✅ Bon",          "#2E86C1"),
-    (0.90, 1.05): ("🟡 Moyen",        "#D4AC0D"),
-    (0.75, 0.90): ("🟠 Faible",       "#CA6F1E"),
-    (-999, 0.75): ("🔴 Sous-perf.",   "#C0392B"),
-}
+def _find_header_row(df_raw, keywords):
+    """Cherche la ligne d'en-tête contenant les mots-clés."""
+    for i, row in df_raw.iterrows():
+        vals = [str(v).strip().lower() for v in row if pd.notna(v)]
+        if any(any(kw in v for v in vals) for kw in keywords):
+            return i
+    return 0
 
-def get_score_label(rendement, region):
-    """Retourne le label et couleur de performance d'un agriculteur."""
-    ref = RENDEMENT_MOYEN_REGION.get(region, RENDEMENT_MOYEN_NATIONAL)
-    ratio = rendement / ref if ref > 0 else 0
-    for (lo, hi), (label, color) in SCORE_LABELS.items():
-        if lo <= ratio < hi:
-            return label, color, ratio
-    return "🔴 Sous-perf.", "#C0392B", ratio
+def _norm_col(c):
+    return str(c).strip().lower().replace("é","e").replace("è","e")\
+           .replace("ê","e").replace("â","a").replace("ô","o")\
+           .replace("î","i").replace("û","u").replace(" ","_")\
+           .replace("(","").replace(")","").replace("/","_")
+
+def parse_bourak_file(file_obj):
+    """
+    Parse le fichier Bourak (livraisons de plants).
+    Retourne DataFrame avec colonnes normalisées +
+    récap par (Commercial, Agriculteur, Variété).
+    """
+    try:
+        raw = pd.read_excel(file_obj, sheet_name=0, header=None)
+        hr = _find_header_row(raw, ["commercial","client","article","qte"])
+        df = pd.read_excel(file_obj, sheet_name=0, header=hr)
+        df.columns = [_norm_col(c) for c in df.columns]
+
+        # Mapping colonnes flexibles
+        MAP = {
+            "date":         ["date_livraison","date","date_livr"],
+            "commercial":   ["commercial"],
+            "agriculteur":  ["client","agriculteur","nom"],
+            "pour_compte":  ["pour_compte","pour compte"],
+            "variete":      ["article","variete","variété"],
+            "qte":          ["qte","quantite","quantité","plants"],
+            "pu":           ["p_u","pu","prix_unitaire","prix"],
+            "remise":       ["remise"],
+            "total":        ["total","total_tnd","montant"],
+            "unite":        ["unite","unité"],
+            "transporteur": ["transporteur"],
+            "destination":  ["destination","destiantion","destintation"],
+        }
+        rename = {}
+        for target, candidates in MAP.items():
+            for c in candidates:
+                if c in df.columns and target not in rename.values():
+                    rename[c] = target
+                    break
+        df = df.rename(columns=rename)
+
+        # Nettoyage
+        for c in ["qte","pu","remise","total"]:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+        if "qte" in df.columns:
+            df = df[df["qte"].notna() & (df["qte"] > 0)]
+        if "commercial" in df.columns:
+            df["commercial"] = df["commercial"].astype(str).str.strip()
+        if "agriculteur" in df.columns:
+            df["agriculteur"] = df["agriculteur"].astype(str).str.strip()
+
+        # Récap plan livré par (commercial, agriculteur, variété)
+        grp_cols = [c for c in ["commercial","agriculteur","variete"] if c in df.columns]
+        if grp_cols and "qte" in df.columns:
+            recap = df.groupby(grp_cols).agg(
+                plan_livre=("qte", "sum"),
+                cout_plants=("total", "sum") if "total" in df.columns else ("qte","count"),
+                nb_livraisons=("qte", "count"),
+            ).reset_index()
+        else:
+            recap = df.copy()
+
+        return df, recap, None
+    except Exception as e:
+        return None, None, str(e)
+
+
+def parse_sotusfa_file(file_obj):
+    """
+    Parse le fichier Sotusfa (intrants : engrais, pesticides, irrigation).
+    Retourne DataFrame détail + récap par (Commercial, Agriculteur, Famille).
+    """
+    try:
+        raw = pd.read_excel(file_obj, sheet_name=0, header=None)
+        hr = _find_header_row(raw, ["agriculteur","famille","article","commercial"])
+        df = pd.read_excel(file_obj, sheet_name=0, header=hr)
+        df.columns = [_norm_col(c) for c in df.columns]
+
+        MAP = {
+            "date":         ["date"],
+            "societe":      ["societe","société","soc"],
+            "commercial":   ["commerciale","commercial"],
+            "agriculteur":  ["agriculteur"],
+            "famille":      ["famille"],
+            "article":      ["article"],
+            "qte":          ["qte","quantite"],
+            "prix_ht":      ["prix_ht"],
+            "prix_ttc":     ["prix_un_ttc","prix_ttc","prix"],
+            "total_ttc":    ["total_ttc","total","montant"],
+            "campagne":     ["compagne","campagne"],
+        }
+        rename = {}
+        for target, candidates in MAP.items():
+            for c in candidates:
+                if c in df.columns and target not in rename.values():
+                    rename[c] = target
+                    break
+        df = df.rename(columns=rename)
+
+        for c in ["qte","prix_ht","prix_ttc","total_ttc"]:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+        if "total_ttc" in df.columns:
+            df = df[df["total_ttc"].notna() & (df["total_ttc"] > 0)]
+        if "agriculteur" in df.columns:
+            df = df[df["agriculteur"].astype(str).str.strip().str.upper()
+                    .isin(["", "NAN", "TOTAL", "SOUS-TOTAL"]) == False]
+
+        # Normaliser famille
+        FAM_NORM = {
+            "engrais": "Engrais", "engrais ": "Engrais",
+            "fertilissant": "Fertilisant", "fertilisant": "Fertilisant",
+            "fongicide": "Fongicide",
+            "insecticide": "Insecticide",
+            "irrigations ": "Irrigation", "irrigations": "Irrigation",
+            "irrigations turk": "Irrigation",
+            "herbicide": "Herbicide",
+            "divers": "Divers",
+            "materiel": "Matériel",
+            "traitement": "Traitement",
+        }
+        if "famille" in df.columns:
+            df["famille_norm"] = df["famille"].astype(str).str.strip().str.lower()\
+                                  .map(FAM_NORM).fillna("Autre")
+
+        # Récap par agriculteur + famille
+        grp = [c for c in ["commercial","agriculteur","famille_norm"] if c in df.columns]
+        if grp and "total_ttc" in df.columns:
+            recap = df.groupby(grp)["total_ttc"].sum().reset_index()
+            pivot = recap.pivot_table(
+                index=[c for c in ["commercial","agriculteur"] if c in recap.columns],
+                columns="famille_norm", values="total_ttc", aggfunc="sum", fill_value=0
+            ).reset_index()
+            pivot.columns = [_norm_col(str(c)) for c in pivot.columns]
+            pivot["total_intrants"] = pivot.select_dtypes("number").sum(axis=1)
+        else:
+            pivot = pd.DataFrame()
+
+        return df, pivot, None
+    except Exception as e:
+        return None, None, str(e)
+
+
+def parse_royal_file(file_obj):
+    """
+    Parse le fichier Royal/Plan (Plan Livré / Extra / Plan Actif).
+    Accepte le format template généré ou format libre.
+    """
+    try:
+        raw = pd.read_excel(file_obj, sheet_name=0, header=None)
+        hr = _find_header_row(raw, ["plan","extra","actif","agriculteur"])
+        df = pd.read_excel(file_obj, sheet_name=0, header=hr)
+        df.columns = [_norm_col(c) for c in df.columns]
+
+        MAP = {
+            "commercial":   ["commercial"],
+            "agriculteur":  ["agriculteur","client","nom"],
+            "region":       ["region","région"],
+            "variete":      ["variete","variété","article"],
+            "hectares":     ["hectares_ha","hectares","ha"],
+            "plan_livre":   ["plan_livre_plants","plan_livre","plan_livr","plants_livres","qte"],
+            "extra":        ["extra_pertes","extra","pertes","plants_perdus"],
+            "plan_actif":   ["plan_actif","plan_actifs","plants_actifs"],
+            "tonnage":      ["tonnage_recolte_t","tonnage","tonnage_t","recolte"],
+        }
+        rename = {}
+        for target, candidates in MAP.items():
+            for c in candidates:
+                if c in df.columns and target not in rename.values():
+                    rename[c] = target
+                    break
+        df = df.rename(columns=rename)
+
+        num_cols = ["hectares","plan_livre","extra","plan_actif","tonnage"]
+        for c in num_cols:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+
+        # Calcul automatique si plan_actif absent
+        if "plan_actif" not in df.columns and "plan_livre" in df.columns:
+            extra_col = df["extra"] if "extra" in df.columns else 0
+            df["plan_actif"] = df["plan_livre"] - extra_col
+
+        if "agriculteur" in df.columns:
+            df = df[df["agriculteur"].astype(str).str.strip().str.upper()
+                    .isin(["", "NAN", "TOTAL", "SOUS-TOTAL"]) == False]
+
+        df = df.dropna(subset=["plan_actif"] if "plan_actif" in df.columns
+                       else ["plan_livre"])
+        return df, None
+    except Exception as e:
+        return None, str(e)
 
 
 # ══════════════════════════════════════════════════════════════
-# FORMULES DE CALCUL AGRONOMIQUE
+# FUSION DES 3 SOURCES
 # ══════════════════════════════════════════════════════════════
 
-def calculer_rendement(tonnage_t, hectares):
-    """Rendement = Tonnage (t) / Hectares (ha)"""
-    if hectares and hectares > 0:
-        return round(tonnage_t / hectares, 2)
-    return None
+def merge_sources(df_royal, df_bourak_recap, df_sotusfa_pivot):
+    """
+    Joint les 3 sources sur (commercial + agriculteur).
+    Calcule toutes les métriques dérivées.
+    """
+    base = None
 
-def calculer_rendement_par_plant(tonnage_kg, hectares, region=None):
-    """Rendement par plant = Tonnage (kg) / Nb plants total"""
-    densite = DENSITE_PLANTS.get(region, DENSITE_DEFAULT)
-    total_plants = densite * hectares if hectares and hectares > 0 else None
-    if total_plants and total_plants > 0:
-        return round(tonnage_kg / total_plants, 3)  # kg/plant
-    return None
+    # Source principale : Royal (Plan Livré/Extra/Actif)
+    if df_royal is not None and not df_royal.empty:
+        base = df_royal.copy()
+        key_cols = [c for c in ["commercial","agriculteur"] if c in base.columns]
+        for c in key_cols:
+            base[c] = base[c].astype(str).str.strip().str.upper()
 
-def calculer_dose_ha(quantite_totale, hectares, unite="kg"):
-    """Dose par hectare = Quantité totale / Hectares"""
-    if hectares and hectares > 0 and quantite_totale is not None:
-        return round(quantite_totale / hectares, 2)
-    return None
+    # Ajouter infos Bourak si pas de Royal
+    if base is None and df_bourak_recap is not None and not df_bourak_recap.empty:
+        base = df_bourak_recap.copy()
+        if "plan_livre" not in base.columns and "qte" in base.columns:
+            base = base.rename(columns={"qte": "plan_livre"})
+        key_cols = [c for c in ["commercial","agriculteur"] if c in base.columns]
+        for c in key_cols:
+            base[c] = base[c].astype(str).str.strip().str.upper()
 
-def calculer_efficacite_intrants(tonnage_t, total_engrais_kg):
-    """
-    Efficacité = kg de tomate produits / kg d'engrais consommés
-    (plus le ratio est élevé, plus l'agriculteur est efficace)
-    """
-    if total_engrais_kg and total_engrais_kg > 0:
-        return round((tonnage_t * 1000) / total_engrais_kg, 3)
-    return None
+    if base is None:
+        return pd.DataFrame()
 
-def calculer_indice_intrant(dose_reelle, dose_optimale):
-    """
-    Indice d'utilisation = dose_réelle / dose_optimale
-    < 0.8  = sous-fertilisation
-    0.8-1.2 = optimal
-    > 1.2  = sur-fertilisation (gaspillage + risque)
-    """
-    if dose_optimale and dose_optimale > 0 and dose_reelle is not None:
-        return round(dose_reelle / dose_optimale, 3)
-    return None
+    # Merge Bourak → ajouter plan_livre si vient de Royal
+    if df_bourak_recap is not None and not df_bourak_recap.empty and df_royal is not None:
+        b = df_bourak_recap.copy()
+        for c in ["commercial","agriculteur"]:
+            if c in b.columns:
+                b[c] = b[c].astype(str).str.strip().str.upper()
+        b_grp = b.groupby([c for c in ["commercial","agriculteur"] if c in b.columns])\
+                  .agg(plan_livre_bourak=("plan_livre","sum"),
+                       cout_plants=("cout_plants","sum") if "cout_plants" in b.columns
+                                   else ("plan_livre","count")).reset_index()
+        key = [c for c in ["commercial","agriculteur"] if c in base.columns and c in b_grp.columns]
+        if key:
+            base = base.merge(b_grp, on=key, how="left")
+            if "plan_livre" not in base.columns and "plan_livre_bourak" in base.columns:
+                base["plan_livre"] = base["plan_livre_bourak"]
 
-def score_commercial(df_agri):
-    """
-    Score agronomique d'un commercial = moyenne pondérée par tonnage
-    des ratios rendement/moyenne_région de ses agriculteurs.
-    """
-    if df_agri.empty or "rendement_t_ha" not in df_agri.columns:
-        return 0
-    total_tonnage = df_agri["tonnage_t"].sum()
-    if total_tonnage == 0:
-        return 0
-    df_agri = df_agri.copy()
-    df_agri["ref"] = df_agri["region"].map(
-        lambda r: RENDEMENT_MOYEN_REGION.get(r, RENDEMENT_MOYEN_NATIONAL)
-    )
-    df_agri["ratio"] = df_agri["rendement_t_ha"] / df_agri["ref"].replace(0, np.nan)
-    df_agri["poids"] = df_agri["tonnage_t"] / total_tonnage
-    score = (df_agri["ratio"] * df_agri["poids"]).sum()
-    return round(score, 3)
+    # Merge Sotusfa → ajouter intrants
+    if df_sotusfa_pivot is not None and not df_sotusfa_pivot.empty:
+        s = df_sotusfa_pivot.copy()
+        for c in ["commercial","agriculteur"]:
+            if c in s.columns:
+                s[c] = s[c].astype(str).str.strip().str.upper()
+        key = [c for c in ["commercial","agriculteur"] if c in base.columns and c in s.columns]
+        if key:
+            base = base.merge(s, on=key, how="left")
+
+    # ── Calculs dérivés ─────────────────────────────────────
+    df = base.copy()
+
+    # Taux de prise
+    if "plan_livre" in df.columns and "plan_actif" in df.columns:
+        df["taux_prise_pct"] = np.where(
+            df["plan_livre"] > 0,
+            (df["plan_actif"] / df["plan_livre"] * 100).round(2),
+            np.nan
+        )
+
+    # Extra si absent
+    if "extra" not in df.columns and "plan_livre" in df.columns and "plan_actif" in df.columns:
+        df["extra"] = df["plan_livre"] - df["plan_actif"]
+
+    # Rendement t/ha
+    if "tonnage" in df.columns and "hectares" in df.columns:
+        df["rendement_t_ha"] = np.where(
+            df["hectares"] > 0,
+            (df["tonnage"] / df["hectares"]).round(3),
+            np.nan
+        )
+
+    # kg tomate par plant actif
+    if "tonnage" in df.columns and "plan_actif" in df.columns:
+        df["kg_par_plant_actif"] = np.where(
+            df["plan_actif"] > 0,
+            (df["tonnage"] * 1000 / df["plan_actif"]).round(4),
+            np.nan
+        )
+
+    # Intrants par plant actif (si disponibles)
+    for intrant_col in ["engrais","fertilisant","fongicide","insecticide","irrigation"]:
+        col_src = next((c for c in df.columns if intrant_col in c.lower()), None)
+        if col_src and "plan_actif" in df.columns:
+            df[f"{intrant_col}_par_plant"] = np.where(
+                df["plan_actif"] > 0,
+                (df[col_src] / df["plan_actif"]).round(6),
+                np.nan
+            )
+
+    # Coût intrants par tonne
+    if "total_intrants" in df.columns and "tonnage" in df.columns:
+        df["cout_intrants_par_tonne"] = np.where(
+            df["tonnage"] > 0,
+            (df["total_intrants"] / df["tonnage"]).round(2),
+            np.nan
+        )
+
+    # Coût plants par tonne
+    cost_col = next((c for c in df.columns if "cout_plant" in c.lower()), None)
+    if cost_col and "tonnage" in df.columns:
+        df["cout_plants_par_tonne"] = np.where(
+            df["tonnage"] > 0,
+            (df[cost_col] / df["tonnage"]).round(2),
+            np.nan
+        )
+
+    # Score de performance
+    if "rendement_t_ha" in df.columns:
+        def _get_score(row):
+            r = row.get("rendement_t_ha")
+            reg = str(row.get("region","")).strip().upper()
+            if not r or pd.isna(r):
+                return ("—", "#888888", 0.0)
+            ref = RENDEMENT_REF.get(reg, 32.0)
+            ratio = r / ref if ref > 0 else 0
+            for seuil, label, color in SCORE_SEUILS:
+                if ratio >= seuil:
+                    return (label, color, round(ratio, 3))
+            return ("🔴 Sous-perf.", "#C0392B", round(ratio, 3))
+
+        scores = df.apply(_get_score, axis=1)
+        df["score_label"] = scores.apply(lambda x: x[0])
+        df["score_color"] = scores.apply(lambda x: x[1])
+        df["score_ratio"] = scores.apply(lambda x: x[2])
+
+    return df
 
 
 # ══════════════════════════════════════════════════════════════
-# SQL SUPABASE — CREATE TABLE
+# TEMPLATE EXCEL À TÉLÉCHARGER
 # ══════════════════════════════════════════════════════════════
-SQL_CREATE_TABLE = """
--- ============================================================
--- Table Supabase : agri_performance
--- Exécuter une seule fois dans l'éditeur SQL de Supabase
--- ============================================================
-CREATE TABLE IF NOT EXISTS agri_performance (
-    id               BIGSERIAL PRIMARY KEY,
-    commercial       TEXT NOT NULL,
-    ingenieur        TEXT,
-    agriculteur      TEXT NOT NULL,
-    region           TEXT,
-    variete          TEXT,
-    hectares         NUMERIC,
-    tonnage_t        NUMERIC,          -- tonnage récolté (tonnes)
-    dap_kg           NUMERIC,          -- engrais DAP (kg total)
-    fumure_kg        NUMERIC,          -- fumure organique (kg total)
-    fumier_kg        NUMERIC,          -- fumier (kg total)
-    pesticide_l      NUMERIC,          -- pesticides (litres total)
-    fongicide_l      NUMERIC,          -- fongicides (litres)
-    insecticide_l    NUMERIC,          -- insecticides (litres)
-    irrigation_m3    NUMERIC,          -- irrigation (m³)
-    notes            TEXT,
-    saison           TEXT DEFAULT '2026',
-    created_at       TIMESTAMPTZ DEFAULT NOW(),
-    updated_at       TIMESTAMPTZ DEFAULT NOW()
-);
 
-CREATE INDEX IF NOT EXISTS idx_ap_commercial ON agri_performance(commercial);
-CREATE INDEX IF NOT EXISTS idx_ap_region     ON agri_performance(region);
-CREATE INDEX IF NOT EXISTS idx_ap_saison     ON agri_performance(saison);
-
--- Vue calculée (colonnes dérivées automatiques)
-CREATE OR REPLACE VIEW agri_performance_calcule AS
-SELECT
-    *,
-    CASE WHEN hectares > 0 THEN ROUND(tonnage_t / hectares, 2) END AS rendement_t_ha,
-    CASE WHEN hectares > 0 AND dap_kg IS NOT NULL
-         THEN ROUND(dap_kg / hectares, 1) END AS dap_kg_ha,
-    CASE WHEN hectares > 0 AND fumure_kg IS NOT NULL
-         THEN ROUND(fumure_kg / hectares, 1) END AS fumure_kg_ha,
-    CASE WHEN hectares > 0 AND pesticide_l IS NOT NULL
-         THEN ROUND(pesticide_l / hectares, 2) END AS pesticide_l_ha,
-    CASE WHEN (COALESCE(dap_kg,0) + COALESCE(fumure_kg,0)) > 0
-         THEN ROUND((tonnage_t * 1000) / (COALESCE(dap_kg,0) + COALESCE(fumure_kg,0)), 3)
-         END AS efficacite_intrants
-FROM agri_performance;
-"""
-
-
-# ══════════════════════════════════════════════════════════════
-# TEMPLATE EXCEL D'IMPORT
-# ══════════════════════════════════════════════════════════════
-def generate_import_template():
-    """Génère le fichier Excel template pour la saisie des données."""
+def generate_template_royal():
+    """Template Plan Livré / Extra / Plan Actif pour Royal/ingénieurs."""
     from openpyxl import Workbook
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
-    from openpyxl.worksheet.datavalidation import DataValidation
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Données Agriculteurs"
-
-    HDR_FILL = PatternFill("solid", start_color="1F3864", end_color="1F3864")
-    HDR_FONT = Font(bold=True, color="FFFFFF", name="Calibri", size=11)
-    REQ_FILL = PatternFill("solid", start_color="E8F4FD", end_color="E8F4FD")
-    OPT_FILL = PatternFill("solid", start_color="FFF9E6", end_color="FFF9E6")
-    THIN     = Border(
-        left=Side(style="thin", color="CCCCCC"),
-        right=Side(style="thin", color="CCCCCC"),
-        top=Side(style="thin", color="CCCCCC"),
-        bottom=Side(style="thin", color="CCCCCC"),
-    )
-    CTR = Alignment(horizontal="center", vertical="center")
+    ws.title = "Plans Actifs"
+    HDR = PatternFill("solid", start_color="1F3864", end_color="1F3864")
+    ORG = PatternFill("solid", start_color="7B3F00", end_color="7B3F00")
+    GRN = PatternFill("solid", start_color="1A5C2A", end_color="1A5C2A")
+    BF  = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
+    CTR = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    BD  = Border(*[Side(style="thin", color="CCCCCC")] * 0,
+                 left=Side(style="thin",color="CCCCCC"),
+                 right=Side(style="thin",color="CCCCCC"),
+                 top=Side(style="thin",color="CCCCCC"),
+                 bottom=Side(style="thin",color="CCCCCC"))
 
     COLS = [
-        # (header, largeur, obligatoire)
-        ("Commercial",       18, True),
-        ("Ingénieur",        18, False),
-        ("Agriculteur",      28, True),
-        ("Région",           18, True),
-        ("Variété",          16, False),
-        ("Hectares (ha)",    14, True),
-        ("Tonnage récolté (t)", 18, True),
-        ("DAP (kg total)",   14, False),
-        ("Fumure (kg total)",14, False),
-        ("Fumier (kg total)",14, False),
-        ("Pesticides (L total)", 16, False),
-        ("Fongicides (L total)", 16, False),
-        ("Insecticides (L total)", 18, False),
-        ("Irrigation (m³)", 14, False),
-        ("Notes",           30, False),
+        ("Commercial",       14, HDR), ("Agriculteur",   26, HDR),
+        ("Région",           16, HDR), ("Zone",          16, HDR),
+        ("Variété",          14, HDR), ("Hectares (ha)", 12, GRN),
+        ("Plan Livré (plants)", 16, GRN), ("Extra (pertes)", 14, ORG),
+        ("Plan Actif",       14, GRN), ("Tonnage Récolté (t)", 16, GRN),
+        ("Notes",            22, HDR),
     ]
-
-    # En-tête
-    for ci, (header, width, required) in enumerate(COLS, 1):
-        c = ws.cell(1, ci)
-        c.value    = header
-        c.fill     = HDR_FILL
-        c.font     = HDR_FONT
-        c.alignment= CTR
-        c.border   = THIN
-        ws.column_dimensions[get_column_letter(ci)].width = width
-
-    ws.row_dimensions[1].height = 30
+    for ci, (h, w, fill) in enumerate(COLS, 1):
+        c = ws.cell(1, ci, value=h)
+        c.font = BF; c.fill = fill
+        c.alignment = CTR; c.border = BD
+        ws.column_dimensions[get_column_letter(ci)].width = w
+    ws.row_dimensions[1].height = 36
 
     # Ligne exemple
-    ex = ["FEDI", "Ing. BEN ALI", "AMOR KHECHIN", "CAP BON 1", "Heinz",
-          5.0, 180.0, 750, 1000, 20000, 15.0, 4.0, 2.0, 1500, ""]
-    for ci, val in enumerate(ex, 1):
-        c = ws.cell(2, ci)
-        c.value    = val
-        required   = COLS[ci-1][2]
-        c.fill     = REQ_FILL if required else OPT_FILL
-        c.border   = THIN
-        c.alignment= CTR
+    EX = ["KHALIL","NEJI ZAAFOURI","KAIROUAN","Zaafria","Savera",
+          62, 1236444, 111000, "=G2-H2", 1820, "RM mécanique"]
+    for ci, val in enumerate(EX, 1):
+        c = ws.cell(2, ci, value=val)
+        c.border = BD
+        c.alignment = Alignment(horizontal="center", vertical="center")
 
-    # Validation région
-    dv_reg = DataValidation(
-        type="list",
-        formula1='"CAP BON 1,CAP BON 2,NORD,KAIROUAN,GAFSA / KASSRINE,SIDI BOUZID,BOUFICHA"',
-        allow_blank=True,
-    )
-    ws.add_data_validation(dv_reg)
-    dv_reg.add(f"D2:D500")
+    ws.cell(3,1).value = "← Remplir à partir de la ligne 2"
 
-    # Feuille légende
-    ws2 = wb.create_sheet("Légende et Formules")
-    ws2.column_dimensions["A"].width = 30
-    ws2.column_dimensions["B"].width = 50
-    legend = [
-        ("CHAMP",           "DESCRIPTION ET FORMULE"),
-        ("Hectares",        "Surface cultivée en hectares (ha)"),
-        ("Tonnage récolté", "Poids total récolté en TONNES (pas kg)"),
-        ("DAP",             "Diammonium phosphate — engrais starter (kg total saison)"),
-        ("Fumure",          "Fumure organique / engrais de fond (kg total)"),
-        ("Fumier",          "Fumier animal (kg total — 20 à 40 tonnes/ha normal)"),
-        ("Pesticides",      "Total fongicides + insecticides + herbicides (litres)"),
-        ("",""),
-        ("FORMULE : Rendement",       "= Tonnage (t) ÷ Hectares → t/ha (cible: >35 t/ha)"),
-        ("FORMULE : Dose DAP/ha",     "= DAP (kg) ÷ Hectares → kg/ha (optimal: 150 kg/ha)"),
-        ("FORMULE : Dose fumier/ha",  "= Fumier (kg) ÷ Hectares → t/ha (optimal: 20 t/ha)"),
-        ("FORMULE : Efficacité",      "= (Tonnage×1000) ÷ (DAP+Fumure) → kg tomate/kg engrais"),
-        ("FORMULE : Rendement/plant", "= Tonnage(kg) ÷ (Densité × Ha) → kg par plant"),
-        ("",""),
-        ("Densité plants CAP BON",    "25 000 plants/ha"),
-        ("Densité plants KAIROUAN",   "20 000 plants/ha"),
-        ("Densité plants GAFSA",      "18 000 plants/ha"),
-        ("Rendement moy. CAP BON 1",  "45 t/ha (référence)"),
-        ("Rendement moy. KAIROUAN",   "30 t/ha (référence)"),
-        ("Rendement moy. GAFSA",      "28 t/ha (référence)"),
-    ]
-    for ri, (a, b) in enumerate(legend, 1):
-        ws2.cell(ri, 1).value = a
-        ws2.cell(ri, 2).value = b
-        if ri == 1:
-            for ci in [1,2]:
-                ws2.cell(ri, ci).fill = HDR_FILL
-                ws2.cell(ri, ci).font = HDR_FONT
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+def generate_template_saisie():
+    """Template saisie manuelle hectares + tonnage (si pas de Royal)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Saisie Hectares Tonnage"
+    HDR = PatternFill("solid", start_color="4A235A", end_color="4A235A")
+    BF = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
+    CTR = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    BD = Border(left=Side(style="thin",color="CCCCCC"),right=Side(style="thin",color="CCCCCC"),
+                top=Side(style="thin",color="CCCCCC"),bottom=Side(style="thin",color="CCCCCC"))
+
+    COLS = [("Commercial",14),("Agriculteur",26),("Région",16),
+            ("Variété",14),("Hectares (ha)",12),("Tonnage Récolté (t)",16),("Notes",22)]
+    for ci,(h,w) in enumerate(COLS,1):
+        c = ws.cell(1,ci,value=h)
+        c.font=BF; c.fill=HDR; c.alignment=CTR; c.border=BD
+        ws.column_dimensions[get_column_letter(ci)].width=w
+    ws.row_dimensions[1].height=30
+
+    for ci,val in enumerate(["MAKKI BEN SALAH","KHALED BELHAJ","CAP BON 1","Savera",63,2800,""],1):
+        c = ws.cell(2,ci,value=val); c.border=BD
+        c.alignment=Alignment(horizontal="center",vertical="center")
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -307,616 +485,689 @@ def generate_import_template():
 
 
 # ══════════════════════════════════════════════════════════════
-# PARSING DU FICHIER D'IMPORT
+# EXPORT EXCEL RÉSULTATS
 # ══════════════════════════════════════════════════════════════
-def parse_performance_file(file_obj):
-    """Parse le fichier Excel d'import et retourne un DataFrame enrichi."""
-    try:
-        df = pd.read_excel(file_obj, sheet_name=0, header=0)
-    except Exception as e:
-        return None, str(e)
 
-    # Normaliser les colonnes
-    RENAME = {
-        "commercial":           "commercial",
-        "ingénieur":            "ingenieur",
-        "agriculteur":          "agriculteur",
-        "région":               "region",
-        "variété":              "variete",
-        "hectares (ha)":        "hectares",
-        "tonnage récolté (t)":  "tonnage_t",
-        "dap (kg total)":       "dap_kg",
-        "fumure (kg total)":    "fumure_kg",
-        "fumier (kg total)":    "fumier_kg",
-        "pesticides (l total)": "pesticide_l",
-        "fongicides (l total)": "fongicide_l",
-        "insecticides (l total)":"insecticide_l",
-        "irrigation (m³)":      "irrigation_m3",
-        "notes":                "notes",
-    }
-    df.columns = [str(c).strip().lower() for c in df.columns]
-    df = df.rename(columns={k: v for k, v in RENAME.items() if k in df.columns})
+def export_resultats_excel(df):
+    """Génère un Excel de résultats avec toutes les métriques calculées."""
+    from openpyxl import Workbook
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.formatting.rule import ColorScaleRule
 
-    # Colonnes numériques
-    NUM_COLS = ["hectares","tonnage_t","dap_kg","fumure_kg","fumier_kg",
-                "pesticide_l","fongicide_l","insecticide_l","irrigation_m3"]
-    for col in NUM_COLS:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Résultats Agro"
+    ws.sheet_view.showGridLines = False
 
-    # Filtrer lignes invalides
-    if "agriculteur" in df.columns and "tonnage_t" in df.columns:
-        df = df[df["agriculteur"].notna() & (df["agriculteur"] != "")]
-        df = df[df["tonnage_t"].notna() & (df["tonnage_t"] > 0)]
+    HDR = PatternFill("solid", start_color="0D3349", end_color="0D3349")
+    BF  = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
+    CTR = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    BD  = Border(left=Side(style="thin",color="CCCCCC"),
+                 right=Side(style="thin",color="CCCCCC"),
+                 top=Side(style="thin",color="CCCCCC"),
+                 bottom=Side(style="thin",color="CCCCCC"))
 
-    if df.empty:
-        return None, "Aucune ligne valide trouvée dans le fichier."
+    EXPORT_COLS = [
+        ("commercial","Commercial",14), ("agriculteur","Agriculteur",26),
+        ("region","Région",16), ("variete","Variété",14),
+        ("hectares","Hectares",10),
+        ("plan_livre","Plan Livré",14), ("extra","Extra",12),
+        ("plan_actif","Plan Actif",14), ("taux_prise_pct","Taux Prise %",12),
+        ("tonnage","Tonnage (t)",13), ("rendement_t_ha","Rend. t/ha",12),
+        ("kg_par_plant_actif","kg/plant actif",13),
+        ("total_intrants","Total Intrants TND",16),
+        ("cout_intrants_par_tonne","Coût/tonne TND",14),
+        ("score_label","Score",14),
+    ]
+    avail = [(col, lbl, w) for col, lbl, w in EXPORT_COLS if col in df.columns]
 
-    # Calculs automatiques
-    df["rendement_t_ha"] = df.apply(
-        lambda r: calculer_rendement(r.get("tonnage_t", 0), r.get("hectares")), axis=1
-    )
-    df["rendement_kg_plant"] = df.apply(
-        lambda r: calculer_rendement_par_plant(
-            r.get("tonnage_t", 0) * 1000,
-            r.get("hectares"),
-            r.get("region")
-        ), axis=1
-    )
-    df["dap_kg_ha"] = df.apply(
-        lambda r: calculer_dose_ha(r.get("dap_kg"), r.get("hectares")), axis=1
-    )
-    df["fumure_kg_ha"] = df.apply(
-        lambda r: calculer_dose_ha(r.get("fumure_kg"), r.get("hectares")), axis=1
-    )
-    df["fumier_t_ha"] = df.apply(
-        lambda r: calculer_dose_ha(r.get("fumier_kg"), r.get("hectares"), "kg")
-            and round(calculer_dose_ha(r.get("fumier_kg"), r.get("hectares")) / 1000, 2)
-            if r.get("fumier_kg") else None, axis=1
-    )
-    df["pesticide_l_ha"] = df.apply(
-        lambda r: calculer_dose_ha(r.get("pesticide_l"), r.get("hectares"), "L"), axis=1
-    )
-    total_engrais = df.get("dap_kg", pd.Series(dtype=float)).fillna(0) + \
-                    df.get("fumure_kg", pd.Series(dtype=float)).fillna(0)
-    df["efficacite"] = df.apply(
-        lambda r: calculer_efficacite_intrants(
-            r.get("tonnage_t", 0),
-            r.get("dap_kg", 0) + r.get("fumure_kg", 0)
-        ), axis=1
-    )
-    df["indice_dap"] = df.apply(
-        lambda r: calculer_indice_intrant(r.get("dap_kg_ha"), REF_DOSES["DAP"]["optimal"]),
-        axis=1
-    )
+    for ci, (_, lbl, w) in enumerate(avail, 1):
+        c = ws.cell(1, ci, value=lbl)
+        c.font=BF; c.fill=HDR; c.alignment=CTR; c.border=BD
+        ws.column_dimensions[get_column_letter(ci)].width = w
+    ws.row_dimensions[1].height = 34
 
-    # Score et label
-    results = df.apply(
-        lambda r: get_score_label(r.get("rendement_t_ha") or 0, r.get("region", "")),
-        axis=1
-    )
-    df["score_label"] = results.apply(lambda x: x[0])
-    df["score_color"] = results.apply(lambda x: x[1])
-    df["score_ratio"] = results.apply(lambda x: x[2])
+    for ri, (_, row) in enumerate(df.iterrows()):
+        r = ri + 2
+        fill = PatternFill("solid", start_color="F0F5FF" if ri%2==0 else "FFFFFF",
+                           end_color="F0F5FF" if ri%2==0 else "FFFFFF")
+        for ci, (col, _, _) in enumerate(avail, 1):
+            val = row.get(col, "")
+            if pd.isna(val): val = ""
+            c = ws.cell(r, ci, value=val)
+            c.border = BD; c.alignment = CTR; c.fill = fill
+            if col in ("plan_livre","extra","plan_actif"):
+                c.number_format = "#,##0"
+            elif col in ("taux_prise_pct",):
+                c.number_format = "0.0"
+            elif col in ("tonnage","rendement_t_ha","kg_par_plant_actif"):
+                c.number_format = "0.000"
+            elif col in ("total_intrants","cout_intrants_par_tonne"):
+                c.number_format = "#,##0.00"
 
-    return df, None
+    last = len(df) + 2
+    rend_col = next((ci+1 for ci,(col,_,_) in enumerate(avail) if col=="rendement_t_ha"), None)
+    taux_col = next((ci+1 for ci,(col,_,_) in enumerate(avail) if col=="taux_prise_pct"), None)
+    if rend_col:
+        ws.conditional_formatting.add(
+            f"{get_column_letter(rend_col)}2:{get_column_letter(rend_col)}{last}",
+            ColorScaleRule(start_type="min",start_color="FFC7CE",
+                           mid_type="percentile",mid_value=50,mid_color="FFEB9C",
+                           end_type="max",end_color="C6EFCE"))
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()
 
 
 # ══════════════════════════════════════════════════════════════
-# SAUVEGARDE / CHARGEMENT SUPABASE
+# SQL SUPABASE
 # ══════════════════════════════════════════════════════════════
-def save_to_supabase(sb, df, saison="2026"):
-    """Sauvegarde le DataFrame dans la table agri_performance."""
+SQL_CREATE = """
+-- ============================================================
+-- Tables Supabase pour le module Performance Agronomique
+-- Exécuter une seule fois dans l'éditeur SQL Supabase
+-- ============================================================
+
+-- Table principale
+CREATE TABLE IF NOT EXISTS agri_performance (
+    id              BIGSERIAL PRIMARY KEY,
+    commercial      TEXT NOT NULL,
+    agriculteur     TEXT NOT NULL,
+    region          TEXT,
+    zone            TEXT,
+    variete         TEXT,
+    hectares        NUMERIC,
+    plan_livre      NUMERIC,   -- plants livrés par Royal/Bourak
+    extra           NUMERIC,   -- plants perdus (saisie ingénieur)
+    plan_actif      NUMERIC,   -- plan_livre - extra
+    tonnage_t       NUMERIC,   -- tonnage récolté (t)
+    saison          TEXT DEFAULT '2026',
+    -- Intrants Sotusfa
+    engrais_tnd     NUMERIC,
+    fertilisant_tnd NUMERIC,
+    fongicide_tnd   NUMERIC,
+    insecticide_tnd NUMERIC,
+    irrigation_tnd  NUMERIC,
+    divers_tnd      NUMERIC,
+    cout_plants_tnd NUMERIC,   -- coût plants Bourak
+    notes           TEXT,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agri_perf_comm ON agri_performance(commercial);
+CREATE INDEX IF NOT EXISTS idx_agri_perf_reg  ON agri_performance(region);
+CREATE INDEX IF NOT EXISTS idx_agri_perf_sais ON agri_performance(saison);
+
+-- Vue avec tous les calculs automatiques
+CREATE OR REPLACE VIEW agri_performance_calcule AS
+SELECT *,
+  CASE WHEN plan_livre > 0
+       THEN ROUND(plan_actif::NUMERIC / plan_livre * 100, 2) END  AS taux_prise_pct,
+  CASE WHEN plan_actif > 0
+       THEN ROUND(tonnage_t * 1000 / plan_actif, 4) END           AS kg_par_plant_actif,
+  CASE WHEN hectares  > 0
+       THEN ROUND(tonnage_t / hectares, 3) END                     AS rendement_t_ha,
+  COALESCE(engrais_tnd,0)+COALESCE(fertilisant_tnd,0)
+    +COALESCE(fongicide_tnd,0)+COALESCE(insecticide_tnd,0)
+    +COALESCE(irrigation_tnd,0)+COALESCE(divers_tnd,0)            AS total_intrants_tnd,
+  CASE WHEN tonnage_t > 0 THEN ROUND(
+    (COALESCE(engrais_tnd,0)+COALESCE(fertilisant_tnd,0)
+     +COALESCE(fongicide_tnd,0)+COALESCE(insecticide_tnd,0)
+     +COALESCE(irrigation_tnd,0)+COALESCE(divers_tnd,0))
+    / tonnage_t, 2) END                                            AS cout_intrants_par_tonne
+FROM agri_performance;
+"""
+
+
+def save_supabase(sb, df):
+    """Sauvegarde le DataFrame fusionné dans agri_performance."""
     if sb is None or df is None or df.empty:
-        return False
+        return False, "Supabase non disponible"
     try:
-        # Supprimer les anciennes données de la même saison/commercial
-        if "commercial" in df.columns:
-            comms = df["commercial"].dropna().unique().tolist()
-            for comm in comms:
-                sb.table("agri_performance").delete()\
-                  .eq("commercial", comm).eq("saison", saison).execute()
+        COLS_MAP = {
+            "commercial":"commercial","agriculteur":"agriculteur",
+            "region":"region","zone":"zone","variete":"variete",
+            "hectares":"hectares","plan_livre":"plan_livre","extra":"extra",
+            "plan_actif":"plan_actif","tonnage":"tonnage_t",
+            "engrais":"engrais_tnd","fertilisant":"fertilisant_tnd",
+            "fongicide":"fongicide_tnd","insecticide":"insecticide_tnd",
+            "irrigation":"irrigation_tnd","divers":"divers_tnd",
+            "cout_plants":"cout_plants_tnd","notes":"notes",
+        }
+        comms = df["commercial"].dropna().unique().tolist() if "commercial" in df.columns else []
+        for comm in comms:
+            sb.table("agri_performance").delete()\
+              .eq("commercial", comm).eq("saison","2026").execute()
 
-        # Insérer
-        COLS_SB = ["commercial","ingenieur","agriculteur","region","variete",
-                   "hectares","tonnage_t","dap_kg","fumure_kg","fumier_kg",
-                   "pesticide_l","fongicide_l","insecticide_l","irrigation_m3",
-                   "notes","saison"]
         rows = []
         for _, row in df.iterrows():
-            record = {"saison": saison}
-            for col in COLS_SB:
-                val = row.get(col)
-                if pd.isna(val) if val is not None else True:
-                    record[col] = None
-                else:
-                    record[col] = val
-            rows.append(record)
-        sb.table("agri_performance").insert(rows).execute()
-        return True
+            rec = {"saison": "2026"}
+            for src, tgt in COLS_MAP.items():
+                col = next((c for c in df.columns if src in c.lower()), None)
+                if col:
+                    val = row.get(col)
+                    rec[tgt] = None if pd.isna(val) else val
+            rows.append(rec)
+
+        for i in range(0, len(rows), 500):
+            sb.table("agri_performance").insert(rows[i:i+500]).execute()
+        return True, f"{len(rows)} agriculteurs sauvegardés"
     except Exception as e:
-        st.error(f"Erreur Supabase save: {e}")
-        return False
+        return False, str(e)
 
 
-def load_from_supabase(sb, saison="2026"):
-    """Charge les données depuis agri_performance et recalcule."""
+def load_supabase(sb):
+    """Charge et recalcule les données depuis Supabase."""
     if sb is None:
         return pd.DataFrame()
     try:
         data = sb.table("agri_performance").select("*")\
-                 .eq("saison", saison).execute().data
+                 .eq("saison","2026").execute().data
         if not data:
             return pd.DataFrame()
         df = pd.DataFrame(data)
-        # Recalculer colonnes dérivées
-        df["rendement_t_ha"] = df.apply(
-            lambda r: calculer_rendement(r.get("tonnage_t") or 0, r.get("hectares")), axis=1
-        )
-        df["efficacite"] = df.apply(
-            lambda r: calculer_efficacite_intrants(
-                r.get("tonnage_t") or 0,
-                (r.get("dap_kg") or 0) + (r.get("fumure_kg") or 0)
-            ), axis=1
-        )
-        results = df.apply(
-            lambda r: get_score_label(r.get("rendement_t_ha") or 0, r.get("region", "")),
-            axis=1
-        )
-        df["score_label"] = results.apply(lambda x: x[0])
-        df["score_color"] = results.apply(lambda x: x[1])
-        df["score_ratio"] = results.apply(lambda x: x[2])
-        return df
-    except Exception as e:
+        renames = {"tonnage_t":"tonnage","engrais_tnd":"engrais",
+                   "fertilisant_tnd":"fertilisant","fongicide_tnd":"fongicide",
+                   "insecticide_tnd":"insecticide","irrigation_tnd":"irrigation",
+                   "divers_tnd":"divers","cout_plants_tnd":"cout_plants"}
+        df = df.rename(columns=renames)
+        intrant_cols = ["engrais","fertilisant","fongicide","insecticide","irrigation","divers"]
+        existing = [c for c in intrant_cols if c in df.columns]
+        if existing:
+            df["total_intrants"] = df[existing].fillna(0).sum(axis=1)
+        return merge_sources(df, None, None)
+    except Exception:
         return pd.DataFrame()
 
 
 # ══════════════════════════════════════════════════════════════
-# RENDU PRINCIPAL : render_agro_tab()
+# RENDER PRINCIPAL
 # ══════════════════════════════════════════════════════════════
-def render_agro_tab(sb=None, planning_df=None, CURRENT_ROLE="directeur", CURRENT_NAME=""):
-    """Onglet Performance Agronomique — à appeler dans dashboard_phase10.py."""
 
-    # ── En-tête ──────────────────────────────────────────────
+def render_agro_tab(sb=None, planning_df=None,
+                    CURRENT_ROLE="directeur", CURRENT_NAME=""):
+
     st.markdown("""
-<div style='background:#0d2b0d;border:1px solid #1E8449;border-radius:12px;
-padding:16px 20px;margin-bottom:20px'>
-  <div style='font-size:1.1rem;font-weight:700;color:#f0f6fc;margin-bottom:6px'>
+<div style='background:#0a1a0a;border:1px solid #1E8449;border-radius:12px;
+padding:16px 20px;margin-bottom:18px'>
+  <div style='font-size:1.05rem;font-weight:700;color:#f0f6fc;margin-bottom:5px'>
     🌱 Performance Agronomique — Tomate 2026
   </div>
-  <div style='font-size:.82rem;color:#8b949e'>
-    Analyse rendement (t/ha) • Efficacité des intrants • Classement commerciaux •
-    Recommandations par région et variété
+  <div style='font-size:.82rem;color:#8b949e;line-height:1.6'>
+    <b style='color:#4CAF50'>Royal / Bourak</b> → Plan Livré / Extra / Plan Actif &nbsp;|&nbsp;
+    <b style='color:#2196F3'>Sotusfa</b> → Engrais / Pesticides / Irrigation &nbsp;|&nbsp;
+    <b style='color:#9C27B0'>Calculs</b> : kg/plant actif · Rendement t/ha · Coût/tonne
   </div>
 </div>""", unsafe_allow_html=True)
 
     # ── Session state ──────────────────────────────────────
-    if "agro_df" not in st.session_state:
-        # Essayer de charger depuis Supabase au démarrage
-        df_sb = load_from_supabase(sb)
-        st.session_state["agro_df"] = df_sb if not df_sb.empty else pd.DataFrame()
+    for key in ["agro_royal","agro_bourak_raw","agro_bourak_recap",
+                "agro_sotusfa_raw","agro_sotusfa_pivot","agro_merged",
+                "agro_saisie"]:
+        if key not in st.session_state:
+            st.session_state[key] = None
 
-    # ── Tabs internes ──────────────────────────────────────
-    tab_saisie, tab_perf, tab_rank, tab_best, tab_sql = st.tabs([
-        "📥 Saisie des données",
-        "📊 Performance agriculteurs",
-        "🏆 Classement commerciaux",
-        "🔬 Meilleures pratiques",
-        "⚙️ SQL / Export",
+    # Charger Supabase au démarrage
+    if (st.session_state["agro_merged"] is None and sb is not None):
+        df_sb = load_supabase(sb)
+        if not df_sb.empty:
+            st.session_state["agro_merged"] = df_sb
+
+    # ── Tabs ───────────────────────────────────────────────
+    t1, t2, t3, t4, t5, t6 = st.tabs([
+        "📥 Import fichiers",
+        "🌱 Plan Actif & Taux prise",
+        "💊 Efficacité Intrants",
+        "🏆 Classements",
+        "🔬 Analyse par variété",
+        "⚙️  SQL / Export",
     ])
 
-    # ══════════════════════════════════════════════════════
-    # TAB 1 : SAISIE
-    # ══════════════════════════════════════════════════════
-    with tab_saisie:
-        st.markdown("### Import des données agronomiques")
-        st.caption(
-            "Téléchargez le template, remplissez-le avec vos ingénieurs, "
-            "puis importez-le ici. Les calculs sont automatiques."
-        )
+    # ══════════════════════════════════════════
+    # TAB 1 — IMPORT
+    # ══════════════════════════════════════════
+    with t1:
+        st.markdown("### Import des 3 sources de données")
 
-        col_dl, col_up = st.columns([1, 2])
+        c1, c2, c3 = st.columns(3)
 
-        with col_dl:
-            st.download_button(
-                "📥 Télécharger le template Excel",
-                data=generate_import_template(),
-                file_name="agro_performance_template_2026.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary",
-                use_container_width=True,
-            )
-            st.caption("Remplissez 1 ligne par agriculteur")
-
-            # Saisie manuelle rapide
-            st.markdown("---")
-            st.markdown("**Ou saisie manuelle rapide :**")
-            with st.form("agro_form"):
-                f_comm    = st.selectbox("Commercial", ["FEDI","MAKKI BEN SALAH","KHALIL","ACHREF AJLANI","JILANI OBAY"])
-                f_ing     = st.text_input("Ingénieur agronome")
-                f_agri    = st.text_input("Nom agriculteur *")
-                f_reg     = st.selectbox("Région", list(RENDEMENT_MOYEN_REGION.keys()))
-                f_var     = st.text_input("Variété (ex: Heinz, Rio Grande)")
-                c1, c2    = st.columns(2)
-                f_ha      = c1.number_input("Hectares *", min_value=0.1, step=0.5)
-                f_ton     = c2.number_input("Tonnage récolté (t) *", min_value=0.0, step=1.0)
-                c3, c4    = st.columns(2)
-                f_dap     = c3.number_input("DAP (kg total)", min_value=0.0, step=50.0)
-                f_fumure  = c4.number_input("Fumure (kg total)", min_value=0.0, step=100.0)
-                c5, c6    = st.columns(2)
-                f_fumier  = c5.number_input("Fumier (kg total)", min_value=0.0, step=1000.0)
-                f_pest    = c6.number_input("Pesticides (L total)", min_value=0.0, step=1.0)
-                f_notes   = st.text_area("Notes", height=60)
-
-                submitted = st.form_submit_button("➕ Ajouter cet agriculteur", type="primary")
-                if submitted and f_agri and f_ha > 0 and f_ton > 0:
-                    new_row = {
-                        "commercial": f_comm, "ingenieur": f_ing,
-                        "agriculteur": f_agri, "region": f_reg,
-                        "variete": f_var, "hectares": f_ha,
-                        "tonnage_t": f_ton, "dap_kg": f_dap or None,
-                        "fumure_kg": f_fumure or None, "fumier_kg": f_fumier or None,
-                        "pesticide_l": f_pest or None, "notes": f_notes,
-                    }
-                    df_new = parse_performance_file.__wrapped__(pd.DataFrame([new_row])) \
-                             if hasattr(parse_performance_file, "__wrapped__") \
-                             else pd.DataFrame([new_row])
-                    # Recalcul simple
-                    nr = new_row.copy()
-                    nr["rendement_t_ha"]   = calculer_rendement(f_ton, f_ha)
-                    nr["efficacite"]       = calculer_efficacite_intrants(f_ton, (f_dap or 0) + (f_fumure or 0))
-                    nr["dap_kg_ha"]        = calculer_dose_ha(f_dap, f_ha)
-                    lbl, col, ratio        = get_score_label(nr["rendement_t_ha"] or 0, f_reg)
-                    nr["score_label"]      = lbl
-                    nr["score_color"]      = col
-                    nr["score_ratio"]      = ratio
-                    df_cur = st.session_state.get("agro_df", pd.DataFrame())
-                    st.session_state["agro_df"] = pd.concat(
-                        [df_cur, pd.DataFrame([nr])], ignore_index=True
-                    )
-                    st.success(f"✅ {f_agri} ajouté — rendement: {nr['rendement_t_ha']} t/ha {lbl}")
-
-        with col_up:
-            uploaded = st.file_uploader(
-                "Importer un fichier Excel complété",
-                type=["xlsx","xls"],
-                key="agro_upload",
-            )
-            if uploaded:
-                df_parsed, err = parse_performance_file(uploaded)
+        # ── Bourak ──────────────────────────────────────────
+        with c1:
+            st.markdown("""<div style='background:#1a1000;border:1px solid #8B3A00;
+border-radius:8px;padding:10px 14px;margin-bottom:10px'>
+<b style='color:#FF9800'>🚛 BOURAK</b><br>
+<span style='font-size:.8rem;color:#aaa'>
+Livraisons plants (Plan Livré)<br>
+Colonnes : Commercial · Client · Article (variété) · Qte · P.U · Total
+</span></div>""", unsafe_allow_html=True)
+            f_bourak = st.file_uploader("Fichier Bourak", type=["xlsx","xls"],
+                                         key="up_bourak", label_visibility="collapsed")
+            st.download_button("📥 Voir format attendu",
+                data=b"Commercial,Agriculteur,Variete,Qte,PU,Total\nKHALIL,NEJI ZAAFOURI,Savera,1236444,0.065,80369",
+                file_name="format_bourak.csv", mime="text/csv",
+                use_container_width=True)
+            if f_bourak:
+                df_raw, df_recap, err = parse_bourak_file(f_bourak)
                 if err:
-                    st.error(f"Erreur: {err}")
-                elif df_parsed is not None and not df_parsed.empty:
-                    st.session_state["agro_df"] = df_parsed
-                    ok = save_to_supabase(sb, df_parsed)
-                    st.success(
-                        f"✅ {len(df_parsed)} agriculteurs importés"
-                        f" {'+ sauvegardés Supabase' if ok else '(session uniquement)'}"
-                    )
+                    st.error(f"Erreur Bourak: {err}")
+                else:
+                    st.session_state["agro_bourak_raw"]   = df_raw
+                    st.session_state["agro_bourak_recap"] = df_recap
+                    n = df_recap["plan_livre"].sum() if df_recap is not None and "plan_livre" in df_recap.columns else 0
+                    st.success(f"✅ {len(df_recap)} agriculteurs · {int(n):,} plants")
+            if st.session_state["agro_bourak_recap"] is not None:
+                st.caption(f"Chargé : {len(st.session_state['agro_bourak_recap'])} lignes")
 
-            df_cur = st.session_state.get("agro_df", pd.DataFrame())
-            if not df_cur.empty:
-                st.markdown(f"**{len(df_cur)} agriculteurs chargés :**")
-                st.dataframe(
-                    df_cur[["commercial","agriculteur","region","hectares","tonnage_t",
-                             "rendement_t_ha","score_label"]].rename(columns={
-                        "commercial":"Commercial","agriculteur":"Agriculteur",
-                        "region":"Région","hectares":"Ha","tonnage_t":"Tonnage (t)",
-                        "rendement_t_ha":"Rendement (t/ha)","score_label":"Score",
-                    }),
-                    use_container_width=True, hide_index=True, height=320,
-                )
-                if st.button("🗑️ Effacer toutes les données session", use_container_width=True):
-                    st.session_state["agro_df"] = pd.DataFrame()
-                    st.rerun()
+        # ── Sotusfa ─────────────────────────────────────────
+        with c2:
+            st.markdown("""<div style='background:#001a00;border:1px solid #1A5C2A;
+border-radius:8px;padding:10px 14px;margin-bottom:10px'>
+<b style='color:#4CAF50'>🌿 SOTUSFA</b><br>
+<span style='font-size:.8rem;color:#aaa'>
+Intrants (engrais, pesticides, irrigation)<br>
+Colonnes : Agriculteur · Famille · Article · Qte · Total TTC
+</span></div>""", unsafe_allow_html=True)
+            f_sotusfa = st.file_uploader("Fichier Sotusfa", type=["xlsx","xls"],
+                                          key="up_sotusfa", label_visibility="collapsed")
+            if f_sotusfa:
+                df_raw_s, df_piv, err = parse_sotusfa_file(f_sotusfa)
+                if err:
+                    st.error(f"Erreur Sotusfa: {err}")
+                else:
+                    st.session_state["agro_sotusfa_raw"]   = df_raw_s
+                    st.session_state["agro_sotusfa_pivot"] = df_piv
+                    tot = df_piv["total_intrants"].sum() if df_piv is not None and "total_intrants" in df_piv.columns else 0
+                    st.success(f"✅ {len(df_piv) if df_piv is not None else 0} agriculteurs · {tot:,.0f} TND")
+            if st.session_state["agro_sotusfa_pivot"] is not None:
+                st.caption(f"Chargé : {len(st.session_state['agro_sotusfa_pivot'])} lignes")
 
-    # ══════════════════════════════════════════════════════
-    # TAB 2 : PERFORMANCE AGRICULTEURS
-    # ══════════════════════════════════════════════════════
-    with tab_perf:
-        df = st.session_state.get("agro_df", pd.DataFrame())
-        if df.empty:
-            st.info("📥 Importez des données dans l'onglet 'Saisie' pour voir les analyses.")
+        # ── Royal ────────────────────────────────────────────
+        with c3:
+            st.markdown("""<div style='background:#0a001a;border:1px solid #4A1A6B;
+border-radius:8px;padding:10px 14px;margin-bottom:10px'>
+<b style='color:#9C27B0'>🌾 ROYAL</b><br>
+<span style='font-size:.8rem;color:#aaa'>
+Plan Livré / Extra / Plan Actif + Hectares + Tonnage<br>
+Remplir le template ci-dessous
+</span></div>""", unsafe_allow_html=True)
+            st.download_button("📥 Télécharger template Royal",
+                data=generate_template_royal(),
+                file_name="template_royal_plan_actif_2026.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True, type="primary")
+            f_royal = st.file_uploader("Fichier Royal", type=["xlsx","xls"],
+                                        key="up_royal", label_visibility="collapsed")
+            if f_royal:
+                df_r, err = parse_royal_file(f_royal)
+                if err:
+                    st.error(f"Erreur Royal: {err}")
+                else:
+                    st.session_state["agro_royal"] = df_r
+                    st.success(f"✅ {len(df_r)} agriculteurs chargés")
+            if st.session_state["agro_royal"] is not None:
+                st.caption(f"Chargé : {len(st.session_state['agro_royal'])} lignes")
+
+        st.divider()
+
+        # ── Saisie manuelle (hectares + tonnage si pas de Royal) ─
+        with st.expander("✏️ Saisie manuelle Hectares + Tonnage (si pas de fichier Royal)"):
+            st.download_button("📥 Template saisie manuelle",
+                data=generate_template_saisie(),
+                file_name="saisie_hectares_tonnage.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            f_saisie = st.file_uploader("Fichier saisie", type=["xlsx","xls"],
+                                         key="up_saisie", label_visibility="collapsed")
+            if f_saisie:
+                try:
+                    df_s = pd.read_excel(f_saisie, header=0)
+                    df_s.columns = [_norm_col(c) for c in df_s.columns]
+                    st.session_state["agro_saisie"] = df_s
+                    st.success(f"✅ {len(df_s)} lignes chargées")
+                except Exception as e:
+                    st.error(str(e))
+
+        # ── Bouton FUSIONNER ─────────────────────────────────
+        st.markdown("---")
+        if st.button("🔗 Fusionner les 3 sources et calculer",
+                     type="primary", use_container_width=True):
+            royal_src = (st.session_state["agro_royal"] or
+                         st.session_state.get("agro_saisie"))
+            df_merged = merge_sources(
+                royal_src,
+                st.session_state["agro_bourak_recap"],
+                st.session_state["agro_sotusfa_pivot"],
+            )
+            if df_merged.empty:
+                st.warning("Aucune donnée à fusionner — importez au moins un fichier.")
+            else:
+                st.session_state["agro_merged"] = df_merged
+                ok, msg = save_supabase(sb, df_merged)
+                st.success(f"✅ {len(df_merged)} agriculteurs fusionnés · Supabase: {msg}")
+
+        # Aperçu
+        df_m = st.session_state.get("agro_merged")
+        if df_m is not None and not df_m.empty:
+            st.markdown(f"**Aperçu données fusionnées ({len(df_m)} agriculteurs) :**")
+            preview_cols = [c for c in ["commercial","agriculteur","region","variete",
+                                         "plan_livre","extra","plan_actif","taux_prise_pct",
+                                         "tonnage","rendement_t_ha","kg_par_plant_actif"]
+                            if c in df_m.columns]
+            st.dataframe(df_m[preview_cols].head(10),
+                         use_container_width=True, hide_index=True)
+
+    # ══════════════════════════════════════════
+    # TAB 2 — PLAN ACTIF & TAUX DE PRISE
+    # ══════════════════════════════════════════
+    with t2:
+        df = st.session_state.get("agro_merged")
+        if df is None or df.empty:
+            st.info("📥 Importez vos fichiers dans l'onglet 'Import' puis cliquez 'Fusionner'.")
         else:
             # Filtres
-            fc1, fc2, fc3 = st.columns(3)
-            sel_comm = fc1.selectbox("Commercial", ["Tous"] + sorted(df["commercial"].dropna().unique().tolist()), key="ap_comm")
-            sel_reg  = fc2.selectbox("Région", ["Toutes"] + sorted(df["region"].dropna().unique().tolist()), key="ap_reg")
-            sel_var  = fc3.selectbox("Variété", ["Toutes"] + sorted(df.get("variete", pd.Series()).dropna().unique().tolist()), key="ap_var") if "variete" in df.columns else "Toutes"
+            fc1, fc2 = st.columns(2)
+            comms = ["Tous"] + sorted(df["commercial"].dropna().unique().tolist()) \
+                    if "commercial" in df.columns else ["Tous"]
+            sel_c = fc1.selectbox("Commercial", comms, key="t2_comm")
+            regs  = ["Toutes"] + sorted(df["region"].dropna().unique().tolist()) \
+                    if "region" in df.columns else ["Toutes"]
+            sel_r = fc2.selectbox("Région", regs, key="t2_reg")
 
             df_f = df.copy()
-            if sel_comm != "Tous":     df_f = df_f[df_f["commercial"] == sel_comm]
-            if sel_reg  != "Toutes":   df_f = df_f[df_f["region"]     == sel_reg]
-            if sel_var  != "Toutes" and "variete" in df_f.columns:
-                df_f = df_f[df_f["variete"] == sel_var]
+            if sel_c != "Tous" and "commercial" in df_f.columns:
+                df_f = df_f[df_f["commercial"] == sel_c]
+            if sel_r != "Toutes" and "region" in df_f.columns:
+                df_f = df_f[df_f["region"] == sel_r]
 
-            if df_f.empty:
-                st.warning("Aucune donnée pour cette sélection.")
-            else:
-                # ── KPIs globaux ─────────────────────────────
-                k1, k2, k3, k4, k5 = st.columns(5)
-                k1.metric("Agriculteurs",   len(df_f))
-                k2.metric("Total ha",       f"{df_f['hectares'].sum():.1f} ha")
-                k3.metric("Total tonnage",  f"{df_f['tonnage_t'].sum():.0f} t")
-                avg_rend = df_f["rendement_t_ha"].mean()
-                ref_moy  = RENDEMENT_MOYEN_NATIONAL
-                k4.metric("Rendement moy.", f"{avg_rend:.1f} t/ha",
-                          delta=f"{avg_rend - ref_moy:+.1f} vs nat.",
-                          delta_color="normal" if avg_rend >= ref_moy else "inverse")
-                k5.metric("Efficacité moy.", f"{df_f['efficacite'].mean():.2f}" if "efficacite" in df_f else "—")
+            # KPIs
+            k1,k2,k3,k4,k5 = st.columns(5)
+            if "plan_livre" in df_f.columns:
+                k1.metric("Plan Livré", f"{int(df_f['plan_livre'].sum()):,} plants")
+            if "extra" in df_f.columns:
+                k2.metric("Extra (pertes)", f"{int(df_f['extra'].sum()):,} plants",
+                          delta=f"{df_f['extra'].sum()/df_f['plan_livre'].sum()*100:.1f}% perte"
+                          if "plan_livre" in df_f.columns else "")
+            if "plan_actif" in df_f.columns:
+                k3.metric("Plan Actif", f"{int(df_f['plan_actif'].sum()):,} plants")
+            if "taux_prise_pct" in df_f.columns:
+                k4.metric("Taux de prise moyen",
+                          f"{df_f['taux_prise_pct'].mean():.1f}%")
+            if "tonnage" in df_f.columns:
+                k5.metric("Tonnage total", f"{df_f['tonnage'].sum():,.1f} t")
 
-                # ── Graphique rendement par agriculteur ──────
-                st.markdown("#### 🌾 Rendement (t/ha) par agriculteur")
-                df_sort = df_f.dropna(subset=["rendement_t_ha"]).sort_values("rendement_t_ha", ascending=True)
-                if not df_sort.empty:
-                    ref_reg = df_sort["region"].map(lambda r: RENDEMENT_MOYEN_REGION.get(r, RENDEMENT_MOYEN_NATIONAL))
+            # Graphique Plan Livré vs Plan Actif vs Extra
+            if all(c in df_f.columns for c in ["plan_livre","plan_actif","extra"]):
+                st.markdown("#### 🌱 Plan Livré / Extra / Plan Actif par agriculteur")
+                df_bars = df_f.dropna(subset=["plan_livre"]).sort_values("plan_livre", ascending=True)
+                agri_col = "agriculteur" if "agriculteur" in df_bars.columns else df_bars.columns[0]
+                fig = go.Figure()
+                fig.add_trace(go.Bar(name="Plan Actif",
+                    y=df_bars[agri_col], x=df_bars["plan_actif"],
+                    orientation="h", marker_color="#1E8449"))
+                fig.add_trace(go.Bar(name="Extra (pertes)",
+                    y=df_bars[agri_col], x=df_bars["extra"],
+                    orientation="h", marker_color="#E53935"))
+                fig.update_layout(barmode="stack",
+                    template="plotly_dark", paper_bgcolor="#161b22",
+                    plot_bgcolor="#0d1117", height=max(350, len(df_bars)*28+80),
+                    xaxis_title="Nombre de plants", yaxis_title="",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02),
+                    margin=dict(l=220,r=60,t=40,b=40))
+                st.plotly_chart(fig, use_container_width=True)
 
-                    fig_r = go.Figure()
-                    fig_r.add_trace(go.Bar(
-                        y=df_sort["agriculteur"],
-                        x=df_sort["rendement_t_ha"],
-                        orientation="h",
-                        marker_color=df_sort["score_color"],
-                        text=df_sort.apply(
-                            lambda r: f"{r['rendement_t_ha']:.1f} t/ha  {r['score_label']}",
-                            axis=1
-                        ),
-                        textposition="outside",
-                        textfont=dict(size=11),
-                    ))
-                    # Ligne référence nationale
-                    fig_r.add_vline(
-                        x=RENDEMENT_MOYEN_NATIONAL,
-                        line_dash="dash", line_color="#e8543a", line_width=1.5,
-                        annotation_text=f"Moy. nat. {RENDEMENT_MOYEN_NATIONAL}t/ha",
-                        annotation_position="top",
-                        annotation_font_color="#e8543a",
-                    )
-                    fig_r.update_layout(
-                        template="plotly_dark", paper_bgcolor="#161b22", plot_bgcolor="#0d1117",
-                        height=max(350, len(df_sort) * 30 + 100),
-                        xaxis_title="Rendement (t/ha)",
-                        margin=dict(l=200, r=120, t=40, b=40),
-                        showlegend=False,
-                    )
-                    st.plotly_chart(fig_r, use_container_width=True)
+            # Taux de prise par région
+            if "taux_prise_pct" in df_f.columns and "region" in df_f.columns:
+                st.markdown("#### 📊 Taux de prise moyen par région")
+                tp_reg = df_f.groupby("region")["taux_prise_pct"].mean().reset_index()
+                tp_reg.columns = ["Région","Taux prise (%)"]
+                tp_reg = tp_reg.sort_values("Taux prise (%)", ascending=False)
+                fig2 = px.bar(tp_reg, x="Région", y="Taux prise (%)",
+                              color="Taux prise (%)",
+                              color_continuous_scale=["#E53935","#FF9800","#1E8449"],
+                              template="plotly_dark", text_auto=".1f",
+                              title="Taux de prise moyen par région")
+                fig2.update_layout(paper_bgcolor="#161b22", height=320)
+                fig2.add_hline(y=90, line_dash="dash", line_color="#f5a623",
+                               annotation_text="Seuil OK 90%")
+                st.plotly_chart(fig2, use_container_width=True)
 
-                # ── Scatter intrants vs rendement ──────────
-                st.markdown("#### 💊 Efficacité intrants : DAP vs Rendement")
-                st.caption("Objectif : faible dose, haut rendement → bulle en haut à gauche")
-                df_eff = df_f.dropna(subset=["rendement_t_ha","dap_kg_ha"])
-                if not df_eff.empty:
-                    fig_s = px.scatter(
-                        df_eff,
-                        x="dap_kg_ha", y="rendement_t_ha",
-                        color="score_label",
-                        color_discrete_map={k: v for (_, _), (k, v) in SCORE_LABELS.items()},
-                        size="tonnage_t" if "tonnage_t" in df_eff.columns else None,
-                        hover_data=["agriculteur","commercial","region","variete"]
-                                   if "variete" in df_eff.columns
-                                   else ["agriculteur","commercial","region"],
-                        labels={"dap_kg_ha":"DAP (kg/ha)","rendement_t_ha":"Rendement (t/ha)"},
-                        title="DAP consommé vs. Rendement obtenu",
-                        template="plotly_dark",
-                    )
-                    # Quadrants
-                    ref_dap = REF_DOSES["DAP"]["optimal"]
-                    fig_s.add_vline(x=ref_dap, line_dash="dot", line_color="#8b949e", line_width=1)
-                    fig_s.add_hline(y=RENDEMENT_MOYEN_NATIONAL, line_dash="dot", line_color="#8b949e", line_width=1)
-                    fig_s.update_layout(paper_bgcolor="#161b22", plot_bgcolor="#0d1117", height=420)
-                    st.plotly_chart(fig_s, use_container_width=True)
+            # Tableau détaillé
+            st.markdown("#### 📋 Tableau détaillé")
+            tab_cols = [c for c in ["commercial","agriculteur","region","variete",
+                                     "plan_livre","extra","plan_actif",
+                                     "taux_prise_pct","tonnage","rendement_t_ha",
+                                     "kg_par_plant_actif","score_label"]
+                        if c in df_f.columns]
+            df_disp = df_f[tab_cols].copy()
+            df_disp.columns = [c.replace("_"," ").title() for c in df_disp.columns]
+            st.dataframe(df_disp.sort_values("Plan Actif" if "Plan Actif" in df_disp.columns
+                                             else df_disp.columns[0], ascending=False),
+                         use_container_width=True, hide_index=True, height=380)
 
-                # ── Tableau détaillé ─────────────────────────
-                st.markdown("#### 📋 Tableau complet")
-                disp_cols = ["commercial","ingenieur","agriculteur","region","variete",
-                             "hectares","tonnage_t","rendement_t_ha","rendement_kg_plant",
-                             "dap_kg_ha","fumure_kg_ha","pesticide_l_ha",
-                             "efficacite","indice_dap","score_label"]
-                disp_cols = [c for c in disp_cols if c in df_f.columns]
-                df_disp = df_f[disp_cols].rename(columns={
-                    "commercial":"Commercial","ingenieur":"Ingénieur",
-                    "agriculteur":"Agriculteur","region":"Région","variete":"Variété",
-                    "hectares":"Ha","tonnage_t":"T (t)","rendement_t_ha":"Rend. t/ha",
-                    "rendement_kg_plant":"kg/plant","dap_kg_ha":"DAP kg/ha",
-                    "fumure_kg_ha":"Fumure kg/ha","pesticide_l_ha":"Pest. L/ha",
-                    "efficacite":"Efficacité","indice_dap":"Indice DAP",
-                    "score_label":"Score",
-                })
-                st.dataframe(df_disp.sort_values("Rend. t/ha", ascending=False),
-                             use_container_width=True, hide_index=True, height=400)
-
-    # ══════════════════════════════════════════════════════
-    # TAB 3 : CLASSEMENT COMMERCIAUX
-    # ══════════════════════════════════════════════════════
-    with tab_rank:
-        df = st.session_state.get("agro_df", pd.DataFrame())
-        if df.empty:
-            st.info("Données non disponibles.")
+    # ══════════════════════════════════════════
+    # TAB 3 — EFFICACITÉ INTRANTS
+    # ══════════════════════════════════════════
+    with t3:
+        df = st.session_state.get("agro_merged")
+        if df is None or df.empty:
+            st.info("📥 Importez vos fichiers dans l'onglet 'Import'.")
         else:
-            st.markdown("### 🏆 Classement agronomique des commerciaux")
-            st.caption(
-                "Score = moyenne pondérée (par tonnage) des ratios Rendement/Référence_Région "
-                "de chaque agriculteur. Score > 1.0 = au-dessus de la moyenne régionale."
-            )
-
-            rows = []
-            for comm in sorted(df["commercial"].dropna().unique()):
-                df_comm = df[df["commercial"] == comm]
-                sc = score_commercial(df_comm)
-                n_agri  = len(df_comm)
-                avg_r   = df_comm["rendement_t_ha"].mean()
-                tot_t   = df_comm["tonnage_t"].sum()
-                tot_ha  = df_comm["hectares"].sum()
-                pct_exc = len(df_comm[df_comm["score_ratio"] >= 1.15]) / n_agri * 100 if n_agri else 0
-                pct_sub = len(df_comm[df_comm["score_ratio"] < 0.75]) / n_agri * 100 if n_agri else 0
-                ing     = df_comm["ingenieur"].dropna().iloc[0] if "ingenieur" in df_comm and not df_comm["ingenieur"].dropna().empty else "—"
-                rows.append({
-                    "Commercial": comm,
-                    "Ingénieur": ing,
-                    "Score agro": sc,
-                    "Agri.": n_agri,
-                    "Rend. moy. (t/ha)": round(avg_r, 1) if not pd.isna(avg_r) else 0,
-                    "Total (t)": int(tot_t),
-                    "Total (ha)": round(tot_ha, 1),
-                    "% Excellents": round(pct_exc, 1),
-                    "% Sous-perf.": round(pct_sub, 1),
-                })
-            df_rank = pd.DataFrame(rows).sort_values("Score agro", ascending=False).reset_index(drop=True)
-            df_rank.index += 1  # classement 1-based
-
-            # Médailles
-            medals = ["🥇", "🥈", "🥉"] + [""] * 10
-            df_rank.insert(0, "🏅", medals[:len(df_rank)])
-
-            st.dataframe(
-                df_rank,
-                use_container_width=True, hide_index=False,
-                column_config={
-                    "Score agro": st.column_config.ProgressColumn(
-                        "Score agro", min_value=0, max_value=1.5, format="%.3f"
-                    ),
-                    "% Excellents": st.column_config.ProgressColumn(
-                        "% Excellents", min_value=0, max_value=100, format="%.0f%%"
-                    ),
-                    "% Sous-perf.": st.column_config.NumberColumn(
-                        "% Sous-perf.", format="%.0f%%"
-                    ),
-                }
-            )
-
-            # Graphique radar
-            st.markdown("---")
-            st.markdown("#### 🕸️ Profil agronomique par commercial")
-            METRICS = ["Rend. moy. (t/ha)", "Score agro", "% Excellents"]
-            fig_radar = go.Figure()
-            COLORS_COMM = {
-                "FEDI":"#1A5276","MAKKI BEN SALAH":"#1F7A1F",
-                "KHALIL":"#7D3C98","ACHREF AJLANI":"#C0392B","JILANI OBAY":"#D4AC0D",
-            }
-            for _, row in df_rank.iterrows():
-                fig_radar.add_trace(go.Scatterpolar(
-                    r=[
-                        min(row["Rend. moy. (t/ha)"] / 50, 1.0),
-                        min(row["Score agro"], 1.5) / 1.5,
-                        row["% Excellents"] / 100,
-                    ],
-                    theta=["Rendement", "Score agro", "% Excellents"],
-                    fill="toself",
-                    name=row["Commercial"],
-                    line_color=COLORS_COMM.get(row["Commercial"], "#888"),
-                ))
-            fig_radar.update_layout(
-                polar=dict(bgcolor="#161b22"),
-                template="plotly_dark", paper_bgcolor="#161b22",
-                height=420,
-            )
-            st.plotly_chart(fig_radar, use_container_width=True)
-
-    # ══════════════════════════════════════════════════════
-    # TAB 4 : MEILLEURES PRATIQUES
-    # ══════════════════════════════════════════════════════
-    with tab_best:
-        df = st.session_state.get("agro_df", pd.DataFrame())
-        if df.empty:
-            st.info("Données non disponibles.")
-        else:
-            st.markdown("### 🔬 Meilleures pratiques par région et variété")
-            st.caption(
-                "Analyse des agriculteurs ⭐ Excellents (rendement > 115% de la moyenne régionale) "
-                "pour identifier les doses d'engrais et méthodes les plus efficaces."
-            )
-
-            # Sélection région
-            sel_reg2 = st.selectbox(
-                "Choisir une région",
-                sorted(df["region"].dropna().unique()),
-                key="bp_reg"
-            )
-            df_reg = df[df["region"] == sel_reg2]
-            ref_reg = RENDEMENT_MOYEN_REGION.get(sel_reg2, RENDEMENT_MOYEN_NATIONAL)
-
-            st.markdown(f"**Référence région {sel_reg2} :** {ref_reg} t/ha")
-
-            if not df_reg.empty:
-                # Seuil excellent
-                df_exc = df_reg[df_reg["score_ratio"] >= 1.05].copy()
-                df_avg = df_reg.copy()
-
-                def _fmt_mean(series):
-                    v = series.dropna().mean()
-                    return f"{v:.1f}" if not pd.isna(v) else "—"
-
-                metrics_bp = {
-                    "Nb agriculteurs":         [len(df_exc), len(df_avg)],
-                    "Rendement moy. (t/ha)":   [_fmt_mean(df_exc["rendement_t_ha"]),   _fmt_mean(df_avg["rendement_t_ha"])],
-                    "DAP (kg/ha)":             [_fmt_mean(df_exc.get("dap_kg_ha",    pd.Series())), _fmt_mean(df_avg.get("dap_kg_ha",    pd.Series()))],
-                    "Fumure (kg/ha)":          [_fmt_mean(df_exc.get("fumure_kg_ha",  pd.Series())), _fmt_mean(df_avg.get("fumure_kg_ha",  pd.Series()))],
-                    "Pesticides (L/ha)":       [_fmt_mean(df_exc.get("pesticide_l_ha",pd.Series())), _fmt_mean(df_avg.get("pesticide_l_ha",pd.Series()))],
-                    "Efficacité (kg/kg)":      [_fmt_mean(df_exc.get("efficacite",    pd.Series())), _fmt_mean(df_avg.get("efficacite",    pd.Series()))],
-                }
-                df_bp = pd.DataFrame(metrics_bp, index=["✅ Excellents (>105%)", "📊 Moyenne région"]).T
-                df_bp.index.name = "Indicateur"
-                st.dataframe(df_bp, use_container_width=True)
-
-                # Recommandation automatique
-                st.markdown("#### 💡 Recommandations pour cette région")
-                recs = []
-                avg_dap = df_exc["dap_kg_ha"].dropna().mean() if "dap_kg_ha" in df_exc else None
-                avg_fum = df_exc["fumure_kg_ha"].dropna().mean() if "fumure_kg_ha" in df_exc else None
-                avg_pest = df_exc["pesticide_l_ha"].dropna().mean() if "pesticide_l_ha" in df_exc else None
-
-                if avg_dap:
-                    recs.append(f"**DAP optimal :** {avg_dap:.0f} kg/ha "
-                                f"(référence nationale : {REF_DOSES['DAP']['optimal']} kg/ha)")
-                if avg_fum:
-                    recs.append(f"**Fumure organique :** {avg_fum:.0f} kg/ha")
-                if avg_pest:
-                    recs.append(f"**Pesticides :** {avg_pest:.2f} L/ha "
-                                f"— {'🟢 sous la limite' if avg_pest < REF_DOSES['PESTICIDE']['optimal'] else '🟡 surveiller'}")
-
-                recs.append(f"**Rendement cible {sel_reg2} :** {ref_reg} t/ha (régionale) "
-                            f"→ viser {ref_reg * 1.15:.0f} t/ha pour niveau Excellent")
-
-                for r in recs:
-                    st.markdown(f"• {r}")
-
-            # Comparaison variétés
-            st.markdown("---")
-            st.markdown("#### 🍅 Comparaison par variété")
-            if "variete" in df.columns:
-                df_var_grp = df.groupby("variete").agg(
-                    n=("agriculteur", "count"),
-                    rendement_moy=("rendement_t_ha", "mean"),
-                    efficacite_moy=("efficacite", "mean"),
-                    dap_moy=("dap_kg_ha", "mean"),
-                ).reset_index().dropna(subset=["rendement_moy"])
-                df_var_grp.columns = ["Variété","Nb agri.","Rend. moy. (t/ha)","Efficacité moy.","DAP moy. (kg/ha)"]
-                df_var_grp = df_var_grp.sort_values("Rend. moy. (t/ha)", ascending=False)
-                st.dataframe(df_var_grp, use_container_width=True, hide_index=True)
+            intrant_cols = [c for c in df.columns if any(
+                x in c.lower() for x in ["engrais","fertilisant","fongicide",
+                                          "insecticide","irrigation","total_intrant"])]
+            if not intrant_cols:
+                st.warning("Pas de données Sotusfa — importez le fichier intrants.")
             else:
-                st.info("Ajoutez la colonne 'variete' dans votre fichier pour cette analyse.")
+                st.markdown("### 💊 Efficacité des intrants par agriculteur")
 
-    # ══════════════════════════════════════════════════════
-    # TAB 5 : SQL / EXPORT
-    # ══════════════════════════════════════════════════════
-    with tab_sql:
-        st.markdown("### ⚙️ SQL Supabase — Créer la table")
-        st.code(SQL_CREATE_TABLE, language="sql")
-        st.caption("Exécutez ce SQL une seule fois dans l'éditeur SQL de Supabase.")
+                sel_comm3 = st.selectbox("Commercial",
+                    ["Tous"] + sorted(df["commercial"].dropna().unique().tolist())
+                    if "commercial" in df.columns else ["Tous"], key="t3_comm")
+                df_f3 = df[df["commercial"]==sel_comm3].copy() \
+                        if sel_comm3 != "Tous" else df.copy()
 
-        # Export Excel
-        df = st.session_state.get("agro_df", pd.DataFrame())
-        if not df.empty:
+                # KPIs intrants
+                ks = st.columns(4)
+                if "total_intrants" in df_f3.columns:
+                    ks[0].metric("Total intrants",
+                                 f"{df_f3['total_intrants'].sum():,.0f} TND")
+                if "cout_intrants_par_tonne" in df_f3.columns:
+                    ks[1].metric("Coût moy/tonne",
+                                 f"{df_f3['cout_intrants_par_tonne'].mean():,.0f} TND/t")
+                if "engrais" in df_f3.columns and "plan_actif" in df_f3.columns:
+                    eng_plant = (df_f3["engrais"].sum() /
+                                 df_f3["plan_actif"].sum() * 1000) if df_f3["plan_actif"].sum() > 0 else 0
+                    ks[2].metric("Engrais/1000 plants", f"{eng_plant:.1f} TND")
+                if "tonnage" in df_f3.columns:
+                    ks[3].metric("Tonnage total", f"{df_f3['tonnage'].sum():,.1f} t")
+
+                # Graphique empilé intrants par agriculteur
+                fam_cols = [c for c in df_f3.columns if c in
+                            ["engrais","fertilisant","fongicide",
+                             "insecticide","irrigation","divers"]]
+                if fam_cols and "agriculteur" in df_f3.columns:
+                    df_melt = df_f3[["agriculteur"] + fam_cols].dropna(
+                        subset=fam_cols, how="all")
+                    df_melt = df_melt.melt(id_vars="agriculteur",
+                                           value_vars=fam_cols,
+                                           var_name="Intrant", value_name="TND")
+                    df_melt["TND"] = df_melt["TND"].fillna(0)
+                    fig_int = px.bar(df_melt, x="agriculteur", y="TND",
+                                     color="Intrant", barmode="stack",
+                                     template="plotly_dark",
+                                     title="Dépenses intrants par agriculteur (TND)",
+                                     color_discrete_sequence=px.colors.qualitative.Set2)
+                    fig_int.update_layout(paper_bgcolor="#161b22",
+                                          plot_bgcolor="#0d1117", height=420,
+                                          xaxis_tickangle=-35)
+                    st.plotly_chart(fig_int, use_container_width=True)
+
+                # Scatter Coût/tonne vs Rendement
+                if ("cout_intrants_par_tonne" in df_f3.columns and
+                    "rendement_t_ha" in df_f3.columns):
+                    st.markdown("#### 💡 Coût intrants/tonne vs Rendement")
+                    st.caption("Idéal = en bas à droite (faible coût, haut rendement)")
+                    fig_sc = px.scatter(
+                        df_f3.dropna(subset=["cout_intrants_par_tonne","rendement_t_ha"]),
+                        x="cout_intrants_par_tonne", y="rendement_t_ha",
+                        color="commercial" if "commercial" in df_f3.columns else None,
+                        size="tonnage" if "tonnage" in df_f3.columns else None,
+                        hover_data=[c for c in ["agriculteur","region","variete"]
+                                    if c in df_f3.columns],
+                        labels={"cout_intrants_par_tonne":"Coût intrants (TND/t)",
+                                "rendement_t_ha":"Rendement (t/ha)"},
+                        color_discrete_map=COMM_COLORS,
+                        template="plotly_dark")
+                    fig_sc.update_layout(paper_bgcolor="#161b22",
+                                         plot_bgcolor="#0d1117", height=400)
+                    st.plotly_chart(fig_sc, use_container_width=True)
+
+    # ══════════════════════════════════════════
+    # TAB 4 — CLASSEMENTS
+    # ══════════════════════════════════════════
+    with t4:
+        df = st.session_state.get("agro_merged")
+        if df is None or df.empty:
+            st.info("📥 Importez vos fichiers dans l'onglet 'Import'.")
+        else:
+            st.markdown("### 🏆 Classement des commerciaux")
+            if "commercial" in df.columns and "rendement_t_ha" in df.columns:
+                rows_r = []
+                for comm in sorted(df["commercial"].dropna().unique()):
+                    sub = df[df["commercial"]==comm]
+                    tot_t    = sub["tonnage"].sum() if "tonnage" in sub.columns else 0
+                    avg_rend = sub["rendement_t_ha"].mean() \
+                               if "rendement_t_ha" in sub.columns else 0
+                    avg_tp   = sub["taux_prise_pct"].mean() \
+                               if "taux_prise_pct" in sub.columns else 0
+                    cout_t   = sub["cout_intrants_par_tonne"].mean() \
+                               if "cout_intrants_par_tonne" in sub.columns else 0
+                    kg_plant = sub["kg_par_plant_actif"].mean() \
+                               if "kg_par_plant_actif" in sub.columns else 0
+                    exc_pct  = (len(sub[sub.get("score_ratio",
+                                pd.Series([0]*len(sub))) >= 1.05]) /
+                               max(len(sub),1) * 100) if "score_ratio" in sub.columns else 0
+                    rows_r.append({
+                        "Commercial":     comm,
+                        "Nb agriculteurs":len(sub),
+                        "Tonnage (t)":    round(tot_t,0),
+                        "Rend. moy. t/ha":round(avg_rend,2),
+                        "Taux prise %":   round(avg_tp,1),
+                        "Coût/tonne TND": round(cout_t,0),
+                        "kg/plant actif": round(kg_plant,4),
+                        "% Excellents":   round(exc_pct,1),
+                    })
+                df_rank = pd.DataFrame(rows_r)\
+                          .sort_values("Rend. moy. t/ha", ascending=False)\
+                          .reset_index(drop=True)
+                df_rank.index += 1
+                medals = ["🥇","🥈","🥉"] + [""]*10
+                df_rank.insert(0,"",medals[:len(df_rank)])
+
+                st.dataframe(df_rank, use_container_width=True,
+                             column_config={
+                                 "Rend. moy. t/ha": st.column_config.ProgressColumn(
+                                     "Rend. moy. t/ha", min_value=0, max_value=50,format="%.2f"),
+                                 "Taux prise %": st.column_config.ProgressColumn(
+                                     "Taux prise %", min_value=80, max_value=100,format="%.1f%%"),
+                             })
+
+                # Radar chart
+                fig_r = go.Figure()
+                for comm in df_rank["Commercial"].tolist():
+                    row_r = df_rank[df_rank["Commercial"]==comm].iloc[0]
+                    fig_r.add_trace(go.Scatterpolar(
+                        r=[min(row_r["Rend. moy. t/ha"]/50,1),
+                           min(row_r["Taux prise %"]/100,1),
+                           min(row_r["% Excellents"]/100,1),
+                           1-min(row_r["Coût/tonne TND"]/2000,1)],
+                        theta=["Rendement","Taux prise","% Excellents","Efficacité coût"],
+                        fill="toself", name=comm,
+                        line_color=COMM_COLORS.get(comm,"#888")))
+                fig_r.update_layout(polar=dict(bgcolor="#161b22"),
+                    template="plotly_dark", paper_bgcolor="#161b22", height=420)
+                st.plotly_chart(fig_r, use_container_width=True)
+
+    # ══════════════════════════════════════════
+    # TAB 5 — ANALYSE PAR VARIÉTÉ
+    # ══════════════════════════════════════════
+    with t5:
+        df = st.session_state.get("agro_merged")
+        if df is None or df.empty:
+            st.info("📥 Importez vos fichiers dans l'onglet 'Import'.")
+        elif "variete" not in df.columns:
+            st.warning("Colonne 'variété' absente — ajoutez-la dans le fichier Royal.")
+        else:
+            st.markdown("### 🔬 Analyse par variété et région")
+
+            sel_reg5 = st.selectbox("Région",
+                ["Toutes"] + sorted(df["region"].dropna().unique().tolist())
+                if "region" in df.columns else ["Toutes"], key="t5_reg")
+            df_f5 = df[df["region"]==sel_reg5].copy() if sel_reg5 != "Toutes" else df.copy()
+            df_f5 = df_f5.dropna(subset=["variete"])
+
+            if "rendement_t_ha" in df_f5.columns:
+                var_stats = df_f5.groupby("variete").agg(
+                    Nb_agri=("variete","count"),
+                    Rend_moy=("rendement_t_ha","mean"),
+                    Taux_prise=("taux_prise_pct","mean") if "taux_prise_pct" in df_f5.columns else ("variete","count"),
+                    Tonnage=("tonnage","sum") if "tonnage" in df_f5.columns else ("variete","count"),
+                    Plan_actif=("plan_actif","sum") if "plan_actif" in df_f5.columns else ("variete","count"),
+                ).reset_index()
+                var_stats.columns = ["Variété","Nb agri.","Rend. moy (t/ha)",
+                                     "Taux prise %","Tonnage (t)","Plan Actif"]
+                var_stats = var_stats.sort_values("Rend. moy (t/ha)", ascending=False)
+
+                fig_v = px.bar(var_stats, x="Variété", y="Rend. moy (t/ha)",
+                               color="Rend. moy (t/ha)",
+                               color_continuous_scale=["#E53935","#FF9800","#1E8449"],
+                               text_auto=".1f", template="plotly_dark",
+                               title=f"Rendement moyen par variété — {sel_reg5}")
+                fig_v.update_layout(paper_bgcolor="#161b22",
+                                    plot_bgcolor="#0d1117", height=360)
+                st.plotly_chart(fig_v, use_container_width=True)
+                st.dataframe(var_stats, use_container_width=True, hide_index=True)
+
+                st.markdown("---")
+                st.markdown("#### 💡 Recommandation variété × région")
+                if not var_stats.empty:
+                    best = var_stats.iloc[0]
+                    st.success(f"✅ **Meilleure variété** pour {sel_reg5} : "
+                               f"**{best['Variété']}** avec {best['Rend. moy (t/ha)']:.1f} t/ha "
+                               f"({best['Nb agri.']} agriculteurs)")
+
+    # ══════════════════════════════════════════
+    # TAB 6 — SQL / EXPORT
+    # ══════════════════════════════════════════
+    with t6:
+        st.markdown("### ⚙️ SQL Supabase — à exécuter une seule fois")
+        st.code(SQL_CREATE, language="sql")
+
+        df = st.session_state.get("agro_merged")
+        if df is not None and not df.empty:
             st.markdown("---")
-            st.markdown("### 📤 Exporter les données calculées")
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-                df.to_excel(writer, sheet_name="Performance", index=False)
-            buf.seek(0)
+            st.markdown("### 📤 Exporter les résultats calculés")
             st.download_button(
-                "📥 Exporter Performance Agronomique (Excel)",
-                data=buf.getvalue(),
-                file_name="agro_performance_2026.xlsx",
+                "📥 Exporter tout (Excel formaté)",
+                data=export_resultats_excel(df),
+                file_name="agro_performance_resultats_2026.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary",
-            )
+                type="primary", use_container_width=True)
+
+            col_e1, col_e2 = st.columns(2)
+            with col_e1:
+                csv = df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+                st.download_button("⬇️ CSV brut",data=csv,
+                    file_name="agro_performance_2026.csv", mime="text/csv",
+                    use_container_width=True)
+            with col_e2:
+                if st.button("🔄 Recharger depuis Supabase", use_container_width=True):
+                    df_sb = load_supabase(sb)
+                    if not df_sb.empty:
+                        st.session_state["agro_merged"] = df_sb
+                        st.success(f"✅ {len(df_sb)} agriculteurs rechargés")
+                    else:
+                        st.warning("Aucune donnée Supabase — importez d'abord.")
