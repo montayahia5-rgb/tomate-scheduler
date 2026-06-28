@@ -33,8 +33,8 @@ FAM_NORM_MAP = {
     "fertilissant":"Fertilisant","fertilisant":"Fertilisant",
     "fongicide":"Fongicide","insecticide":"Insecticide",
     "irrigations ":"Irrigation","irrigations":"Irrigation",
-    "irrigations turk":"Irrigation",
-    "herbicide":"Herbicide","divers":"Divers",
+    "irrigations turk":"Irrigation","irrigation":"Irrigation","irrigation ":"Irrigation",
+    "herbicide":"Herbicide","divers":"Divers","divers ":"Divers",
     "materiel":"Matériel","traitement":"Traitement",
 }
 
@@ -188,9 +188,10 @@ def parse_bourak(file_obj):
     df = df.rename(columns=rename)
 
     # Vérification colonnes obligatoires
-    ok, msg = _check_required(df, "BOURAK", ["client","centre"])
-    if not ok:
-        return None, msg
+    if "client" not in df.columns:
+        return None, "BOURAK — colonne client manquante"
+    if "centre" not in df.columns:
+        df["centre"] = ""
 
     for c in ["hectares","avance","report"]:
         if c in df.columns:
@@ -234,9 +235,10 @@ def parse_royal(file_obj):
                 rename[c] = tgt; break
     df = df.rename(columns=rename)
 
-    ok, msg = _check_required(df, "ROYAL", ["client","centre"])
-    if not ok:
-        return None, msg
+    if "client" not in df.columns:
+        return None, "ROYAL — colonne client manquante"
+    if "centre" not in df.columns:
+        df["centre"] = ""
 
     for c in ["qte_livree","valeur_plants","nb_plateaux"]:
         if c in df.columns:
@@ -275,9 +277,10 @@ def parse_sotusfa(file_obj):
                 rename[c] = tgt; break
     df = df.rename(columns=rename)
 
-    ok, msg = _check_required(df, "SOTUSFA", ["client","centre"])
-    if not ok:
-        return None, msg
+    if "client" not in df.columns:
+        return None, None, "SOTUSFA — colonne client/agriculteur manquante"
+    if "centre" not in df.columns:
+        df["centre"] = ""
 
     for c in ["qte","valeur","prix_u"]:
         if c in df.columns:
@@ -338,9 +341,10 @@ def parse_quantite(file_obj):
                 rename[c] = tgt; break
     df = df.rename(columns=rename)
 
-    ok, msg = _check_required(df, "TABLEAU QUANTITÉ", ["client","centre"])
-    if not ok:
-        return None, msg
+    if "client" not in df.columns:
+        return None, "TABLEAU QUANTITÉ — colonne client manquante"
+    if "centre" not in df.columns:
+        df["centre"] = ""
 
     for c in ["qte_livree","qte_actif","qte_extra","tonnage_livre","prix_vente"]:
         if c in df.columns:
@@ -1357,16 +1361,25 @@ Attendu : qte_livree · qte_actif · qte_extra · tonnage_livre · prix_vente</s
     # ══ TAB 5 — PAR FAMILLE INTRANT ═══════════════════════
     with t5:
         ds = st.session_state.get("abo_sotusfa_raw")
-        if ds is None or ds.empty: _no_data()
-        elif "famille_norm" not in ds.columns:
-            st.warning("Colonne 'famille_norm' absente après parsing Sotusfa.")
+        if ds is None or ds.empty:
+            _no_data()
+            st.caption("Importez le fichier Sotusfa dans l'onglet ⚙️.")
         else:
-            fg = ds.groupby("famille_norm").agg(
-                Nb_agri     = ("client","nunique") if "client" in ds.columns else ("famille_norm","count"),
-                Valeur_DT   = ("valeur","sum"),
-            ).reset_index()
-            fg["Valeur_DT"] = fg["Valeur_DT"].round(0)
-            fg["Part_pct"]  = (fg["Valeur_DT"]/fg["Valeur_DT"].sum()*100).round(1)
+            # Recalculer famille_norm si absent
+            if "famille_norm" not in ds.columns and "famille" in ds.columns:
+                ds = ds.copy()
+                ds["famille_norm"] = ds["famille"].astype(str).str.strip().str.lower()\
+                                     .map(FAM_NORM_MAP).fillna("Autre")
+            if "famille_norm" not in ds.columns:
+                st.warning("Colonne famille absente.")
+            else:
+                _cl = "client" if "client" in ds.columns else (
+                      "agriculteur" if "agriculteur" in ds.columns else None)
+                _agg = {"Valeur_DT":("valeur","sum")}
+                if _cl: _agg["Nb_agri"] = (_cl,"nunique")
+                fg = ds.groupby("famille_norm").agg(**_agg).reset_index()
+                fg["Valeur_DT"] = fg["Valeur_DT"].round(0)
+                fg["Part_pct"]  = (fg["Valeur_DT"]/fg["Valeur_DT"].sum()*100).round(1)
             fg = fg.sort_values("Valeur_DT",ascending=False)
 
             c5a,c5b = st.columns(2)
@@ -1375,3 +1388,143 @@ Attendu : qte_livree · qte_actif · qte_extra · tonnage_livre · prix_vente</s
                     template="plotly_dark",title="Dépenses intrants par famille (DT)",
                     color_discrete_sequence=px.colors.qualitative.Set2)
                 fig5.update_layout(paper_bgcolor="#161b22",height=370)
+                st.plotly_chart(fig5, use_container_width=True)
+            with c5b:
+                fig5b = px.bar(fg, x="famille_norm", y="Valeur_DT",
+                    color="Valeur_DT",
+                    color_continuous_scale=["#1A5C2A","#4CAF50","#A5D6A7"],
+                    template="plotly_dark", text_auto=",.0f",
+                    title="Dépenses par famille (DT)")
+                fig5b.update_traces(textposition="outside", textfont_size=11)
+                fig5b.update_layout(paper_bgcolor="#161b22",
+                    plot_bgcolor="#0d1117", height=370,
+                    xaxis_tickangle=-30)
+                st.plotly_chart(fig5b, use_container_width=True)
+
+            # Tableau + téléchargement
+            fg_disp = fg.rename(columns={"famille_norm":"Famille","Part_pct":"Part %"})
+            st.dataframe(fg_disp, use_container_width=True, hide_index=True,
+                column_config={
+                    "Valeur_DT": st.column_config.NumberColumn("Valeur (DT)", format="%,.0f"),
+                    "Part %":    st.column_config.ProgressColumn(
+                        "Part %", min_value=0, max_value=100, format="%.1f%%"),
+                })
+            st.download_button(
+                "📥 Télécharger Famille Intrant (Excel)",
+                data=_export_excel_table(fg_disp,
+                    "Famille Intrant",
+                    "Dépenses Intrants par Famille — Campagne 2026",
+                    "1A5C2A"),
+                file_name="famille_intrant_2026.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True)
+
+    # ══ TAB 6 — PRÉVISIONS VS RÉALISÉ ═════════════════════
+    with t6:
+        if df is None or df.empty:
+            _no_data()
+        else:
+            prev_exist = [c for c in ["prevision_dec","prevision_mai",
+                                       "prevision_juin","tonnage_livre"]
+                          if c in df.columns]
+            # Afficher même avec une seule source
+            if not any(c in df.columns for c in
+                       ["prevision_dec","prevision_mai","prevision_juin"]):
+                st.info("Importez un fichier de prévision (Déc ou Mai) "
+                        "dans l'onglet ⚙️.")
+            else:
+                # Totaux par période
+                labels_map = {
+                    "prevision_dec":  "Prévision Déc",
+                    "prevision_mai":  "Prévision Mai",
+                    "prevision_juin": "Prévision Juin",
+                    "tonnage_livre":  "Réalisé",
+                }
+                tots = {}
+                for col, lbl in labels_map.items():
+                    if col in df.columns:
+                        val = df[col].fillna(0).sum()
+                        if val > 0:
+                            tots[lbl] = val
+
+                if tots:
+                    # Graphique évolution
+                    fig6 = go.Figure()
+                    bar_colors = {
+                        "Prévision Déc": "#78909C",
+                        "Prévision Mai": "#42A5F5",
+                        "Prévision Juin":"#1E8449",
+                        "Réalisé":       "#FF9800",
+                    }
+                    for lbl, val in tots.items():
+                        fig6.add_trace(go.Bar(
+                            name=lbl, x=[lbl], y=[val],
+                            marker_color=bar_colors.get(lbl,"#888"),
+                            text=[f"{val:,.0f} T"],
+                            textposition="outside",
+                            textfont_size=13))
+
+                    # Ligne recouvrement
+                    if "tonnage_recouvrement" in df.columns:
+                        recouv = df["tonnage_recouvrement"].fillna(0).sum()
+                        if recouv > 0:
+                            fig6.add_hline(y=recouv,
+                                line_dash="dash", line_color="#ef5350",
+                                line_width=2.5,
+                                annotation_text=f"⚠️ Recouvrement : {recouv:,.0f} T",
+                                annotation_font_color="#ef5350",
+                                annotation_font_size=12)
+
+                    fig6.update_layout(
+                        template="plotly_dark",
+                        paper_bgcolor="#161b22",
+                        plot_bgcolor="#0d1117",
+                        height=420, showlegend=False,
+                        title="Évolution prévisions vs Recouvrement minimal",
+                        yaxis_title="Tonnes")
+                    st.plotly_chart(fig6, use_container_width=True)
+
+                # KPIs comparaison
+                if tots:
+                    cols_k = st.columns(len(tots))
+                    for i, (lbl, val) in enumerate(tots.items()):
+                        ref = tots.get("Prévision Déc", val)
+                        delta = val - ref if lbl != "Prévision Déc" and ref > 0 else None
+                        cols_k[i].markdown(
+                            _metric(lbl, f"{val:,.0f} T",
+                                color=bar_colors.get(lbl, "#888"),
+                                delta=delta),
+                            unsafe_allow_html=True)
+
+                # Tableau par agriculteur
+                pv_cols = [c for c in [
+                    "agriculteur","centre","commercial",
+                    "prevision_dec","prevision_mai",
+                    "prevision_juin","tonnage_livre",
+                    "tonnage_recouvrement","ecart_tonnage","alerte"
+                ] if c in df.columns]
+
+                df_pv = df[pv_cols].copy()
+                df_pv.columns = [c.replace("_"," ").replace("prevision","Prév.").title()
+                                  for c in df_pv.columns]
+
+                st.markdown("#### 📋 Tableau prévisions vs réalisé par agriculteur")
+                st.dataframe(df_pv.round(1),
+                    use_container_width=True,
+                    hide_index=True,
+                    height=400,
+                    column_config={
+                        c: st.column_config.NumberColumn(c, format="%,.1f")
+                        for c in df_pv.select_dtypes("number").columns
+                    })
+
+                st.download_button(
+                    "📥 Télécharger Prévisions vs Réalisé (Excel)",
+                    data=_export_excel_table(
+                        df_pv,
+                        "Previsions",
+                        "Prévisions vs Réalisé — Campagne 2026",
+                        "4A235A"),
+                    file_name="previsions_vs_realise_2026.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True)
