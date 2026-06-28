@@ -290,11 +290,21 @@ def parse_sotusfa(file_obj):
         df["famille_norm"] = df["famille"].astype(str).str.strip().str.lower()\
                              .map(FAM_NORM_MAP).fillna("Autre")
 
-    # Pivot par client + famille → une ligne par client
+    # Pivot par (client + centre) + famille → une ligne par client
     if "famille_norm" in df.columns and "valeur" in df.columns:
-        pivot = df.groupby(["client","famille_norm"])["valeur"].sum().unstack(
+        grp_cols = ["client"]
+        if "centre" in df.columns:
+            grp_cols.append("centre")
+        pivot = df.groupby(grp_cols + ["famille_norm"])["valeur"].sum().unstack(
             fill_value=0).reset_index()
-        pivot.columns = ["client"] + [_norm(str(c)) for c in pivot.columns[1:]]
+        # Normaliser noms colonnes (familles)
+        new_cols = []
+        for i, c in enumerate(pivot.columns):
+            if i < len(grp_cols):
+                new_cols.append(c)
+            else:
+                new_cols.append(_norm(str(c)))
+        pivot.columns = new_cols
         pivot["total_intrants"] = pivot.select_dtypes("number").sum(axis=1)
     else:
         pivot = pd.DataFrame()
@@ -343,14 +353,23 @@ def parse_quantite(file_obj):
 
 
 def parse_prevision(file_obj, col_name):
-    """Prévision Déc ou Mai — colonnes obligatoires : client · centre"""
+    """
+    Prévision Déc ou Mai.
+    Accepte le format réel (responsable région / AGRICULTEUR / TONNAGE)
+    centre est OPTIONNEL dans ce fichier.
+    """
     try:
         df = _read_auto(file_obj,
-             ["client","agriculteur","centre","prevision","tonnage"])
+             ["agriculteur","client","tonnage","prevision","responsable"])
+
         MAP = {
-            "client":  ["client","agriculteur","nom"],
-            "centre":  ["centre","centre_collecte"],
-            col_name:  ["prevision","tonnage","tonnes","quantite"],
+            "client":     ["client","agriculteur","nom"],
+            "commercial": ["responsable_region","responsable region",
+                           "commercial","responsable","resp"],
+            "centre":     ["centre","centre_collecte"],
+            "region":     ["region"],
+            col_name:     ["tonnage","prevision","tonnes","quantite",
+                           "tonnage_total","total_tonnage"],
         }
         rename = {}
         for tgt, cands in MAP.items():
@@ -359,14 +378,29 @@ def parse_prevision(file_obj, col_name):
                     rename[c] = tgt; break
         df = df.rename(columns=rename)
 
-        ok, msg = _check_required(df, f"PRÉVISION ({col_name})", ["client","centre"])
-        if not ok:
-            return None, msg
+        # client obligatoire
+        if "client" not in df.columns:
+            return None, f"PRÉVISION ({col_name}) — colonne client/AGRICULTEUR manquante"
 
-        df[col_name] = pd.to_numeric(df[col_name], errors="coerce").fillna(0)
+        df[col_name] = pd.to_numeric(df.get(col_name, 0), errors="coerce").fillna(0)
         df["client"] = df["client"].astype(str).str.strip()
-        df = df[~df["client"].str.upper().isin(["","NAN","TOTAL"])]
-        return df[["client","centre",col_name]], ""
+
+        # Filtrer lignes TOTAL, vides, sous-totaux
+        df = df[~df["client"].str.upper().str.strip().isin(
+            ["","NAN","TOTAL","TOTAL FEDI","TOTAL MEKKI","TOTAL KHALIL",
+             "TOTAL MAKKI","TOTAL ACHREF","TOTAL JILANI","TOTAL MAKKI BEN SALAH",
+             "TOTAL ACHREF AJLANI","TOTAL JILANI OBAY","SOUS-TOTAL"])]
+        df = df[df[col_name] > 0]
+
+        # centre optionnel — créer vide si absent
+        if "centre" not in df.columns:
+            df["centre"] = ""
+
+        keep = ["client","centre",col_name]
+        for extra in ["commercial","region"]:
+            if extra in df.columns:
+                keep.append(extra)
+        return df[keep], ""
     except Exception as e:
         return None, str(e)
 
@@ -446,7 +480,10 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     # ── Merge SOTUSFA ──────────────────────────────────────
     if df_sotusfa_pivot is not None and not df_sotusfa_pivot.empty:
         s = _upper(df_sotusfa_pivot.copy(), KEY)
-        base = base.merge(s, on=KEY, how="left")
+        # Merge flexible : KEY disponibles dans les 2 DataFrames
+        sot_key = [c for c in KEY if c in s.columns and c in base.columns]
+        if sot_key:
+            base = base.merge(s, on=sot_key, how="left")
 
     # ── Merge QUANTITÉ ─────────────────────────────────────
     if df_quantite is not None and not df_quantite.empty:
@@ -457,12 +494,21 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     for df_p, col in [(df_prev_dec,"prevision_dec"),
                       (df_prev_mai,"prevision_mai"),
                       (df_prev_juin,"prevision_juin")]:
-        if df_p is not None and not df_p.empty:
+        if df_p is not None and not df_p.empty and col in df_p.columns:
             p = df_p.copy()
-            p = _upper(p, [c for c in KEY if c in p.columns])
-            merge_key = [c for c in KEY if c in p.columns and c in base.columns]
+            p = _upper(p, [c for c in ["client","centre"] if c in p.columns])
+            # Merge sur client seul si centre vide/absent dans le fichier prévision
+            merge_key = []
+            for k in ["client","centre"]:
+                if k in p.columns and k in base.columns:
+                    vals = p[k].astype(str).str.strip()
+                    if vals.replace("","NaN").ne("NaN").any():
+                        merge_key.append(k)
+            if not merge_key and "client" in p.columns and "client" in base.columns:
+                merge_key = ["client"]
             if merge_key:
-                base = base.merge(p[merge_key + [col]], on=merge_key, how="left")
+                p_clean = p[merge_key + [col]].drop_duplicates(subset=merge_key)
+                base = base.merge(p_clean, on=merge_key, how="left")
 
     # ══ CALCULS ═══════════════════════════════════════════
     df = base.copy()
@@ -1046,8 +1092,13 @@ Attendu : qte_livree · qte_actif · qte_extra · tonnage_livre · prix_vente</s
                                       type=["xlsx","xls"],key="up_dec")
             if f_dec:
                 df_d, msg = parse_prevision(f_dec, "prevision_dec")
-                if msg: st.error(msg)
-                elif df_d is not None:
+                if msg:
+                    st.warning(f"⚠️ Déc (non bloquant): {msg}")
+                    # Essayer quand même avec ce qu'on a
+                    if df_d is not None and not df_d.empty:
+                        st.session_state["abo_prev_dec"] = df_d
+                        st.success(f"✅ Déc chargé malgré avertissement: {df_d['prevision_dec'].sum():,.0f} T")
+                elif df_d is not None and not df_d.empty:
                     st.session_state["abo_prev_dec"] = df_d
                     st.success(f"✅ Déc: {df_d['prevision_dec'].sum():,.0f} T")
         with pv2:
@@ -1055,8 +1106,12 @@ Attendu : qte_livree · qte_actif · qte_extra · tonnage_livre · prix_vente</s
                                       type=["xlsx","xls"],key="up_mai")
             if f_mai:
                 df_m, msg = parse_prevision(f_mai, "prevision_mai")
-                if msg: st.error(msg)
-                elif df_m is not None:
+                if msg:
+                    st.warning(f"⚠️ Mai (non bloquant): {msg}")
+                    if df_m is not None and not df_m.empty:
+                        st.session_state["abo_prev_mai"] = df_m
+                        st.success(f"✅ Mai chargé malgré avertissement: {df_m['prevision_mai'].sum():,.0f} T")
+                elif df_m is not None and not df_m.empty:
                     st.session_state["abo_prev_mai"] = df_m
                     st.success(f"✅ Mai: {df_m['prevision_mai'].sum():,.0f} T")
         with pv3:
