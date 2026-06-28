@@ -907,6 +907,77 @@ def export_excel(df, df_sotusfa_raw=None):
 # RENDER PRINCIPAL
 # ══════════════════════════════════════════════════════════════
 
+
+def _export_excel_table(df, sheet_title="Data",
+                        header_text="Export", color_hex="1F3864"):
+    """Excel formaté attractif pour n'importe quel DataFrame."""
+    from openpyxl import Workbook
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    import io as _io, numpy as _np
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_title[:31]
+    ws.sheet_view.showGridLines = False
+    T = Side(style="thin", color="CCCCCC")
+    BD = Border(left=T, right=T, top=T, bottom=T)
+    CTR = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    LFT = Alignment(horizontal="left", vertical="center")
+    def hf(h): return PatternFill("solid", start_color=h, end_color=h)
+    def bf(bold=True, white=False, size=10):
+        return Font(bold=bold, name="Calibri", size=size,
+                    color="FFFFFF" if white else "000000")
+    nc = max(len(df.columns), 1)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=nc)
+    ws["A1"] = header_text
+    ws["A1"].font = bf(True, True, 12)
+    ws["A1"].fill = hf(color_hex)
+    ws["A1"].alignment = CTR
+    ws.row_dimensions[1].height = 30
+    for ci, col in enumerate(df.columns, 1):
+        c = ws.cell(2, ci, value=str(col))
+        c.font = bf(True, True, 10)
+        c.fill = hf(color_hex)
+        c.alignment = CTR
+        c.border = BD
+        ws.column_dimensions[get_column_letter(ci)].width = max(14, len(str(col)) + 4)
+    ws.row_dimensions[2].height = 28
+    for ri, (_, row) in enumerate(df.iterrows()):
+        r = ri + 3
+        bg = "F0F5FF" if ri % 2 == 0 else "FFFFFF"
+        for ci, val in enumerate(row, 1):
+            if isinstance(val, float) and _np.isnan(val):
+                val = ""
+            c = ws.cell(r, ci, value=val)
+            c.border = BD
+            c.fill = hf(bg)
+            c.alignment = LFT if ci == 1 else CTR
+            c.font = bf(ci == 1, size=10)
+            if isinstance(val, (int, float)) and val == val and val != "":
+                c.number_format = "#,##0" if abs(float(val)) >= 100 else "0.0"
+    num_ci = [i + 1 for i, col in enumerate(df.columns)
+              if str(df[col].dtype).startswith(("int", "float"))]
+    if num_ci:
+        tr = len(df) + 3
+        for ci in range(1, nc + 1):
+            c = ws.cell(tr, ci)
+            c.fill = hf(color_hex)
+            c.font = bf(True, True)
+            c.border = BD
+            c.alignment = CTR
+        ws.cell(tr, 1).value = "TOTAL"
+        ws.cell(tr, 1).alignment = LFT
+        for ci in num_ci:
+            col_l = get_column_letter(ci)
+            ws.cell(tr, ci).value = f"=SUM({col_l}3:{col_l}{tr-1})"
+            ws.cell(tr, ci).number_format = "#,##0"
+        ws.row_dimensions[tr].height = 22
+    ws.freeze_panes = "A3"
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()
+
 def render_agroeco_tab(sb=None, CURRENT_ROLE="directeur", CURRENT_NAME=""):
 
     st.markdown("""
