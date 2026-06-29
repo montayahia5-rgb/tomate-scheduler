@@ -12,6 +12,9 @@ CORRECTIONS v2 :
 
 import streamlit as st
 import pandas as pd
+import json as _json
+import gzip as _gzip
+import base64 as _b64
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
@@ -908,6 +911,109 @@ def export_excel(df, df_sotusfa_raw=None):
 # ══════════════════════════════════════════════════════════════
 
 
+
+# ══════════════════════════════════════════════════════════════
+# PERSISTANCE SESSION — Supabase (table agroeco_session)
+# ══════════════════════════════════════════════════════════════
+
+def _df_to_b64(df):
+    """Sérialise un DataFrame en base64 compressé."""
+    if df is None or df.empty:
+        return None
+    try:
+        # Convertir les types problématiques
+        df2 = df.copy()
+        for col in df2.select_dtypes(include=["datetime64"]).columns:
+            df2[col] = df2[col].astype(str)
+        raw = df2.to_json(orient="records", date_format="iso", force_ascii=False)
+        compressed = _gzip.compress(raw.encode("utf-8"))
+        return _b64.b64encode(compressed).decode("ascii")
+    except Exception:
+        return None
+
+def _b64_to_df(b64_str):
+    """Désérialise un DataFrame depuis base64 compressé."""
+    if not b64_str:
+        return None
+    try:
+        compressed = _b64.b64decode(b64_str.encode("ascii"))
+        raw = _gzip.decompress(compressed).decode("utf-8")
+        records = _json.loads(raw)
+        if not records:
+            return None
+        return pd.DataFrame(records)
+    except Exception:
+        return None
+
+def save_session_to_supabase(sb, user_name, session_data: dict):
+    """
+    Sauvegarde la session agroéco dans Supabase.
+    session_data = {
+        "merged": df_merged,
+        "bourak": df_bourak,
+        "royal": df_royal,
+        "sotusfa_raw": df_sotusfa_raw,
+        "sotusfa_pivot": df_sotusfa_pivot,
+        "quantite": df_quantite,
+        "prev_mai": df_prev_mai,
+        "params": params_dict,
+    }
+    """
+    if sb is None:
+        return False, "Supabase non disponible"
+    try:
+        payload = {
+            "user_name":   str(user_name),
+            "merged":      _df_to_b64(session_data.get("merged")),
+            "bourak":      _df_to_b64(session_data.get("bourak")),
+            "royal":       _df_to_b64(session_data.get("royal")),
+            "sotusfa_raw": _df_to_b64(session_data.get("sotusfa_raw")),
+            "sotusfa_pivot":_df_to_b64(session_data.get("sotusfa_pivot")),
+            "quantite":    _df_to_b64(session_data.get("quantite")),
+            "prev_mai":    _df_to_b64(session_data.get("prev_mai")),
+            "params":      _json.dumps(session_data.get("params", {})),
+            "saved_at":    pd.Timestamp.now().isoformat(),
+        }
+        # Supprimer ancienne session de cet utilisateur
+        sb.table("agroeco_session").delete().eq("user_name", str(user_name)).execute()
+        # Insérer nouvelle
+        sb.table("agroeco_session").insert(payload).execute()
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+def load_session_from_supabase(sb, user_name):
+    """
+    Charge la session agroéco depuis Supabase.
+    Retourne un dict avec les DataFrames restaurés.
+    """
+    if sb is None:
+        return None
+    try:
+        rows = sb.table("agroeco_session") \
+                 .select("*") \
+                 .eq("user_name", str(user_name)) \
+                 .order("saved_at", desc=True) \
+                 .limit(1) \
+                 .execute().data
+        if not rows:
+            return None
+        row = rows[0]
+        result = {
+            "merged":       _b64_to_df(row.get("merged")),
+            "bourak":       _b64_to_df(row.get("bourak")),
+            "royal":        _b64_to_df(row.get("royal")),
+            "sotusfa_raw":  _b64_to_df(row.get("sotusfa_raw")),
+            "sotusfa_pivot":_b64_to_df(row.get("sotusfa_pivot")),
+            "quantite":     _b64_to_df(row.get("quantite")),
+            "prev_mai":     _b64_to_df(row.get("prev_mai")),
+            "params":       _json.loads(row.get("params") or "{}"),
+            "saved_at":     row.get("saved_at", ""),
+        }
+        return result
+    except Exception:
+        return None
+
 def _export_excel_table(df, sheet_title="Data",
                         header_text="Export", color_hex="1F3864"):
     """Excel formaté attractif pour n'importe quel DataFrame."""
@@ -996,10 +1102,32 @@ padding:16px 20px;margin-bottom:18px'>
     # Session state
     KEYS = ["abo_bourak","abo_royal","abo_sotusfa_raw","abo_sotusfa_pivot",
             "abo_quantite","abo_prev_dec","abo_prev_mai","abo_prev_juin",
-            "abo_dates_recolte","abo_merged","abo_params","abo_errors"]
+            "abo_dates_recolte","abo_merged","abo_params","abo_errors",
+            "abo_session_loaded"]
     for k in KEYS:
         if k not in st.session_state:
             st.session_state[k] = None
+
+    # ── AUTO-RESTAURATION depuis Supabase ─────────────────────
+    # Si session vide + pas encore tenté de charger → essayer Supabase
+    if (st.session_state.get("abo_merged") is None and
+        not st.session_state.get("abo_session_loaded")):
+        st.session_state["abo_session_loaded"] = True  # éviter boucle
+        if sb is not None:
+            with st.spinner("🔄 Restauration de la dernière session…"):
+                _saved = load_session_from_supabase(sb, CURRENT_NAME or "default")
+            if _saved and _saved.get("merged") is not None:
+                st.session_state["abo_merged"]       = _saved["merged"]
+                st.session_state["abo_bourak"]       = _saved.get("bourak")
+                st.session_state["abo_royal"]        = _saved.get("royal")
+                st.session_state["abo_sotusfa_raw"]  = _saved.get("sotusfa_raw")
+                st.session_state["abo_sotusfa_pivot"]= _saved.get("sotusfa_pivot")
+                st.session_state["abo_quantite"]     = _saved.get("quantite")
+                st.session_state["abo_prev_mai"]     = _saved.get("prev_mai")
+                if _saved.get("params"):
+                    st.session_state["abo_params"]   = _saved["params"]
+                _ts = _saved.get("saved_at","")[:16].replace("T"," ")
+                st.toast(f"✅ Session restaurée (sauvegardée le {_ts})", icon="🔄")
 
     t0,t1,t2,t3,t4,t5,t6 = st.tabs([
         "⚙️ Paramètres & Import",
@@ -1046,6 +1174,25 @@ padding:16px 20px;margin-bottom:18px'>
             "mo_tonne":      mo_tonne,
         }
         st.session_state["abo_params"] = params
+
+        # ── Session sauvegardée ──────────────────────────
+        if sb is not None:
+            _saved_check = load_session_from_supabase(sb, CURRENT_NAME or "default")
+            if _saved_check and _saved_check.get("merged") is not None:
+                _ts = _saved_check.get("saved_at","")[:16].replace("T"," ")
+                st.success(f"💾 Session sauvegardée disponible (du {_ts}) — rechargée automatiquement à l'ouverture")
+                if st.button("🗑️ Effacer la session sauvegardée", use_container_width=True):
+                    try:
+                        sb.table("agroeco_session").delete().eq("user_name", CURRENT_NAME or "default").execute()
+                        for k in ["abo_merged","abo_bourak","abo_royal","abo_sotusfa_raw",
+                                  "abo_sotusfa_pivot","abo_quantite","abo_prev_mai","abo_session_loaded"]:
+                            st.session_state[k] = None
+                        st.success("✅ Session effacée. Vous pouvez importer de nouveaux fichiers.")
+                        st.rerun()
+                    except Exception as _e:
+                        st.error(f"Erreur : {_e}")
+            else:
+                st.info("💡 Après la fusion, cliquez **💾 Sauvegarder la session** pour ne plus avoir à réimporter les fichiers.")
 
         st.divider()
         st.markdown("### 📥 Import fichiers")
@@ -1250,12 +1397,33 @@ Attendu : qte_livree · qte_actif · qte_extra · tonnage_livre · prix_vente</s
                     f"✅ {len(df_merged)} agriculteurs · "
                     f"🔴 {n_r} critiques · 🟡 {n_y} attention · 🟢 {n_g} OK")
                 xl = export_excel(df_merged, st.session_state.get("abo_sotusfa_raw"))
-                st.download_button(
-                    "📥 Télécharger Excel complet (4 feuilles)",
-                    data=xl,
-                    file_name="dashboard_agroeco_2026.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary",use_container_width=True)
+                # ── Bouton sauvegarde session ──────────────────
+                col_save1, col_save2 = st.columns(2)
+                with col_save1:
+                    if st.button("💾 Sauvegarder la session (ne plus réimporter)",
+                                 use_container_width=True, type="primary"):
+                        _ok, _err = save_session_to_supabase(sb, CURRENT_NAME or "default", {
+                            "merged":       df_merged,
+                            "bourak":       st.session_state.get("abo_bourak"),
+                            "royal":        st.session_state.get("abo_royal"),
+                            "sotusfa_raw":  st.session_state.get("abo_sotusfa_raw"),
+                            "sotusfa_pivot":st.session_state.get("abo_sotusfa_pivot"),
+                            "quantite":     st.session_state.get("abo_quantite"),
+                            "prev_mai":     st.session_state.get("abo_prev_mai"),
+                            "params":       st.session_state.get("abo_params", {}),
+                        })
+                        if _ok:
+                            st.success("✅ Session sauvegardée ! La prochaine ouverture rechargera automatiquement.")
+                        else:
+                            st.error(f"❌ Erreur sauvegarde : {_err}")
+                            st.info("Vérifiez que la table 'agroeco_session' existe dans Supabase.")
+                with col_save2:
+                    st.download_button(
+                        "📥 Télécharger Excel complet (4 feuilles)",
+                        data=xl,
+                        file_name="dashboard_agroeco_2026.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True)
 
     # ── Données fusionnées ─────────────────────────────────
     df = st.session_state.get("abo_merged")
