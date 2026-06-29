@@ -12,9 +12,6 @@ CORRECTIONS v2 :
 
 import streamlit as st
 import pandas as pd
-import json as _json
-import gzip as _gzip
-import base64 as _b64
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
@@ -25,6 +22,16 @@ from datetime import date
 # CONSTANTES
 # ══════════════════════════════════════════════════════════════
 DATE_CAISSE_LIMITE = date(2026, 7, 10)
+
+# Paramètres caisses vides PAR USINE (modifiables dans l'UI)
+# Format : {usine: {"nb_ha": nb_caisses/ha, "prix": DT/caisse, "type": description}}
+CAISSES_USINE_DEFAULTS = {
+    "SICAM":    {"nb_ha": 80,  "prix": 3.0,  "type": "Caisse plastique 25kg",  "cap_kg": 25},
+    "TUCAL":    {"nb_ha": 80,  "prix": 3.0,  "type": "Caisse plastique 25kg",  "cap_kg": 25},
+    "COMOCAP":  {"nb_ha": 60,  "prix": 2.5,  "type": "Bac tracteur (forfait)", "cap_kg": 30},
+    "ABIDA":    {"nb_ha": 60,  "prix": 2.5,  "type": "Caisse plastique 25kg",  "cap_kg": 25},
+    "ELFALLEH": {"nb_ha": 50,  "prix": 2.0,  "type": "Caisse métal 20kg",      "cap_kg": 20},
+}
 MO_TONNE_DEFAULT   = 50.0
 DENSITE_STD = {
     "CAP BON 1":25000,"CAP BON 2":25000,"NORD":22000,
@@ -528,13 +535,46 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     df["avance_bourak"]   = g("avance")
     df["charge_totale"]   = df["charge_plants"] + df["charge_intrants"] + df["avance_bourak"]
 
-    # Consigne caisse — condition : affectation_caisse = "1ère"
-    prix_caisse   = params.get("prix_caisse", 0)
-    nb_caisses_ha = params.get("nb_caisses_ha", 0)
-    df["consigne_caisse"] = df.apply(
-        lambda row: (float(row.get("hectares",0) or 0) * nb_caisses_ha * prix_caisse
-                     if str(row.get("affectation_caisse","")).startswith("1ère")
-                     else 0.0), axis=1)
+    # Consigne caisse — PAR USINE (1ère affectation uniquement)
+    caisses_par_usine = params.get("caisses_par_usine", {})
+    # Fallback global si pas de config par usine
+    _px_global  = params.get("prix_caisse", 3.0)
+    _nb_global  = params.get("nb_caisses_ha", 80.0)
+
+    def _calc_caisse(row):
+        if not str(row.get("affectation_caisse","")).startswith("1ère"):
+            return 0.0
+        ha = float(row.get("hectares", 0) or 0)
+        # Déterminer l'usine de l'agriculteur
+        usine = str(row.get("usine", row.get("usine_livraison", ""))).upper().strip()
+        # Chercher dans les usines connues
+        cfg = None
+        for u_key in caisses_par_usine:
+            if u_key.upper() in usine or usine in u_key.upper():
+                cfg = caisses_par_usine[u_key]
+                break
+        if cfg:
+            return round(ha * cfg["nb_ha"] * cfg["prix"], 2)
+        # Fallback global
+        return round(ha * _nb_global * _px_global, 2)
+
+    df["consigne_caisse"] = df.apply(_calc_caisse, axis=1)
+
+    # Détail par usine pour affichage
+    def _detail_caisse(row):
+        if not str(row.get("affectation_caisse","")).startswith("1ère"):
+            return "2ème — 0 DT"
+        ha = float(row.get("hectares", 0) or 0)
+        usine = str(row.get("usine", "")).upper().strip()
+        for u_key, cfg in caisses_par_usine.items():
+            if u_key.upper() in usine or usine in u_key.upper():
+                nb = cfg["nb_ha"]; px = cfg["prix"]
+                total = round(ha * nb * px, 0)
+                return f"1ère — {int(ha*nb)} caisses × {px} DT = {total:,.0f} DT"
+        nb = _nb_global; px = _px_global
+        return f"1ère — {int(ha*nb)} caisses × {px} DT = {round(ha*nb*px):,.0f} DT"
+
+    df["detail_caisse"] = df.apply(_detail_caisse, axis=1)
 
     df["consigne_plateau"] = g("consigne_plateau")
     mo = params.get("mo_tonne", MO_TONNE_DEFAULT)
@@ -838,8 +878,8 @@ def export_excel(df, df_sotusfa_raw=None):
     # ── Feuille 3 : Caisses vides detail ──────────────────
     ws3 = wb.create_sheet("📦 Caisses Vides")
     ws3.sheet_view.showGridLines = False
-    caisse_cols = [c for c in ["agriculteur","centre","region","affectation_caisse",
-                                "date_debut_recolte","hectares",
+    caisse_cols = [c for c in ["agriculteur","centre","region","usine","affectation_caisse",
+                                "detail_caisse","date_debut_recolte","hectares",
                                 "consigne_caisse","consigne_plateau"] if c in df.columns]
     if caisse_cols:
         ws3.merge_cells(start_row=1,start_column=1,end_row=1,end_column=len(caisse_cols))
@@ -910,109 +950,6 @@ def export_excel(df, df_sotusfa_raw=None):
 # RENDER PRINCIPAL
 # ══════════════════════════════════════════════════════════════
 
-
-
-# ══════════════════════════════════════════════════════════════
-# PERSISTANCE SESSION — Supabase (table agroeco_session)
-# ══════════════════════════════════════════════════════════════
-
-def _df_to_b64(df):
-    """Sérialise un DataFrame en base64 compressé."""
-    if df is None or df.empty:
-        return None
-    try:
-        # Convertir les types problématiques
-        df2 = df.copy()
-        for col in df2.select_dtypes(include=["datetime64"]).columns:
-            df2[col] = df2[col].astype(str)
-        raw = df2.to_json(orient="records", date_format="iso", force_ascii=False)
-        compressed = _gzip.compress(raw.encode("utf-8"))
-        return _b64.b64encode(compressed).decode("ascii")
-    except Exception:
-        return None
-
-def _b64_to_df(b64_str):
-    """Désérialise un DataFrame depuis base64 compressé."""
-    if not b64_str:
-        return None
-    try:
-        compressed = _b64.b64decode(b64_str.encode("ascii"))
-        raw = _gzip.decompress(compressed).decode("utf-8")
-        records = _json.loads(raw)
-        if not records:
-            return None
-        return pd.DataFrame(records)
-    except Exception:
-        return None
-
-def save_session_to_supabase(sb, user_name, session_data: dict):
-    """
-    Sauvegarde la session agroéco dans Supabase.
-    session_data = {
-        "merged": df_merged,
-        "bourak": df_bourak,
-        "royal": df_royal,
-        "sotusfa_raw": df_sotusfa_raw,
-        "sotusfa_pivot": df_sotusfa_pivot,
-        "quantite": df_quantite,
-        "prev_mai": df_prev_mai,
-        "params": params_dict,
-    }
-    """
-    if sb is None:
-        return False, "Supabase non disponible"
-    try:
-        payload = {
-            "user_name":   str(user_name),
-            "merged":      _df_to_b64(session_data.get("merged")),
-            "bourak":      _df_to_b64(session_data.get("bourak")),
-            "royal":       _df_to_b64(session_data.get("royal")),
-            "sotusfa_raw": _df_to_b64(session_data.get("sotusfa_raw")),
-            "sotusfa_pivot":_df_to_b64(session_data.get("sotusfa_pivot")),
-            "quantite":    _df_to_b64(session_data.get("quantite")),
-            "prev_mai":    _df_to_b64(session_data.get("prev_mai")),
-            "params":      _json.dumps(session_data.get("params", {})),
-            "saved_at":    pd.Timestamp.now().isoformat(),
-        }
-        # Supprimer ancienne session de cet utilisateur
-        sb.table("agroeco_session").delete().eq("user_name", str(user_name)).execute()
-        # Insérer nouvelle
-        sb.table("agroeco_session").insert(payload).execute()
-        return True, ""
-    except Exception as e:
-        return False, str(e)
-
-def load_session_from_supabase(sb, user_name):
-    """
-    Charge la session agroéco depuis Supabase.
-    Retourne un dict avec les DataFrames restaurés.
-    """
-    if sb is None:
-        return None
-    try:
-        rows = sb.table("agroeco_session") \
-                 .select("*") \
-                 .eq("user_name", str(user_name)) \
-                 .order("saved_at", desc=True) \
-                 .limit(1) \
-                 .execute().data
-        if not rows:
-            return None
-        row = rows[0]
-        result = {
-            "merged":       _b64_to_df(row.get("merged")),
-            "bourak":       _b64_to_df(row.get("bourak")),
-            "royal":        _b64_to_df(row.get("royal")),
-            "sotusfa_raw":  _b64_to_df(row.get("sotusfa_raw")),
-            "sotusfa_pivot":_b64_to_df(row.get("sotusfa_pivot")),
-            "quantite":     _b64_to_df(row.get("quantite")),
-            "prev_mai":     _b64_to_df(row.get("prev_mai")),
-            "params":       _json.loads(row.get("params") or "{}"),
-            "saved_at":     row.get("saved_at", ""),
-        }
-        return result
-    except Exception:
-        return None
 
 def _export_excel_table(df, sheet_title="Data",
                         header_text="Export", color_hex="1F3864"):
@@ -1102,32 +1039,10 @@ padding:16px 20px;margin-bottom:18px'>
     # Session state
     KEYS = ["abo_bourak","abo_royal","abo_sotusfa_raw","abo_sotusfa_pivot",
             "abo_quantite","abo_prev_dec","abo_prev_mai","abo_prev_juin",
-            "abo_dates_recolte","abo_merged","abo_params","abo_errors",
-            "abo_session_loaded"]
+            "abo_dates_recolte","abo_merged","abo_params","abo_errors"]
     for k in KEYS:
         if k not in st.session_state:
             st.session_state[k] = None
-
-    # ── AUTO-RESTAURATION depuis Supabase ─────────────────────
-    # Si session vide + pas encore tenté de charger → essayer Supabase
-    if (st.session_state.get("abo_merged") is None and
-        not st.session_state.get("abo_session_loaded")):
-        st.session_state["abo_session_loaded"] = True  # éviter boucle
-        if sb is not None:
-            with st.spinner("🔄 Restauration de la dernière session…"):
-                _saved = load_session_from_supabase(sb, CURRENT_NAME or "default")
-            if _saved and _saved.get("merged") is not None:
-                st.session_state["abo_merged"]       = _saved["merged"]
-                st.session_state["abo_bourak"]       = _saved.get("bourak")
-                st.session_state["abo_royal"]        = _saved.get("royal")
-                st.session_state["abo_sotusfa_raw"]  = _saved.get("sotusfa_raw")
-                st.session_state["abo_sotusfa_pivot"]= _saved.get("sotusfa_pivot")
-                st.session_state["abo_quantite"]     = _saved.get("quantite")
-                st.session_state["abo_prev_mai"]     = _saved.get("prev_mai")
-                if _saved.get("params"):
-                    st.session_state["abo_params"]   = _saved["params"]
-                _ts = _saved.get("saved_at","")[:16].replace("T"," ")
-                st.toast(f"✅ Session restaurée (sauvegardée le {_ts})", icon="🔄")
 
     t0,t1,t2,t3,t4,t5,t6 = st.tabs([
         "⚙️ Paramètres & Import",
@@ -1155,13 +1070,44 @@ padding:16px 20px;margin-bottom:18px'>
             p160pvc  = st.number_input("Pltx 160 PVC", 0.0,50.0,2.0,0.1,key="p3")
             p160poly = st.number_input("Pltx 160 POLY",0.0,50.0,1.8,0.1,key="p4")
         with pc3:
-            st.markdown("**📦 Caisses vides**")
-            st.info("Condition : **date début RÉCOLTE** (Supabase) < 10 juillet\n\n"
-                    "→ 1ère affectation : avec caisses\n\n"
-                    "→ 2ème affectation : 0 DT automatique")
-            prix_caisse   = st.number_input("Prix/caisse (DT)",0.0,50.0,3.0,0.5,key="pc")
-            nb_caisses_ha = st.number_input("Nb caisses/ha",  0.0,500.0,80.0,10.0,key="nc")
+            st.markdown("**📦 Caisses vides — MO récolte**")
             mo_tonne = st.number_input("MO récolte (DT/T)",0.0,200.0,50.0,5.0,key="mo")
+            st.caption("Condition caisses : date début RÉCOLTE < 10 juil. → 1ère affectation")
+
+        # ── Caisses vides PAR USINE ───────────────────────────
+        st.markdown("---")
+        st.markdown("#### 📦 Caisses vides — Paramètres par usine")
+        st.caption("1ère affectation (début récolte < 10 juillet) = caisses facturées | 2ème = 0 DT")
+
+        caisses_par_usine = {}
+        _saved_caisses = (st.session_state.get("abo_params") or {}).get("caisses_par_usine", {})
+        usine_cols = st.columns(5)
+        usine_names = ["SICAM","TUCAL","COMOCAP","ABIDA","ELFALLEH"]
+        usine_colors = {"SICAM":"#F5A623","TUCAL":"#8B5CF6","COMOCAP":"#3B82F6",
+                        "ABIDA":"#FF6B9D","ELFALLEH":"#00E5A0"}
+
+        for ci2, usine in enumerate(usine_names):
+            dft = CAISSES_USINE_DEFAULTS.get(usine, {"nb_ha":80,"prix":3.0,"type":"Caisse 25kg","cap_kg":25})
+            saved_u = _saved_caisses.get(usine, dft)
+            uc = usine_colors.get(usine,"#888")
+            with usine_cols[ci2]:
+                st.markdown(f"<div style='background:#1a2332;border-radius:8px;padding:8px;"
+                            f"border-top:3px solid {uc};margin-bottom:4px'>"
+                            f"<b style='color:{uc};font-size:12px'>{usine}</b><br>"
+                            f"<span style='font-size:10px;color:#aaa'>{dft['type']}</span>"
+                            f"</div>", unsafe_allow_html=True)
+                nb_ha = st.number_input(f"Nb caisses/ha",
+                    min_value=0.0, max_value=300.0,
+                    value=float(saved_u.get("nb_ha", dft["nb_ha"])),
+                    step=5.0, key=f"nb_c_{usine}")
+                prix_c = st.number_input(f"Prix/caisse (DT)",
+                    min_value=0.0, max_value=20.0,
+                    value=float(saved_u.get("prix", dft["prix"])),
+                    step=0.25, key=f"px_c_{usine}")
+                cout_ha = round(nb_ha * prix_c, 2)
+                st.caption(f"→ **{cout_ha:.1f} DT/ha** (1ère affectation)")
+                caisses_par_usine[usine] = {"nb_ha": nb_ha, "prix": prix_c,
+                                            "type": dft["type"], "cap_kg": dft["cap_kg"]}
 
         params = {
             "prix_vente_global": prix_global,
@@ -1169,30 +1115,13 @@ padding:16px 20px;margin-bottom:18px'>
                 "Pltx 228 PVC":p228pvc,"Pltx 228 POLY":p228poly,
                 "Pltx 160 PVC":p160pvc,"Pltx 160 POLY":p160poly,
             },
-            "prix_caisse":   prix_caisse,
-            "nb_caisses_ha": nb_caisses_ha,
+            "caisses_par_usine": caisses_par_usine,
+            # Rétrocompat : valeurs globales = moyenne pondérée SICAM (usine principale)
+            "prix_caisse":   caisses_par_usine.get("SICAM",{}).get("prix", 3.0),
+            "nb_caisses_ha": caisses_par_usine.get("SICAM",{}).get("nb_ha", 80.0),
             "mo_tonne":      mo_tonne,
         }
         st.session_state["abo_params"] = params
-
-        # ── Session sauvegardée ──────────────────────────
-        if sb is not None:
-            _saved_check = load_session_from_supabase(sb, CURRENT_NAME or "default")
-            if _saved_check and _saved_check.get("merged") is not None:
-                _ts = _saved_check.get("saved_at","")[:16].replace("T"," ")
-                st.success(f"💾 Session sauvegardée disponible (du {_ts}) — rechargée automatiquement à l'ouverture")
-                if st.button("🗑️ Effacer la session sauvegardée", use_container_width=True):
-                    try:
-                        sb.table("agroeco_session").delete().eq("user_name", CURRENT_NAME or "default").execute()
-                        for k in ["abo_merged","abo_bourak","abo_royal","abo_sotusfa_raw",
-                                  "abo_sotusfa_pivot","abo_quantite","abo_prev_mai","abo_session_loaded"]:
-                            st.session_state[k] = None
-                        st.success("✅ Session effacée. Vous pouvez importer de nouveaux fichiers.")
-                        st.rerun()
-                    except Exception as _e:
-                        st.error(f"Erreur : {_e}")
-            else:
-                st.info("💡 Après la fusion, cliquez **💾 Sauvegarder la session** pour ne plus avoir à réimporter les fichiers.")
 
         st.divider()
         st.markdown("### 📥 Import fichiers")
@@ -1397,33 +1326,12 @@ Attendu : qte_livree · qte_actif · qte_extra · tonnage_livre · prix_vente</s
                     f"✅ {len(df_merged)} agriculteurs · "
                     f"🔴 {n_r} critiques · 🟡 {n_y} attention · 🟢 {n_g} OK")
                 xl = export_excel(df_merged, st.session_state.get("abo_sotusfa_raw"))
-                # ── Bouton sauvegarde session ──────────────────
-                col_save1, col_save2 = st.columns(2)
-                with col_save1:
-                    if st.button("💾 Sauvegarder la session (ne plus réimporter)",
-                                 use_container_width=True, type="primary"):
-                        _ok, _err = save_session_to_supabase(sb, CURRENT_NAME or "default", {
-                            "merged":       df_merged,
-                            "bourak":       st.session_state.get("abo_bourak"),
-                            "royal":        st.session_state.get("abo_royal"),
-                            "sotusfa_raw":  st.session_state.get("abo_sotusfa_raw"),
-                            "sotusfa_pivot":st.session_state.get("abo_sotusfa_pivot"),
-                            "quantite":     st.session_state.get("abo_quantite"),
-                            "prev_mai":     st.session_state.get("abo_prev_mai"),
-                            "params":       st.session_state.get("abo_params", {}),
-                        })
-                        if _ok:
-                            st.success("✅ Session sauvegardée ! La prochaine ouverture rechargera automatiquement.")
-                        else:
-                            st.error(f"❌ Erreur sauvegarde : {_err}")
-                            st.info("Vérifiez que la table 'agroeco_session' existe dans Supabase.")
-                with col_save2:
-                    st.download_button(
-                        "📥 Télécharger Excel complet (4 feuilles)",
-                        data=xl,
-                        file_name="dashboard_agroeco_2026.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True)
+                st.download_button(
+                    "📥 Télécharger Excel complet (4 feuilles)",
+                    data=xl,
+                    file_name="dashboard_agroeco_2026.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",use_container_width=True)
 
     # ── Données fusionnées ─────────────────────────────────
     df = st.session_state.get("abo_merged")
@@ -1487,8 +1395,54 @@ Attendu : qte_livree · qte_actif · qte_extra · tonnage_livre · prix_vente</s
                         margin=dict(l=220,r=80,t=40,b=30))
                     st.plotly_chart(fig, use_container_width=True)
 
+            # ── Section Caisses Vides par usine ─────────────────
+            if "affectation_caisse" in df_f.columns:
+                st.markdown("#### 📦 Détail caisses vides par usine")
+                # Récap par usine des consignes caisses
+                caisse_cfg = st.session_state.get("abo_params",{}).get("caisses_par_usine",{})
+                if caisse_cfg:
+                    cv_cols = st.columns(len(caisse_cfg))
+                    usine_colors_disp = {"SICAM":"#F5A623","TUCAL":"#8B5CF6",
+                                         "COMOCAP":"#3B82F6","ABIDA":"#FF6B9D","ELFALLEH":"#00E5A0"}
+                    for ci_u, (usine_u, cfg_u) in enumerate(caisse_cfg.items()):
+                        # Filtrer agriculteurs de cette usine en 1ère affectation
+                        _mask_1 = (df_f.get("affectation_caisse","").str.startswith("1ère")
+                                   if hasattr(df_f.get("affectation_caisse",""),"str") else pd.Series([False]*len(df_f)))
+                        _usine_mask = df_f.get("usine", pd.Series([""] * len(df_f))).astype(str).str.upper().str.contains(usine_u.upper(), na=False)
+                        _agri_1ere = df_f[_mask_1 & _usine_mask] if "usine" in df_f.columns else df_f[_mask_1]
+                        n_1ere = len(_agri_1ere)
+                        total_cv = _agri_1ere["consigne_caisse"].sum() if "consigne_caisse" in _agri_1ere.columns else 0
+                        cout_ha = round(cfg_u["nb_ha"] * cfg_u["prix"], 1)
+                        uc2 = usine_colors_disp.get(usine_u,"#888")
+                        with cv_cols[ci_u]:
+                            st.markdown(f"""<div style='background:#1a2332;border-radius:10px;
+padding:10px;text-align:center;border-top:3px solid {uc2}'>
+<div style='font-size:13px;font-weight:bold;color:{uc2}'>{usine_u}</div>
+<div style='font-size:11px;color:#aaa'>{cfg_u['type']}</div>
+<div style='font-size:11px;color:#ccc;margin:4px 0'>
+{cfg_u['nb_ha']:.0f} caisses/ha × {cfg_u['prix']:.2f} DT = <b style='color:#fff'>{cout_ha} DT/ha</b>
+</div>
+<div style='font-size:11px;color:#FFD700'>{n_1ere} agri. 1ère affect.</div>
+<div style='font-size:13px;font-weight:bold;color:{"#FF7043" if total_cv>0 else "#4CAF50"}'>
+{total_cv:,.0f} DT total</div>
+</div>""", unsafe_allow_html=True)
+
+                # Total global caisses
+                if "consigne_caisse" in df_f.columns:
+                    tot_cv = df_f["consigne_caisse"].sum()
+                    n_1e = df_f["affectation_caisse"].str.startswith("1ère").sum() if "affectation_caisse" in df_f.columns else 0
+                    n_2e = len(df_f) - n_1e
+                    cc1,cc2,cc3 = st.columns(3)
+                    cc1.markdown(_metric("Total consigne caisses",
+                        f"{tot_cv:,.0f} DT", color="#FF7043"), unsafe_allow_html=True)
+                    cc2.markdown(_metric("1ère affectation (< 10 juil.)",
+                        f"{n_1e} agriculteurs", color="#FF9800"), unsafe_allow_html=True)
+                    cc3.markdown(_metric("2ème affectation (≥ 10 juil.)",
+                        f"{n_2e} agriculteurs — 0 DT", color="#4CAF50"), unsafe_allow_html=True)
+                st.markdown("---")
+
             VIEW = [c for c in ["agriculteur","commercial","ingenieur","centre","variete",
-                                  "hectares","affectation_caisse","taux_prise",
+                                  "hectares","affectation_caisse","detail_caisse","taux_prise",
                                   "charge_totale","consigne_caisse","consigne_plateau",
                                   "mo_recolte","tonnage_recouvrement","tonnage_livre",
                                   "ecart_tonnage","valeur_livree","solde_final",
