@@ -207,7 +207,19 @@ def parse_bourak(file_obj):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
     df["client"] = df["client"].astype(str).str.strip()
+    # Filtrer : vides, TOTAL, et séparateurs "── COMM ──" générés par les fichiers test
     df = df[~df["client"].str.upper().isin(["","NAN","TOTAL","SOUS-TOTAL"])]
+    df = df[~df["client"].str.startswith("──")]
+    df = df[~df["client"].str.startswith("--")]
+    df = df[df["client"].str.len() > 2]
+    # S'assurer que commercial est bien présent (depuis "responsable" ou "ingenieur")
+    if "commercial" not in df.columns:
+        for _try_col in ["responsable","ingenieur","Responsable","Commercial"]:
+            if _try_col in df.columns:
+                df["commercial"] = df[_try_col].astype(str).str.strip()
+                break
+        else:
+            df["commercial"] = ""
     return df, ""
 
 
@@ -458,6 +470,11 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
 
     base = _upper(base, ["client","centre"])
     KEY = ["client","centre"]
+    # Propager commercial depuis Bourak si disponible
+    if "commercial" in base.columns:
+        base["commercial"] = base["commercial"].astype(str).str.strip()
+    else:
+        base["commercial"] = ""
 
     # ── Merge ROYAL ────────────────────────────────────────
     if df_royal is not None and not df_royal.empty:
@@ -538,6 +555,28 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     df["charge_intrants"] = g("total_intrants")
     df["avance_bourak"]   = g("avance")
     df["charge_totale"]   = df["charge_plants"] + df["charge_intrants"] + df["avance_bourak"]
+
+    # ── Enrichir commercial si absent (depuis quantite ou bourak) ──
+    if "commercial" not in df.columns or df["commercial"].fillna("").eq("").all():
+        # Essayer depuis df_quantite
+        if df_quantite is not None and "commercial" in df_quantite.columns and "client" in df_quantite.columns:
+            _q_comm = _upper(df_quantite[["client","commercial"]].dropna().drop_duplicates("client").copy(), ["client"])
+            df = df.merge(_q_comm.rename(columns={"commercial":"_comm_q"}), on="client", how="left")
+            if "_comm_q" in df.columns:
+                df["commercial"] = df.get("commercial", pd.Series([""]*len(df))).fillna("").replace("", pd.NA)
+                df["commercial"] = df["commercial"].fillna(df["_comm_q"])
+                df = df.drop(columns=["_comm_q"])
+        # Fallback : depuis Bourak
+        if df_bourak is not None and "commercial" in df_bourak.columns and "client" in df_bourak.columns:
+            _b_comm = _upper(df_bourak[["client","commercial"]].dropna().drop_duplicates("client").copy(), ["client"])
+            _b_comm.columns = ["client","_comm_b"]
+            df = df.merge(_b_comm, on="client", how="left")
+            if "_comm_b" in df.columns:
+                df["commercial"] = df["commercial"].fillna("").replace("", pd.NA).fillna(df["_comm_b"])
+                df = df.drop(columns=["_comm_b"])
+    if "commercial" not in df.columns:
+        df["commercial"] = ""
+    df["commercial"] = df["commercial"].fillna("").astype(str).str.strip()
 
     # Consigne caisse — PAR USINE (1ère affectation uniquement)
     caisses_par_usine = params.get("caisses_par_usine", {})
@@ -1313,7 +1352,36 @@ padding:16px 20px;margin-bottom:18px'>
 
     # ══ TAB 0 — PARAMÈTRES ET IMPORT ══════════════════════
     with t0:
-        # ── Paramètres ──────────────────────────────────────
+        # ── Contrôle d'accès : upload réservé au directeur ───
+        _is_admin = (CURRENT_ROLE in ("directeur", "admin"))
+
+        if not _is_admin:
+            # Utilisateur non-admin : affiche statut session partagée
+            _shared_data = load_session_from_supabase(sb, "SHARED_2026") if sb else None
+            if st.session_state.get("abo_merged") is not None:
+                st.success("✅ Données chargées automatiquement depuis la session partagée.")
+                st.info("🔒 L'upload des fichiers est réservé à l'administrateur. "
+                        "Les données se mettent à jour automatiquement.")
+                if st.button("🔄 Rafraîchir les données"):
+                    if sb:
+                        _sd = load_session_from_supabase(sb, "SHARED_2026")
+                        if _sd and _sd.get("merged") is not None:
+                            st.session_state["abo_merged"]        = _sd["merged"]
+                            st.session_state["abo_bourak"]        = _sd.get("bourak")
+                            st.session_state["abo_royal"]         = _sd.get("royal")
+                            st.session_state["abo_sotusfa_raw"]   = _sd.get("sotusfa_raw")
+                            st.session_state["abo_sotusfa_pivot"] = _sd.get("sotusfa_pivot")
+                            st.session_state["abo_quantite"]      = _sd.get("quantite")
+                            st.session_state["abo_prev_mai"]      = _sd.get("prev_mai")
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.warning("Aucune session partagée trouvée.")
+            else:
+                st.warning("⏳ En attente des données — l'administrateur doit importer et sauvegarder les fichiers.")
+            st.stop()  # Ne pas afficher le reste du tab pour les non-admins
+
+        # ── Paramètres (admin seulement) ─────────────────────
         st.markdown("### ⚙️ Paramètres de calcul")
         pc1,pc2,pc3 = st.columns(3)
         with pc1:
