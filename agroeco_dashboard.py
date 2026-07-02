@@ -2008,9 +2008,12 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                             if tc in _df_main.columns and _df_main[tc].fillna(0).sum() > 0:
                                 _ton_col = tc; break
                         if _agri_col and _ton_col:
-                            _ton_df = _df_main[[_agri_col, _ton_col, "commercial",
-                                                "region"] if "region" in _df_main.columns
-                                               else [_agri_col, _ton_col, "commercial"]].copy()
+                            # Construire la liste de colonnes en vérifiant leur existence
+                            _keep_cols = [_agri_col, _ton_col]
+                            for _extra in ["commercial", "region"]:
+                                if _extra in _df_main.columns:
+                                    _keep_cols.append(_extra)
+                            _ton_df = _df_main[_keep_cols].copy()
                             _ton_df = _ton_df.rename(columns={_agri_col: "client"})
                             _ton_df[_ton_col] = pd.to_numeric(_ton_df[_ton_col], errors="coerce").fillna(0)
                             _ton_df = _ton_df[_ton_df[_ton_col] > 0]
