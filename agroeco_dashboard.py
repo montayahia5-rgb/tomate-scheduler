@@ -504,17 +504,19 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         q = _upper(df_quantite.copy(), KEY)
         base = base.merge(q, on=KEY, how="left")
 
-    # ── Merge PRÉVISIONS (avec fuzzy matching sur noms) ────
+    # ── Merge PRÉVISIONS (concordance + fuzzy matching) ────
     for df_p, col in [(df_prev_dec,"prevision_dec"),
                       (df_prev_mai,"prevision_mai"),
                       (df_prev_juin,"prevision_juin")]:
         if df_p is not None and not df_p.empty and col in df_p.columns:
             p = df_p.copy()
-            # Dédupliquer : sum par client si même client dans plusieurs usines
+            # Appliquer concordance sur les noms du fichier prévision
             if "client" in p.columns:
+                p["client"] = p["client"].apply(
+                    lambda x: _get_concordance_key(x) or x)
                 p[col] = pd.to_numeric(p[col], errors="coerce").fillna(0)
                 p = p.groupby("client")[col].sum().reset_index()
-            # Merge avec fuzzy (gère NEGI/NEJI, GUESMI/ELGUESMI, etc.)
+            # Merge avec fuzzy
             if "client" in p.columns and "client" in base.columns:
                 base, n_m, n_t = _fuzzy_match_clients(base, p, col)
             else:
@@ -947,6 +949,149 @@ def export_excel(df, df_sotusfa_raw=None):
 # ══════════════════════════════════════════════════════════════
 
 
+
+
+# ══════════════════════════════════════════════════════════════
+# TABLE DE CONCORDANCE MANUELLE
+# Mappe les noms de la RÉFÉRENCE vers les noms exacts dans SOTUSFA
+# Résout les 3 types de problèmes :
+#   1. Fautes de frappe : ATTIYA → ATTIAA
+#   2. Entités splittées : BILEL GHA 1/2/3 → SOCIETE BILEL GHA
+#   3. Alias : STE BACCARA → SOCIETE BACCARA ET FILS
+# ══════════════════════════════════════════════════════════════
+CONCORDANCE_NOMS = {
+    # ── Fautes d'orthographe (CAUSE 1) ──────────────────────
+    "SAMIR ATTIYA":               "SAMIR ATTIAA",
+    "SAMIR ATTIA":                "SAMIR ATTIAA",
+    "NEGI ZAAFOURI":              "NEJI ZAAFOURI",
+    "ALI KOTLI":                  "ALI EL KOTLI",
+    "ABDELKADER KALBOUSI":        "ABDELKADER KALBOUSSI",
+    "MAKRAM HAFFAR":              "MAKREM HAFFAR",
+    "MAKREM HAFFAR":              "MAKREM HAFFAR",
+    "LASSED NEILI":               "LASSAAD NEILI",
+    "SALEH BEN HAMOUDA":          "SALAH BEN HAMOUDA",
+    "HSSINE BRINI":               "HSSIN BEN MED BEN ABDELKADER BRINI",
+    "HSSINE BRINI":               "HSSIN BEN MED BEN ABDELKADER BRINI",
+    "SAMI KAAB":                  "SAMI BEN HEDI KAAB",
+    "ABDELFATEH BEN SLIMEN":      "ABDELFATEH BEN SLIMENE",
+    "HAMED BEN YOUNIS":           "HAMED BEN YOUNES",
+    "TAREK BEN ABDALAH":          "TAREK BEN ABDALLAH",
+    "TAREK EL BAHRI":             "TAREK ELBAHRI",
+    "TAREK ELBAHRI":              "TAREK ELBAHRI",
+    "SEBTI JABALI":               "Sebti jaballi",
+    "SOUHAIL BOUZANA":            "SOUHAIL BOUZENA",
+    "MOHAMED THAMER BEN ALAYA":   "MOHAMED THAMEUR BEN ALAYA",
+    "SASSI MANSOUR":              "SASSI BEN MANSOUR",
+    "HASSEN BEN ALIA":            "HASSEN BEN ALAYA",
+    "AZAIZ BEN ISSA":             "AZAIZ BEN ISSA",
+    "HAMMADI BENZRIBIA":          "HAMMADI BEN ZRIBIA",
+    "HAFEDH MOSBEH":              "HAFEDH MESBEH",
+    "MOHAMED BEN HEDI MEHEMDI":   "MOHAMED  HEDI MEHEMDI",
+    "MAHER BELHAJ FRAJ":          "MAHER BEL HAJ FRAJ",
+    "ZOUHAIR BEN ECHIK":          "ZOUHAIR BEN  ECHIK",
+    "NOOMEN ECHAGRAOUI":          "NOOMEN ECHAGRAOUI",
+    "MOHAMED ALI MBAREK":         "MOHAMED ALI  BEN MBAREK",
+    "BADIA SAAFI":                "BADIA SAAFI",
+    "IBRAHIM BEN BOUBAKER":       "IBRAHIM BEN BOUBAKER",
+    "IMED TRABILSI":              "IMED TRABILSI",
+    "Mohamed BEDIA NEJI":         "MOHAMED BADIA NEJI",
+    "CHOKRI SAAFI":               "CHOKRI SAAFI",
+    "HICHEM SAAFI":               "HICHEM SAAFI",
+
+    # ── Entités splittées dans référence (CAUSE 2) ──────────
+    # BILEL GHA (4 lignes référence → 1 entrée Sotusfa)
+    "BILEL GHA 1":                "SOCIETE BILEL GHA SERVICE AGRICOLE",
+    "BILEL GHA 2":                "SOCIETE BILEL GHA SERVICE AGRICOLE",
+    "BILEL GHA 3":                "SOCIETE BILEL GHA SERVICE AGRICOLE",
+    "BILEL GHA 4":                "SOCIETE BILEL GHA SERVICE AGRICOLE",
+    "BILEL KEHIL":                "SOCIETE BILEL GHA SERVICE AGRICOLE",
+    # GARMALAH (plusieurs lignes → 1 Sotusfa)
+    "KARIM GARMALAH 1":           "ABDELKARIM GARMALLAH",
+    "KARIM GARMALAH 2":           "ABDELKARIM GARMALLAH",
+    "AMAR GARMALAH":              "ABDELKARIM GARMALLAH",
+    "MED ALI GARMALAH":           "ABDELKARIM GARMALLAH",
+    "HSAN GARMALAH":              "ABDELKARIM GARMALLAH",
+    "JAMEL GARMALAH":             "ABDELKARIM GARMALLAH",
+    "KARIM AMAR":                 "ABDELKARIM GARMALLAH",
+    "KARIM GARMALAH":             "ABDELKARIM GARMALLAH",
+    "ABDELKARIM SAAD":            "ABDELKARIM GARMALLAH",
+    "HAFEDH MOSBEH":              "HAFEDH MESBEH",
+    # BACCARA
+    "STE BACCARA":                "SOCIETE BACCARA ET FILS",
+    "SOCIETE BACCARA":            "SOCIETE BACCARA ET FILS",
+    "SAMEH BACCOUCH":             "SAMAH BACCOUCH",
+    "NAJIB BACCOUCH":             "NEJIB BAKOUCHE",
+    # MANSOURI (plusieurs membres famille)
+    "NOUREDIN MANSOURI":          "MOURAD MANSOURI",
+    "ELIFA MANSOURI":             "MOURAD MANSOURI",
+    "TAHER MANSOURI":             "MOURAD MANSOURI",
+    "ABELSAMII MANSOURI":         "MOURAD MANSOURI",
+    "CHOKRI MANSOURI":            "MOURAD MANSOURI",
+    "LAMINE MANSOURI":            "MOURAD MANSOURI",
+    "AHMED MANSOURI":             "MOURAD MANSOURI",
+
+    # ── Alias et abréviations (CAUSE 2 bis) ─────────────────
+    "HICHEM TRABELSI":            "ABDELHEDI TRABELSSI",
+    "KAMEL TRABELSSI":            "ABDELHEDI TRABELSSI",
+    "MOUHAMED TRABELSI":          "ABDELHEDI TRABELSSI",
+    "ABDELKARIM TRABELSSI":       "ABDELHEDI TRABELSSI",
+    "SABER KHARBESH":             "Saber Kherbech",
+    "ALAEDINE KILENI":            "ALAEDDINE BEN KILANI",
+    "ALI LTIFI":                  "ALI EL KOTLI",
+    "HANI BEN KILANI":            "HANI BELKILANI",
+    "HANI BEN KILANI":            "HANI BEN KILANI",
+    "ADEL JAZI":                  "ADEL ALJAZI",
+    "ABEDRAZEK BEY":              "ABDERRAZEG BEY",
+    "ABDESLEM BEN SOUISSI":       "ABDESLEM BEN SOUISSI",
+    "ABDELKADER MANNA":           "ABDELKADER ELMANAA",
+    "AHMED ATTIA":                "AHMED ECHIKH",
+    "AHMED IDRISSI":              "AHMED ELIDRISSI",
+    "SALEM LEGRERI":              "SALEM LEGRERI",
+    "FEDI AMAYMIA":               "FEDI LEGRERI",
+    "HOUSSEM BRAYEK":             "HOUSSEM BRAYEK",
+    "MED TAHER":                  "MOHAMED TAHRI",
+    "MOUHAMED AOUINET":           "MOUHAMED ALI GHZALA",
+    "MOUHAMED MESSII":            "MOUHAMED ALI GHZALA",
+    "ROMDHAN SAAFI":              "ROMDHAN SAAFI",
+    "BOUBAKER FILALI":            "BOUBAKER FILELI",
+    "KAIS DHAOUI":                "KAIS EDHAOUI",
+    "EZZEDINE GUESMI":            "EZZEDDIN ELGUESMI",
+    "HEDI SLAMA":                 "HEDI SLEMA",
+    "MOURAD HEMMEDI":             "MOURAD BEN SAID HAMMADI",
+    "SAMI FERGENI":               "SAMI BEN AMOR FERJENI",
+    "NEGI ZAAFOURI":              "NEJI ZAAFOURI",
+    "NABIL EL MRIDH":             "NABIL EL MRIDH",
+    "NAWFEL EL KORBI":            "NAWFEL EL  KORBI",
+    "OSAMA KAAB":                 "OSAMA KAAB",
+    # Lotfi
+    "LOTFY HAJIJ":                "LOTFI ABDALLAH",
+    # Slim Marzougui
+    "SLIM MARZOUGUI":             "SLIM ELMARZOUGUI",
+    # Imed
+    "IMED AMDOUNI":               "IMEDDINE AMDOUNI",
+    # Riadh
+    "RIADH KOUKI":                "RIADH OBAY",
+    "ISSAM KOUKI":                "ISSAM KOUKI",
+}
+
+def _get_concordance_key(nom_ref):
+    """Trouve le nom Sotusfa correspondant via la table de concordance."""
+    nom_up = str(nom_ref).strip().upper()
+    # Recherche exacte dans la table
+    for ref_key, sot_val in CONCORDANCE_NOMS.items():
+        if ref_key.upper() == nom_up:
+            return sot_val
+    # Recherche normalisée (sans accents, espaces)
+    import unicodedata, re as _re
+    def _n(s):
+        s = str(s).upper()
+        s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+        return _re.sub(r'\s+', ' ', _re.sub(r'[^A-Z0-9 ]', ' ', s)).strip()
+    nom_clean = _n(nom_up)
+    for ref_key, sot_val in CONCORDANCE_NOMS.items():
+        if _n(ref_key) == nom_clean:
+            return sot_val
+    return None
 
 def _fuzzy_match_clients(df_base, df_prev, col_prev):
     """Merge fuzzy : gère abréviations, espaces doubles, SOCIETE→STE."""
