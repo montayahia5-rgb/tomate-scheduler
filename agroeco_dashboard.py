@@ -1324,6 +1324,24 @@ def _export_excel_table(df, sheet_title="Data",
     buf.seek(0)
     return buf.read()
 
+
+def _auto_save(sb, user_name):
+    """Sauvegarde automatique silencieuse de tous les fichiers en session."""
+    try:
+        if sb is None: return
+        save_session_to_supabase(sb, user_name or "directeur", {
+            "merged":       st.session_state.get("abo_merged"),
+            "bourak":       st.session_state.get("abo_bourak"),
+            "royal":        st.session_state.get("abo_royal"),
+            "sotusfa_raw":  st.session_state.get("abo_sotusfa_raw"),
+            "sotusfa_pivot":st.session_state.get("abo_sotusfa_pivot"),
+            "quantite":     st.session_state.get("abo_quantite"),
+            "prev_mai":     st.session_state.get("abo_prev_mai"),
+            "params":       st.session_state.get("abo_params", {}),
+        })
+    except Exception:
+        pass  # Silencieux — ne pas bloquer l'UI
+
 def render_agroeco_tab(sb=None, CURRENT_ROLE="directeur", CURRENT_NAME=""):
 
     st.markdown("""
@@ -1511,6 +1529,7 @@ Attendu : responsable · ingenieur · region · hectares · avance · report</sp
                 if msg: st.error(msg)
                 else:
                     st.session_state["abo_bourak"] = df_b
+                    _auto_save(sb, CURRENT_NAME)
                     tot_av = df_b["avance"].sum() if "avance" in df_b.columns else 0
                     st.success(f"✅ {len(df_b)} lignes · {tot_av:,.0f} DT avances")
 
@@ -1529,6 +1548,7 @@ Attendu : zone · variete · qte_livree · valeur · <b>date_debut_livraison</b>
                 if msg: st.error(msg)
                 else:
                     st.session_state["abo_royal"] = df_r
+                    _auto_save(sb, CURRENT_NAME)
                     st.success(f"✅ {len(df_r)} lignes")
 
         # SOTUSFA
@@ -1565,6 +1585,7 @@ Attendu : qte_livree · qte_actif · qte_extra · tonnage_livre · prix_vente</s
                 if msg: st.error(msg)
                 else:
                     st.session_state["abo_quantite"] = df_q
+                    _auto_save(sb, CURRENT_NAME)
                     st.success(f"✅ {len(df_q)} agriculteurs")
 
         # ── Prévisions ──────────────────────────────────────
@@ -1655,16 +1676,41 @@ Attendu : qte_livree · qte_actif · qte_extra · tonnage_livre · prix_vente</s
                 n_r = (df_merged["alerte"].str.contains("🔴")).sum()
                 n_y = (df_merged["alerte"].str.contains("🟡")).sum()
                 n_g = (df_merged["alerte"].str.contains("🟢")).sum()
+
+                # ── AUTO-SAVE dans Supabase (session partagée) ──
+                _save_ok = False
+                if sb is not None:
+                    try:
+                        _save_ok, _save_err = save_session_to_supabase(
+                            sb, CURRENT_NAME or "directeur", {
+                                "merged":       df_merged,
+                                "bourak":       st.session_state.get("abo_bourak"),
+                                "royal":        st.session_state.get("abo_royal"),
+                                "sotusfa_raw":  st.session_state.get("abo_sotusfa_raw"),
+                                "sotusfa_pivot":st.session_state.get("abo_sotusfa_pivot"),
+                                "quantite":     st.session_state.get("abo_quantite"),
+                                "prev_mai":     st.session_state.get("abo_prev_mai"),
+                                "params":       st.session_state.get("abo_params", {}),
+                            })
+                    except Exception as _se:
+                        _save_ok = False; _save_err = str(_se)
+                _save_icon = "💾 sauvegardé auto" if _save_ok else "⚠️ non sauvegardé"
+
                 st.success(
                     f"✅ {len(df_merged)} agriculteurs · "
-                    f"🔴 {n_r} critiques · 🟡 {n_y} attention · 🟢 {n_g} OK")
+                    f"🔴 {n_r} critiques · 🟡 {n_y} attention · 🟢 {n_g} OK · {_save_icon}")
+
+                if not _save_ok and sb is not None:
+                    st.warning("⚠️ Sauvegarde automatique échouée. "
+                               "Vérifiez que la table `agroeco_session` existe dans Supabase.")
+
                 xl = export_excel(df_merged, st.session_state.get("abo_sotusfa_raw"))
                 st.download_button(
                     "📥 Télécharger Excel complet (4 feuilles)",
                     data=xl,
                     file_name="dashboard_agroeco_2026.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary",use_container_width=True)
+                    use_container_width=True)
 
     # ── Données fusionnées ─────────────────────────────────
     df = st.session_state.get("abo_merged")
