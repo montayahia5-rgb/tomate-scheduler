@@ -1325,6 +1325,111 @@ def _export_excel_table(df, sheet_title="Data",
     return buf.read()
 
 
+# ══════════════════════════════════════════════════════════════
+# SESSION PERSISTANCE — Supabase (table agroeco_session)
+# ══════════════════════════════════════════════════════════════
+
+def _df_to_b64(df):
+    """Sérialise un DataFrame en base64 gzip — robuste."""
+    if df is None: return None
+    try:
+        if hasattr(df, "empty") and df.empty: return None
+        df2 = df.copy()
+        for col in df2.columns:
+            dtype = str(df2[col].dtype)
+            if "datetime" in dtype or "Timestamp" in dtype:
+                df2[col] = df2[col].astype(str)
+            elif "object" in dtype:
+                df2[col] = df2[col].apply(
+                    lambda x: str(x) if not isinstance(
+                        x, (str, int, float, bool, type(None))) else x)
+        df2 = df2.where(df2.notna(), other=None)
+        raw = df2.to_json(orient="records", force_ascii=False, default_handler=str)
+        import gzip as _gz, base64 as _b64mod
+        compressed = _gz.compress(raw.encode("utf-8"), compresslevel=9)
+        b64 = _b64mod.b64encode(compressed).decode("ascii")
+        # Si trop gros, enlever les colonnes lourdes
+        if len(b64) > 4_000_000:
+            heavy = ["alerte","detail_caisse","meilleur_plan_variete",
+                     "_s_rend","_s_int","_s_prise","_s_roi"]
+            df3 = df2.drop(columns=[c for c in heavy if c in df2.columns], errors="ignore")
+            raw2 = df3.to_json(orient="records", force_ascii=False, default_handler=str)
+            b64 = _b64mod.b64encode(_gz.compress(raw2.encode(), compresslevel=9)).decode("ascii")
+        return b64
+    except Exception as _e:
+        return None
+
+
+def _b64_to_df(b64_str):
+    """Désérialise un DataFrame depuis base64 gzip."""
+    if not b64_str: return None
+    try:
+        import gzip as _gz, base64 as _b64mod
+        compressed = _b64mod.b64decode(b64_str.encode("ascii"))
+        raw = _gz.decompress(compressed).decode("utf-8")
+        import json as _js
+        records = _js.loads(raw)
+        if not records: return None
+        return pd.DataFrame(records)
+    except Exception:
+        return None
+
+
+def save_session_to_supabase(sb, user_name, session_data):
+    """Sauvegarde la session dans Supabase (clé partagée SHARED_2026)."""
+    if sb is None:
+        return False, "Supabase non disponible"
+    try:
+        SHARED_KEY = "SHARED_2026"
+        payload = {
+            "user_name":    SHARED_KEY,
+            "saved_by":     str(user_name),
+            "merged":       _df_to_b64(session_data.get("merged")),
+            "bourak":       _df_to_b64(session_data.get("bourak")),
+            "royal":        _df_to_b64(session_data.get("royal")),
+            "sotusfa_raw":  _df_to_b64(session_data.get("sotusfa_raw")),
+            "sotusfa_pivot":_df_to_b64(session_data.get("sotusfa_pivot")),
+            "quantite":     _df_to_b64(session_data.get("quantite")),
+            "prev_mai":     _df_to_b64(session_data.get("prev_mai")),
+            "params":       __import__("json").dumps(
+                session_data.get("params", {}), default=str),
+            "saved_at":     pd.Timestamp.now().isoformat(),
+        }
+        sb.table("agroeco_session").delete().eq("user_name", SHARED_KEY).execute()
+        sb.table("agroeco_session").insert(payload).execute()
+        return True, ""
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+def load_session_from_supabase(sb, user_name="SHARED_2026"):
+    """Charge la session partagée depuis Supabase."""
+    if sb is None: return None
+    try:
+        SHARED_KEY = "SHARED_2026"
+        rows = (sb.table("agroeco_session")
+                  .select("*")
+                  .eq("user_name", SHARED_KEY)
+                  .order("saved_at", desc=True)
+                  .limit(1)
+                  .execute().data)
+        if not rows: return None
+        row = rows[0]
+        return {
+            "merged":       _b64_to_df(row.get("merged")),
+            "bourak":       _b64_to_df(row.get("bourak")),
+            "royal":        _b64_to_df(row.get("royal")),
+            "sotusfa_raw":  _b64_to_df(row.get("sotusfa_raw")),
+            "sotusfa_pivot":_b64_to_df(row.get("sotusfa_pivot")),
+            "quantite":     _b64_to_df(row.get("quantite")),
+            "prev_mai":     _b64_to_df(row.get("prev_mai")),
+            "params":       __import__("json").loads(row.get("params") or "{}"),
+            "saved_at":     row.get("saved_at", ""),
+        }
+    except Exception:
+        return None
+
+
 def _auto_save(sb, user_name):
     """Sauvegarde automatique silencieuse de tous les fichiers en session."""
     try:
@@ -1360,10 +1465,35 @@ padding:16px 20px;margin-bottom:18px'>
     # Session state
     KEYS = ["abo_bourak","abo_royal","abo_sotusfa_raw","abo_sotusfa_pivot",
             "abo_quantite","abo_prev_dec","abo_prev_mai","abo_prev_juin",
-            "abo_dates_recolte","abo_merged","abo_params","abo_errors"]
+            "abo_dates_recolte","abo_merged","abo_params","abo_errors",
+            "abo_session_loaded"]
     for k in KEYS:
         if k not in st.session_state:
             st.session_state[k] = None
+
+    # ── AUTO-RESTAURATION depuis Supabase ─────────────────────
+    if (st.session_state.get("abo_merged") is None and
+            not st.session_state.get("abo_session_loaded") and
+            sb is not None):
+        st.session_state["abo_session_loaded"] = True
+        with st.spinner("🔄 Restauration de la session..."):
+            _saved = load_session_from_supabase(sb)
+        _has_any = bool(_saved and (
+            _saved.get("merged") is not None or
+            _saved.get("bourak") is not None or
+            _saved.get("quantite") is not None))
+        if _has_any:
+            for _k, _sk in [
+                ("abo_merged","merged"),("abo_bourak","bourak"),
+                ("abo_royal","royal"),("abo_sotusfa_raw","sotusfa_raw"),
+                ("abo_sotusfa_pivot","sotusfa_pivot"),("abo_quantite","quantite"),
+                ("abo_prev_mai","prev_mai")]:
+                if _saved.get(_sk) is not None:
+                    st.session_state[_k] = _saved[_sk]
+            if _saved.get("params"):
+                st.session_state["abo_params"] = _saved["params"]
+            _ts = str(_saved.get("saved_at",""))[:16].replace("T"," ")
+            st.toast(f"✅ Session restaurée ({_ts})", icon="🔄")
 
     t0,t1,t2,t3,t4,t5,t6,t7 = st.tabs([
         "⚙️ Paramètres & Import",
