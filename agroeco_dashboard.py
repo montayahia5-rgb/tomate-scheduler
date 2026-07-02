@@ -1150,9 +1150,15 @@ def _export_excel_table(df, sheet_title="Data",
     CTR = Alignment(horizontal="center", vertical="center", wrap_text=True)
     LFT = Alignment(horizontal="left", vertical="center")
     def hf(h): return PatternFill("solid", start_color=h, end_color=h)
-    def bf(bold=True, white=False, size=10):
-        return Font(bold=bold, name="Calibri", size=size,
-                    color="FFFFFF" if white else "000000")
+    def bf(bold=True, white=False, size=10, color=None):
+        """bf local : supporte white=True (blanc) ET color hex explicite."""
+        if white:
+            final_color = "FFFFFF"
+        elif color:
+            final_color = str(color).lstrip("#")
+        else:
+            final_color = "000000"
+        return Font(bold=bold, name="Calibri", size=size, color=final_color)
     nc = max(len(df.columns), 1)
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=nc)
     ws["A1"] = header_text
@@ -1203,10 +1209,14 @@ def _export_excel_table(df, sheet_title="Data",
                         break
                 else:
                     c.fill = hf(row_bg)
-            elif col_name in ("ecart_tonnage","solde_final") and isinstance(val,(int,float)) and val==val and val!="":
-                c.fill = hf("E8F5E9") if float(val) >= 0 else hf("FFEBEE")
-                c.font = bf(True, size=9, color="1E8449" if float(val)>=0 else "C0392B")
-                c.number_format = "+#,##0;-#,##0;0"
+            elif col_name in ("ecart_tonnage","solde_final") and val != "" and val is not None:
+                try:
+                    fv = float(val)
+                    c.fill = hf("E8F5E9") if fv >= 0 else hf("FFEBEE")
+                    c.font = bf(True, size=9, color="1E8449" if fv >= 0 else "C0392B")
+                    c.number_format = "+#,##0;-#,##0;0"
+                except (TypeError, ValueError):
+                    c.fill = hf(row_bg)
             elif col_name == "taux_prise" and isinstance(val,(int,float)) and val==val:
                 v = float(val)
                 c.fill = hf("E8F5E9" if v>=90 else ("FFF9E6" if v>=85 else "FFEBEE"))
@@ -1216,8 +1226,13 @@ def _export_excel_table(df, sheet_title="Data",
             else:
                 c.fill = hf(row_bg)
 
-            if isinstance(val,(int,float)) and val==val and val!="" and col_name not in ("ecart_tonnage","solde_final","taux_prise"):
-                c.number_format = "#,##0" if abs(float(val))>=100 else "0.0"
+            if val != "" and val is not None and col_name not in ("ecart_tonnage","solde_final","taux_prise"):
+                try:
+                    fv2 = float(val)
+                    if fv2 == fv2:  # pas NaN
+                        c.number_format = "#,##0" if abs(fv2) >= 100 else "0.0"
+                except (TypeError, ValueError):
+                    pass
     num_ci = [i + 1 for i, col in enumerate(df.columns)
               if str(df[col].dtype).startswith(("int", "float"))]
     if num_ci:
@@ -1936,41 +1951,121 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                             tots[lbl] = val
 
                 if tots:
-                    # Graphique évolution
-                    fig6 = go.Figure()
                     bar_colors = {
                         "Prévision Déc": "#78909C",
                         "Prévision Mai": "#42A5F5",
-                        "Prévision Juin":"#1E8449",
+                        "Prévision Juin":"#26A69A",
                         "Réalisé":       "#FF9800",
                     }
-                    for lbl, val in tots.items():
-                        fig6.add_trace(go.Bar(
-                            name=lbl, x=[lbl], y=[val],
-                            marker_color=bar_colors.get(lbl,"#888"),
-                            text=[f"{val:,.0f} T"],
-                            textposition="outside",
-                            textfont_size=13))
+                    LINE_STYLES = {
+                        "Prévision Déc": dict(color="#78909C", width=2, dash="dot"),
+                        "Prévision Mai": dict(color="#42A5F5", width=2, dash="dash"),
+                        "Prévision Juin":dict(color="#26A69A", width=2, dash="dashdot"),
+                        "Réalisé":       dict(color="#FF9800", width=3),
+                    }
+                    MARKER_SYMS = {
+                        "Prévision Déc": "circle",
+                        "Prévision Mai": "square",
+                        "Prévision Juin":"triangle-up",
+                        "Réalisé":       "diamond",
+                    }
+
+                    # ── GRAPHIQUE 1 : Courbes superposées par commercial ──
+                    st.markdown("##### 📈 Courbes superposées par commercial — Déc vs Mai vs Réalisé")
+                    st.caption("Chaque courbe = une prévision | Écarts verticaux = décalages entre versions")
+
+                    # Construire données par commercial
+                    _comms_all = sorted(df["commercial"].dropna().unique()) if "commercial" in df.columns else []
+                    fig6_lines = go.Figure()
+
+                    _col_map = {
+                        "Prévision Déc":  "prevision_dec",
+                        "Prévision Mai":  "prevision_mai",
+                        "Prévision Juin": "prevision_juin",
+                        "Réalisé":        "tonnage_livre",
+                    }
+                    _has_any = False
+                    for lbl, col in _col_map.items():
+                        if col in df.columns and df[col].fillna(0).sum() > 0:
+                            _has_any = True
+                            if "commercial" in df.columns:
+                                _y = [df[df["commercial"]==c][col].fillna(0).sum() for c in _comms_all]
+                                _x = list(_comms_all)
+                            else:
+                                _y = [df[col].fillna(0).sum()]
+                                _x = ["TOTAL"]
+
+                            # Barre + courbe superposée
+                            fig6_lines.add_trace(go.Bar(
+                                name=lbl, x=_x, y=_y,
+                                marker_color=bar_colors.get(lbl,"#888"),
+                                marker_opacity=0.65,
+                                text=[f"{v:,.0f}T" for v in _y],
+                                textposition="outside",
+                                textfont=dict(size=9, color=bar_colors.get(lbl,"#fff")),
+                            ))
+                            fig6_lines.add_trace(go.Scatter(
+                                name=f"Courbe {lbl}", x=_x, y=_y,
+                                mode="lines+markers",
+                                line=LINE_STYLES.get(lbl, dict(color="#fff", width=2)),
+                                marker=dict(size=10, symbol=MARKER_SYMS.get(lbl,"circle"),
+                                            color=bar_colors.get(lbl,"#888"),
+                                            line=dict(width=2, color="#fff")),
+                                showlegend=True,
+                            ))
 
                     # Ligne recouvrement
                     if "tonnage_recouvrement" in df.columns:
                         recouv = df["tonnage_recouvrement"].fillna(0).sum()
                         if recouv > 0:
-                            fig6.add_hline(y=recouv,
-                                line_dash="dash", line_color="#ef5350",
-                                line_width=2.5,
-                                annotation_text=f"⚠️ Recouvrement : {recouv:,.0f} T",
-                                annotation_font_color="#ef5350",
-                                annotation_font_size=12)
+                            fig6_lines.add_hline(y=recouv,
+                                line_dash="dot", line_color="#ef5350", line_width=2.5,
+                                annotation_text=f"⚠️ Seuil recouvrement : {recouv:,.0f} T",
+                                annotation_font_color="#ef5350", annotation_font_size=11,
+                                annotation_position="top right")
 
-                    fig6.update_layout(
-                        template="plotly_dark",
-                        paper_bgcolor="#161b22",
-                        plot_bgcolor="#0d1117",
-                        height=420, showlegend=False,
-                        title="Évolution prévisions vs Recouvrement minimal",
-                        yaxis_title="Tonnes")
-                    st.plotly_chart(fig6, use_container_width=True)
+                    fig6_lines.update_layout(
+                        barmode="group", template="plotly_dark",
+                        paper_bgcolor="#161b22", plot_bgcolor="#0d1117",
+                        height=520,
+                        title="<b>Prévisions vs Réalisé par Commercial</b>"
+                              "<br><sup>Barres = volumes | Courbes = tendances | Écart vertical = décalage entre versions</sup>",
+                        yaxis_title="Tonnes (T)",
+                        yaxis=dict(gridcolor="#21262d"),
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                    traceorder="normal"),
+                        font=dict(color="#f0f6fc"),
+                        bargap=0.15, bargroupgap=0.04,
+                    )
+                    if _has_any:
+                        st.plotly_chart(fig6_lines, use_container_width=True)
+
+                    # ── GRAPHIQUE 2 : Radar statistique ──────────────
+                    if len(_comms_all) >= 3:
+                        st.markdown("##### 🕷️ Radar — Comparaison globale par commercial")
+                        fig_radar = go.Figure()
+                        _theta = list(_comms_all) + [_comms_all[0]]
+                        for lbl, col in _col_map.items():
+                            if col in df.columns and df[col].fillna(0).sum() > 0 and "commercial" in df.columns:
+                                _r = [df[df["commercial"]==c][col].fillna(0).sum() for c in _comms_all]
+                                _r += [_r[0]]
+                                fig_radar.add_trace(go.Scatterpolar(
+                                    r=_r, theta=_theta, fill="toself", name=lbl,
+                                    line=dict(color=bar_colors.get(lbl,"#888"), width=2),
+                                    fillcolor=bar_colors.get(lbl,"#888"),
+                                    opacity=0.30,
+                                ))
+                        fig_radar.update_layout(
+                            template="plotly_dark", paper_bgcolor="#161b22",
+                            polar=dict(bgcolor="#0d1117",
+                                       radialaxis=dict(gridcolor="#21262d"),
+                                       angularaxis=dict(gridcolor="#21262d")),
+                            height=420,
+                            title="Radar — Répartition par commercial (toutes prévisions)",
+                            legend=dict(orientation="h", yanchor="bottom", y=-0.2),
+                            font=dict(color="#f0f6fc"),
+                        )
+                        st.plotly_chart(fig_radar, use_container_width=True)
 
                 # KPIs comparaison
                 if tots:
