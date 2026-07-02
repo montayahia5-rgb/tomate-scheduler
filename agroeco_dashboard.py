@@ -470,11 +470,12 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
 
     base = _upper(base, ["client","centre"])
     KEY = ["client","centre"]
-    # Propager commercial depuis Bourak si disponible
-    if "commercial" in base.columns:
-        base["commercial"] = base["commercial"].astype(str).str.strip()
-    else:
+    # Garder commercial depuis Bourak (vient du champ "responsable")
+    if "commercial" not in base.columns:
         base["commercial"] = ""
+    base["commercial"] = base["commercial"].fillna("").astype(str).str.strip()
+    # Après chaque merge outer, préserver commercial depuis le côté gauche
+    _comm_series = base.set_index("client")["commercial"].to_dict() if "client" in base.columns else {}
 
     # ── Merge ROYAL ────────────────────────────────────────
     if df_royal is not None and not df_royal.empty:
@@ -499,6 +500,12 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         else:
             r_grp["consigne_plateau"] = 0
         base = base.merge(r_grp, on=KEY, how="outer")
+        # Restaurer commercial perdu par le outer merge
+        if "commercial" in base.columns:
+            base["commercial"] = base["commercial"].fillna(
+                base["client"].map(_comm_series)).fillna("")
+        elif _comm_series:
+            base["commercial"] = base["client"].map(_comm_series).fillna("")
 
     # ── Merge dates récolte (Supabase) ─────────────────────
     # ⚠️  La condition caisses vides = date_debut_RECOLTE (pas livraison)
@@ -556,24 +563,25 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     df["avance_bourak"]   = g("avance")
     df["charge_totale"]   = df["charge_plants"] + df["charge_intrants"] + df["avance_bourak"]
 
-    # ── Enrichir commercial si absent (depuis quantite ou bourak) ──
-    if "commercial" not in df.columns or df["commercial"].fillna("").eq("").all():
-        # Essayer depuis df_quantite
-        if df_quantite is not None and "commercial" in df_quantite.columns and "client" in df_quantite.columns:
-            _q_comm = _upper(df_quantite[["client","commercial"]].dropna().drop_duplicates("client").copy(), ["client"])
-            df = df.merge(_q_comm.rename(columns={"commercial":"_comm_q"}), on="client", how="left")
-            if "_comm_q" in df.columns:
-                df["commercial"] = df.get("commercial", pd.Series([""]*len(df))).fillna("").replace("", pd.NA)
-                df["commercial"] = df["commercial"].fillna(df["_comm_q"])
-                df = df.drop(columns=["_comm_q"])
-        # Fallback : depuis Bourak
-        if df_bourak is not None and "commercial" in df_bourak.columns and "client" in df_bourak.columns:
-            _b_comm = _upper(df_bourak[["client","commercial"]].dropna().drop_duplicates("client").copy(), ["client"])
-            _b_comm.columns = ["client","_comm_b"]
-            df = df.merge(_b_comm, on="client", how="left")
-            if "_comm_b" in df.columns:
-                df["commercial"] = df["commercial"].fillna("").replace("", pd.NA).fillna(df["_comm_b"])
-                df = df.drop(columns=["_comm_b"])
+    # ── commercial : récupéré depuis Bourak (base) ───────────
+    # La colonne "commercial" vient de parse_bourak (colonne "responsable")
+    # Elle est déjà dans base depuis le début — on la normalise juste
+    if "commercial" not in df.columns:
+        # Pas dans df → chercher dans les sources sans merge supplémentaire
+        for _src in [df_bourak, df_quantite]:
+            if _src is not None and not _src.empty and "commercial" in _src.columns:
+                _comm_map = (
+                    _src[["client","commercial"]]
+                    .copy()
+                    .assign(client=lambda x: x["client"].astype(str).str.strip().str.upper())
+                    .dropna(subset=["commercial"])
+                    .query('commercial != ""')
+                    .drop_duplicates("client")
+                    .set_index("client")["commercial"]
+                )
+                df["commercial"] = df["client"].map(_comm_map).fillna("")
+                if df["commercial"].ne("").any():
+                    break
     if "commercial" not in df.columns:
         df["commercial"] = ""
     df["commercial"] = df["commercial"].fillna("").astype(str).str.strip()
@@ -1379,7 +1387,7 @@ padding:16px 20px;margin-bottom:18px'>
                             st.warning("Aucune session partagée trouvée.")
             else:
                 st.warning("⏳ En attente des données — l'administrateur doit importer et sauvegarder les fichiers.")
-            st.stop()  # Ne pas afficher le reste du tab pour les non-admins
+            return  # Arrêter le rendu de render_agroeco_tab pour les non-admins
 
         # ── Paramètres (admin seulement) ─────────────────────
         st.markdown("### ⚙️ Paramètres de calcul")
