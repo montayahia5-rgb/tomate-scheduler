@@ -706,426 +706,428 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
 # ══════════════════════════════════════════════════════════════
 
 def export_excel(df, df_sotusfa_raw=None):
+    """
+    Export Excel exact — structure tirée du fichier de référence :
+    35 colonnes · 7 groupes · 4 feuilles
+    """
     from openpyxl import Workbook
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
-    from openpyxl.formatting.rule import ColorScaleRule, DataBarRule
+    from openpyxl.formatting.rule import ColorScaleRule
+    import io as _io, numpy as _np
 
-    def hf(h): return PatternFill("solid",start_color=h,end_color=h)
-    def bf(bold=True,white=False,color="000000",size=10):
-        return Font(bold=bold,name="Calibri",size=size,
+    # ── helpers ─────────────────────────────────────────────────
+    def hf(h): return PatternFill("solid", start_color=h, end_color=h)
+    def bf(bold=True, white=False, size=10, color="000000"):
+        return Font(bold=bold, name="Calibri", size=size,
                     color="FFFFFF" if white else color)
-    t = Side(style="thin",color="CCCCCC")
-    BD  = Border(left=t,right=t,top=t,bottom=t)
-    CTR = Alignment(horizontal="center",vertical="center",wrap_text=True)
-    LFT = Alignment(horizontal="left",vertical="center")
+    T  = Side(style="thin",   color="CCCCCC")
+    TM = Side(style="medium", color="444444")
+    BD  = Border(left=T,  right=T,  top=T,  bottom=T)
+    BDM = Border(left=TM, right=TM, top=TM, bottom=TM)
+    CTR = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    LFT = Alignment(horizontal="left",   vertical="center")
+
+    # ── Mapping : nom interne → nom affiché ─────────────────────
+    # Ordre : colonnes multiples possibles (prend la première trouvée)
+    COL_MAP = {
+        # Nom affiché          : [noms internes possibles]
+        "Agriculteur"         : ["Agriculteur","agriculteur","client"],
+        "Commercial"          : ["Commercial","commercial"],
+        "Ingénieur"           : ["Ingénieur","ingenieur"],
+        "Centre"              : ["Centre","centre"],
+        "Région"              : ["Région","region"],
+        "Variété"             : ["Variété","variete"],
+        "Ha"                  : ["Ha","hectares"],
+        "Plants Livrés"       : ["Plants Livrés","qte_royal"],
+        "Plants Actifs"       : ["Plants Actifs","qte_actif"],
+        "Extra (pertes)"      : ["Extra (pertes)","qte_extra"],
+        "Taux prise %"        : ["Taux prise %","taux_prise"],
+        "Densité/ha"          : ["Densité/ha","densite_ha"],
+        "Affectation"         : ["Affectation","affectation_caisse"],
+        "Déb. Récolte"        : ["Déb. Récolte","date_debut_recolte"],
+        "Plants (DT)"         : ["Plants (DT)","charge_plants","valeur_plants"],
+        "Intrants (DT)"       : ["Intrants (DT)","charge_intrants","total_intrants"],
+        "Avance Bourak (DT)"  : ["Avance Bourak (DT)","avance_bourak"],
+        "Charge Totale (DT)"  : ["Charge Totale (DT)","charge_totale"],
+        "Consigne Plateau"    : ["Consigne Plateau","consigne_plateau"],
+        "Report (DT)"         : ["Report (DT)","report"],
+        "Consigne Caisse"     : ["Consigne Caisse","consigne_caisse"],
+        "MO Récolte (DT)"     : ["MO Récolte (DT)","mo_recolte"],
+        "Charges à recouvrir" : ["Charges à recouvrir","charge_a_recouvrir"],
+        "Prév. Mai (T)"       : ["Prév. Mai (T)","prevision_mai"],
+        "Livré (T)"           : ["Livré (T)","tonnage_livre"],
+        "Prix Vente"          : ["Prix Vente","prix_vente"],
+        "RECOUVREMENT (T)"    : ["RECOUVREMENT (T)","tonnage_recouvrement"],
+        "Recouv./ha"          : ["Recouv./ha","recouvrement_ha"],
+        "Écart (T)"           : ["Écart (T)","ecart_tonnage"],
+        "T/ha réalisé"        : ["T/ha réalisé","rendement_ha_reel"],
+        "Coût/ha"             : ["Coût/ha","cout_ha"],
+        "Coût/plant"          : ["Coût/plant","cout_plant"],
+        "Valeur Livrée"       : ["Valeur Livrée","valeur_livree"],
+        "Solde Final"         : ["Solde Final","solde_final"],
+        "Alerte"              : ["Alerte","alerte"],
+    }
+
+    # ── Structure EXACTE (groupes → colonnes dans l'ordre) ──────
+    GROUPES = {
+        "IDENTIFICATION": [
+            "Agriculteur","Commercial","Ingénieur","Centre","Région"],
+        "PLANT": [
+            "Variété","Ha","Plants Livrés","Plants Actifs",
+            "Extra (pertes)","Taux prise %","Densité/ha"],
+        "AFFECTATION CAISSES VIDES": [
+            "Affectation","Déb. Récolte"],
+        "CHARGES (DT)": [
+            "Plants (DT)","Intrants (DT)","Avance Bourak (DT)",
+            "Charge Totale (DT)","Consigne Plateau","Report (DT)",
+            "Consigne Caisse","MO Récolte (DT)","Charges à recouvrir"],
+        "PRÉVISIONS (T)": [
+            "Prév. Mai (T)","Livré (T)"],
+        "RECOUVREMENT": [
+            "Prix Vente","RECOUVREMENT (T)","Recouv./ha","Écart (T)"],
+        "RÉSULTAT": [
+            "T/ha réalisé","Coût/ha","Coût/plant",
+            "Valeur Livrée","Solde Final","Alerte"],
+    }
+    GRP_COLORS = {
+        "IDENTIFICATION":            "1F3864",
+        "PLANT":                     "1A5C2A",
+        "AFFECTATION CAISSES VIDES": "7B3F00",
+        "CHARGES (DT)":              "8B0000",
+        "PRÉVISIONS (T)":            "4A235A",
+        "RECOUVREMENT":              "0B3954",
+        "RÉSULTAT":                  "1B4332",
+    }
+    # Couleurs spéciales par colonne
+    COL_SUBCOLORS = {
+        "Taux prise %": "2D6A4F",
+        "Densité/ha":   "1A5C2A",
+        "Report (DT)":  "6B1212",
+    }
+
+    # ── Résoudre les valeurs depuis df ──────────────────────────
+    # Pour chaque nom affiché, trouver la colonne dans df
+    def resolve(df_, display_name):
+        for internal in COL_MAP.get(display_name, [display_name]):
+            if internal in df_.columns:
+                return df_[internal]
+        return pd.Series([""] * len(df_), index=df_.index)
+
+    # Construire la liste ordonnée finale de colonnes à afficher
+    all_display = []
+    for grp_cols in GROUPES.values():
+        for col_display in grp_cols:
+            all_display.append(col_display)
 
     wb = Workbook()
 
-    # ── Feuille 1 : Dashboard ──────────────────────────────
+    # ════════════════════════════════════════════════════════════
+    # FEUILLE 1 — 📊 Dashboard
+    # ════════════════════════════════════════════════════════════
     ws = wb.active
     ws.title = "📊 Dashboard"
     ws.sheet_view.showGridLines = False
 
-    BLOCS = [
-        ("IDENTIFICATION",    ["agriculteur","commercial","ingenieur","centre","region"],
-         "1F3864"),
-        ("PLANT",             ["variete","hectares","qte_livree","qte_actif","qte_extra",
-                                "taux_prise","densite_ha"],          "1A5C2A"),
-        ("AFFECTATION",       ["affectation_caisse","date_debut_recolte"], "8B3A00"),
-        ("CHARGES (DT)",      ["charge_plants","charge_intrants","avance_bourak",
-                                "charge_totale","consigne_plateau","consigne_caisse",
-                                "mo_recolte","charges_totales"],     "375623"),
-        ("PRÉVISIONS (T)",    ["prevision_dec","prevision_mai",
-                                "prevision_juin","tonnage_livre"],   "4A235A"),
-        ("RECOUVREMENT",      ["prix_vente","tonnage_recouvrement",
-                                "recouvrement_ha","ecart_tonnage"],  "C0392B"),
-        ("RÉSULTAT",          ["tonnage_ha_realise","cout_ha","cout_plant_actif",
-                                "valeur_livree","solde_final","report","alerte"],
-         "0B4F6C"),
-    ]
+    ncols = len(all_display)
 
-    # Titre
-    all_cols = [c for bloc in BLOCS for c in bloc[1]]
-    avail_cols = [c for c in all_cols if c in df.columns]
-    ws.merge_cells(start_row=1,start_column=1,end_row=1,end_column=len(avail_cols))
+    # Ligne 1 : titre principal
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
     ws["A1"] = "📊 DASHBOARD AGROÉCONOMIQUE TOMATE 2026 — v2"
-    ws["A1"].font = bf(True,white=True,size=13)
-    ws["A1"].fill = hf("0D1B2A"); ws["A1"].alignment = CTR
+    ws["A1"].font = bf(True, True, 13)
+    ws["A1"].fill = hf("0a1628")
+    ws["A1"].alignment = CTR
     ws.row_dimensions[1].height = 32
 
-    # Ligne 2 : blocs
-    ci = 1
-    BLOC_STARTS = {}
-    for bloc_name, bloc_cols, bloc_color in BLOCS:
-        bloc_avail = [c for c in bloc_cols if c in df.columns]
-        if not bloc_avail: continue
-        BLOC_STARTS[bloc_name] = (ci, ci+len(bloc_avail)-1, bloc_color)
-        ws.merge_cells(start_row=2,start_column=ci,
-                       end_row=2,end_column=ci+len(bloc_avail)-1)
-        c = ws.cell(2,ci,value=bloc_name)
-        c.font=bf(True,white=True,size=8); c.fill=hf(bloc_color)
-        c.alignment=CTR; c.border=BD
-        ci += len(bloc_avail)
-    ws.row_dimensions[2].height = 18
+    # Ligne 2 : groupes (cellules fusionnées)
+    # Ligne 3 : noms colonnes
+    col_cursor = 1
+    for grp_name, grp_cols in GROUPES.items():
+        gc = GRP_COLORS[grp_name]
+        nc = len(grp_cols)
+        # Fusion groupe
+        if nc > 1:
+            ws.merge_cells(start_row=2, start_column=col_cursor,
+                           end_row=2, end_column=col_cursor + nc - 1)
+        g = ws.cell(2, col_cursor, value=grp_name)
+        g.font = bf(True, True, 10); g.fill = hf(gc)
+        g.alignment = CTR; g.border = BDM
 
-    # Ligne 3 : en-têtes
-    HDRS_LABELS = {
-        "agriculteur":"Agriculteur","commercial":"Commercial",
-        "ingenieur":"Ingénieur","centre":"Centre","region":"Région",
-        "variete":"Variété","hectares":"Ha","qte_livree":"Plants Livrés",
-        "qte_actif":"Plants Actifs","qte_extra":"Extra (pertes)",
-        "taux_prise":"Taux prise %","densite_ha":"Densité/ha",
-        "affectation_caisse":"Affectation","date_debut_recolte":"Déb. Récolte",
-        "charge_plants":"Plants (DT)","charge_intrants":"Intrants (DT)",
-        "avance_bourak":"Avance Bourak (DT)","charge_totale":"Charge Totale (DT)",
-        "consigne_plateau":"Consigne Plateau","consigne_caisse":"Consigne Caisse",
-        "mo_recolte":"MO Récolte (DT)","charges_totales":"TOTAL Charges",
-        "prevision_dec":"Prév. Déc (T)","prevision_mai":"Prév. Mai (T)",
-        "prevision_juin":"Prév. Juin (T)","tonnage_livre":"Livré (T)",
-        "prix_vente":"Prix Vente","tonnage_recouvrement":"RECOUVREMENT (T)",
-        "recouvrement_ha":"Recouv./ha","ecart_tonnage":"Écart (T)",
-        "tonnage_ha_realise":"T/ha réalisé","cout_ha":"Coût/ha",
-        "cout_plant_actif":"Coût/plant","valeur_livree":"Valeur Livrée",
-        "solde_final":"Solde Final","report":"Report (DT)","alerte":"Alerte",
-    }
-    COL_WIDTHS = {
-        "agriculteur":26,"commercial":16,"ingenieur":18,"centre":16,"region":16,
-        "variete":14,"hectares":8,"qte_livree":13,"qte_actif":13,"qte_extra":12,
-        "taux_prise":11,"densite_ha":11,"affectation_caisse":18,
-        "date_debut_recolte":14,"charge_plants":13,"charge_intrants":14,
-        "avance_bourak":15,"charge_totale":15,"consigne_plateau":15,
-        "consigne_caisse":15,"mo_recolte":13,"charges_totales":14,
-        "prevision_dec":13,"prevision_mai":13,"prevision_juin":13,
-        "tonnage_livre":12,"prix_vente":11,"tonnage_recouvrement":17,
-        "recouvrement_ha":13,"ecart_tonnage":12,"tonnage_ha_realise":13,
-        "cout_ha":12,"cout_plant_actif":13,"valeur_livree":14,
-        "solde_final":13,"report":12,"alerte":18,
-    }
-    ci = 1
-    col_color_map = {}
-    for bloc_name, bloc_cols, bloc_color in BLOCS:
-        for col in bloc_cols:
-            if col not in df.columns: continue
-            col_color_map[col] = bloc_color
-            c = ws.cell(3,ci,value=HDRS_LABELS.get(col,col))
-            c.font=bf(True,white=True,size=9); c.fill=hf(bloc_color)
-            c.alignment=CTR; c.border=BD
-            ws.column_dimensions[get_column_letter(ci)].width = COL_WIDTHS.get(col,12)
-            ci += 1
-    ws.row_dimensions[3].height = 34
+        for col_display in grp_cols:
+            # Sous-couleur si définie, sinon couleur du groupe
+            sub_c = COL_SUBCOLORS.get(col_display, gc)
+            h = ws.cell(3, col_cursor, value=col_display)
+            h.font = bf(True, True, 9)
+            h.fill = hf(sub_c)
+            h.alignment = CTR
+            h.border = BD
+            # Largeur colonne adaptée
+            _w = max(12, len(col_display) + 3)
+            if col_display in ("Agriculteur",): _w = 30
+            elif col_display in ("Commercial","Ingénieur","Centre"): _w = 18
+            elif col_display in ("Plants (DT)","Intrants (DT)","Avance Bourak (DT)",
+                                  "Charge Totale (DT)","Charges à recouvrir",
+                                  "Consigne Plateau","Consigne Caisse","MO Récolte (DT)",
+                                  "Report (DT)"): _w = 17
+            elif col_display in ("RECOUVREMENT (T)","Valeur Livrée","Solde Final"): _w = 16
+            ws.column_dimensions[get_column_letter(col_cursor)].width = _w
+            col_cursor += 1
 
-    # Données
-    ALERT_BG = {
-        "🔴 DÉFICIT RECOUVREMENT":"5c1a1a",
-        "🔴 PRISE FAIBLE":         "5c1a1a",
-        "🔴 RISQUE FINANCIER":     "5c1a1a",
-        "🔴 PRÉVISION INSUFFISANTE":"5c1a1a",
-        "🟡 ATTENTION":            "3d3000",
-        "🟢 OK":                   "0a2a0a",
-    }
-    NUM_FMT = {
-        "qte_livree":"#,##0","qte_actif":"#,##0","qte_extra":"#,##0",
-        "charge_plants":"#,##0","charge_intrants":"#,##0",
-        "avance_bourak":"#,##0","charge_totale":"#,##0",
-        "consigne_plateau":"#,##0","consigne_caisse":"#,##0",
-        "mo_recolte":"#,##0","charges_totales":"#,##0",
-        "valeur_livree":"#,##0","solde_final":"+#,##0;-#,##0;0",
-        "report":"#,##0","cout_ha":"#,##0",
-        "taux_prise":"0.0","densite_ha":"#,##0",
-        "tonnage_livre":"0.0","tonnage_recouvrement":"0.0",
-        "ecart_tonnage":"+0.0;-0.0;0","recouvrement_ha":"0.0",
-        "tonnage_ha_realise":"0.0","cout_plant_actif":"0.0000",
-        "prix_vente":"0.0",
-    }
+    ws.row_dimensions[2].height = 22
+    ws.row_dimensions[3].height = 30
 
+    # Lignes données
+    ALT_BG = {"🔴": "FFCDD2", "🟡": "FFF9C4", "🟢": "E8F5E9"}
     for ri, (_, row) in enumerate(df.iterrows()):
         r = ri + 4
-        alt = ri % 2 == 0
-        alerte_val = str(row.get("alerte","🟢 OK"))
-        ci2 = 1
-        for bloc_name, bloc_cols, bloc_color in BLOCS:
-            for col in bloc_cols:
-                if col not in df.columns: continue
-                val = row.get(col,"")
-                if isinstance(val, float) and np.isnan(val): val = ""
-                if isinstance(val, pd.Timestamp): val = val.strftime("%d/%m/%Y")
-                c = ws.cell(r,ci2,value=val)
-                c.border = BD
-                c.alignment = LFT if col in ("agriculteur","ingenieur","centre") else CTR
-                c.font = bf(False,size=9)
-                if col == "alerte":
-                    c.fill = hf(ALERT_BG.get(alerte_val,"0a2a0a"))
-                    c.font = bf(True,white=True,size=9)
-                elif col == "ecart_tonnage":
-                    v = row.get(col,0) or 0
-                    c.fill = hf("1a3a1a" if v>=0 else "3a1a1a")
-                    c.font = bf(True,size=9,
-                                color="4CAF50" if v>=0 else "ef5350")
-                elif col == "solde_final":
-                    v = row.get(col,0) or 0
-                    c.fill = hf("E8F5E9" if v>=0 else "FFEBEE")
-                    c.font = bf(False,size=9,
-                                color="1E8449" if v>=0 else "C0392B")
-                else:
-                    c.fill = hf("F0F5FF" if alt else "FFFFFF")
-                if col in NUM_FMT:
-                    c.number_format = NUM_FMT[col]
-                ci2 += 1
-        ws.row_dimensions[r].height = 18
+        alerte_raw = str(resolve(df, "Alerte").iloc[ri] if ri < len(df) else "")
+        emoji = alerte_raw[:2] if alerte_raw else ""
+        row_bg = ALT_BG.get(emoji, "F0F5FF" if ri % 2 == 0 else "FFFFFF")
 
-    last = len(df)+4
-    # Color scale écart tonnage
-    if "ecart_tonnage" in df.columns:
-        idx = avail_cols.index("ecart_tonnage")+1
-        col_l = get_column_letter(idx)
+        for ci, col_display in enumerate(all_display, 1):
+            series = resolve(df, col_display)
+            val = series.iloc[ri] if ri < len(series) else ""
+            if isinstance(val, float) and _np.isnan(val): val = ""
+
+            c = ws.cell(r, ci, value=val)
+            c.border = BD
+            c.alignment = LFT if col_display == "Agriculteur" else CTR
+            c.font = bf(col_display == "Agriculteur", size=9)
+
+            # ── Style par colonne ──────────────────────────────
+            if col_display == "Alerte":
+                c.fill = hf(ALT_BG.get(emoji, row_bg))
+                c.font = bf(True, size=9, color={
+                    "🔴":"C0392B","🟡":"D4AC0D","🟢":"1E8449"}.get(emoji,"000000"))
+            elif col_display == "Solde Final":
+                try:
+                    fv = float(val) if val != "" else 0
+                    c.fill = hf("E8F5E9") if fv >= 0 else hf("FFEBEE")
+                    c.font = bf(True, size=9, color="1E8449" if fv >= 0 else "C0392B")
+                    c.number_format = '+#,##0 "DT";-#,##0 "DT";0'
+                except: c.fill = hf(row_bg)
+            elif col_display == "Écart (T)":
+                try:
+                    fv = float(val) if val != "" else 0
+                    c.fill = hf("E8F5E9") if fv >= 0 else hf("FFEBEE")
+                    c.number_format = '+#,##0.0;-#,##0.0;0'
+                except: c.fill = hf(row_bg)
+            elif col_display == "Taux prise %":
+                c.fill = hf(row_bg)
+                try:
+                    tp = float(val)
+                    if tp >= 90: c.fill = hf("E8F5E9")
+                    elif tp >= 85: c.fill = hf("F0F4C3")
+                    else: c.fill = hf("FFEBEE")
+                except: pass
+                c.number_format = "0.0"
+            else:
+                c.fill = hf(row_bg)
+                # Formats numériques
+                if isinstance(val, (int, float)) and val != "" and not _np.isnan(float(val) if isinstance(val,float) else 0):
+                    if col_display in ("Ha","T/ha réalisé","Recouv./ha","Coût/plant"):
+                        c.number_format = "0.00"
+                    elif col_display in ("Plants Livrés","Plants Actifs","Extra (pertes)",
+                                          "Densité/ha"):
+                        c.number_format = "#,##0"
+                    elif col_display in ("Prix Vente",):
+                        c.number_format = "#,##0.0"
+                    else:
+                        c.number_format = "#,##0"
+
+        ws.row_dimensions[r].height = 17
+
+    # Ligne TOTAL
+    tr = len(df) + 4
+    SUM_COLS = {"Ha","Plants Livrés","Plants Actifs","Extra (pertes)",
+                "Plants (DT)","Intrants (DT)","Avance Bourak (DT)",
+                "Charge Totale (DT)","Consigne Plateau","Report (DT)",
+                "Consigne Caisse","MO Récolte (DT)","Charges à recouvrir",
+                "Prév. Mai (T)","Livré (T)","RECOUVREMENT (T)",
+                "Écart (T)","Valeur Livrée","Solde Final"}
+    for ci, col_display in enumerate(all_display, 1):
+        c = ws.cell(tr, ci)
+        c.fill = hf("1F3864"); c.font = bf(True, True, 9)
+        c.border = BD; c.alignment = CTR
+        if col_display == "Agriculteur":
+            c.value = "TOTAL"; c.alignment = LFT
+        elif col_display in SUM_COLS:
+            cl = get_column_letter(ci)
+            c.value = f"=SUM({cl}4:{cl}{tr-1})"
+            c.number_format = "#,##0"
+    ws.row_dimensions[tr].height = 22
+
+    # Mise en forme conditionnelle taux prise
+    tp_idx = all_display.index("Taux prise %") + 1 if "Taux prise %" in all_display else None
+    if tp_idx:
+        tl = get_column_letter(tp_idx)
         ws.conditional_formatting.add(
-            f"{col_l}4:{col_l}{last}",
-            ColorScaleRule(start_type="min",start_color="FFCDD2",
-                           mid_type="num",mid_value=0,mid_color="FFF9C4",
-                           end_type="max",end_color="C8E6C9"))
+            f"{tl}4:{tl}{tr-1}",
+            ColorScaleRule(start_type="num", start_color="FFCDD2",
+                           mid_type="num",   mid_value=90, mid_color="FFF9C4",
+                           end_type="num",   end_color="C8E6C9", end_value=97))
     ws.freeze_panes = "A4"
 
-    # ── Feuille 2 : Par Ingénieur ──────────────────────────
-    if "ingenieur" in df.columns:
-        ws2 = wb.create_sheet("👤 Par Ingénieur")
-        ws2.sheet_view.showGridLines = False
-        g2 = df.groupby(["ingenieur","centre"]).agg(
-            Agriculteurs   = ("agriculteur","count"),
-            Hectares       = ("hectares","sum"),
-            Charge_DT      = ("charge_totale","sum"),
-            Plants_livres  = ("qte_livree","sum"),
-            Plants_actifs  = ("qte_actif","sum"),
-            Taux_prise     = ("taux_prise","mean"),
-            Recouvrement_T = ("tonnage_recouvrement","sum"),
-            Livre_T        = ("tonnage_livre","sum"),
-            Ecart_T        = ("ecart_tonnage","sum"),
-            Alertes_rouge  = ("alerte",lambda x:(x.str.contains("🔴")).sum()),
-        ).reset_index()
-        g2 = g2.round(1)
-        ws2.merge_cells(start_row=1,start_column=1,end_row=1,end_column=len(g2.columns))
-        ws2["A1"]="👤 Synthèse par Ingénieur × Centre"
-        ws2["A1"].font=bf(True,white=True,size=12)
-        ws2["A1"].fill=hf("0B4F6C"); ws2["A1"].alignment=CTR
-        ws2.row_dimensions[1].height=26
-        for ci3,col in enumerate(g2.columns,1):
-            c=ws2.cell(2,ci3,value=col)
-            c.font=bf(True,white=True,size=10); c.fill=hf("0B4F6C")
-            c.alignment=CTR; c.border=BD
-            ws2.column_dimensions[get_column_letter(ci3)].width=max(14,len(str(col))+4)
-        ws2.row_dimensions[2].height=24
-        for ri,(_, row) in enumerate(g2.iterrows()):
-            r2=ri+3
-            for ci3,val in enumerate(row,1):
-                if isinstance(val,float) and np.isnan(val): val=0
-                c=ws2.cell(r2,ci3,value=val)
-                c.border=BD; c.alignment=CTR
-                c.fill=hf("F0F5FF" if ri%2==0 else "FFFFFF")
-                c.font=bf(False,size=9)
-                if g2.columns[ci3-1]=="Alertes_rouge" and val>0:
-                    c.fill=hf("FFEBEE"); c.font=bf(True,size=9,color="C0392B")
-        ws2.freeze_panes="A3"
+    # ════════════════════════════════════════════════════════════
+    # FEUILLE 2 — 👤 Par Ingénieur
+    # ════════════════════════════════════════════════════════════
+    ws2 = wb.create_sheet("👤 Par Ingénieur")
+    ws2.sheet_view.showGridLines = False
 
-    # ── Feuille 3 : Caisses vides detail ──────────────────
+    _ic = next((c for c in ["Ingénieur","ingenieur"] if c in df.columns), None)
+    _cc = next((c for c in ["Centre","centre"]       if c in df.columns), None)
+    _ac = next((c for c in ["Agriculteur","agriculteur","client"] if c in df.columns), None)
+
+    ws2.merge_cells("A1:L1")
+    ws2["A1"] = "👤 SYNTHÈSE PAR INGÉNIEUR / CENTRE"
+    ws2["A1"].font = bf(True, True, 12); ws2["A1"].fill = hf("0B4F6C")
+    ws2["A1"].alignment = CTR; ws2.row_dimensions[1].height = 30
+
+    if _ic and _ic in df.columns:
+        _gk = [k for k in [_ic, _cc] if k and k in df.columns]
+        _agg = {}
+        if _ac: _agg["Agriculteurs"] = (_ac, "count")
+        for _nc, _fc in [
+            ("Ha","hectares"),("Plants Livrés","qte_royal"),
+            ("Plants Actifs","qte_actif"),("Taux prise %","taux_prise"),
+            ("Charge Totale (DT)","charge_totale"),("Livré (T)","tonnage_livre"),
+            ("RECOUVREMENT (T)","tonnage_recouvrement"),("Écart (T)","ecart_tonnage"),
+        ]:
+            _fc_found = next((c for c in [_fc, _nc] if c in df.columns), None)
+            if _fc_found:
+                _agg[_nc] = (_fc_found, "mean" if _nc == "Taux prise %" else "sum")
+        if "alerte" in df.columns:
+            _agg["Alertes 🔴"] = ("alerte", lambda x: x.str.contains("🔴", na=False).sum())
+        elif "Alerte" in df.columns:
+            _agg["Alertes 🔴"] = ("Alerte", lambda x: x.str.contains("🔴", na=False).sum())
+        try:
+            _gi = df.groupby(_gk, as_index=False).agg(**_agg).round(1)
+        except Exception:
+            _gi = pd.DataFrame()
+
+        if not _gi.empty:
+            for ci, col in enumerate(_gi.columns, 1):
+                h = ws2.cell(2, ci, value=col)
+                h.font = bf(True, True, 10); h.fill = hf("0B4F6C")
+                h.alignment = CTR; h.border = BD
+                ws2.column_dimensions[get_column_letter(ci)].width = max(15, len(str(col)) + 4)
+            ws2.row_dimensions[2].height = 28
+            for ri, (_, row) in enumerate(_gi.iterrows()):
+                r = ri + 3
+                bg = "F0F5FF" if ri % 2 == 0 else "FFFFFF"
+                for ci, val in enumerate(row.values, 1):
+                    if isinstance(val, float) and _np.isnan(val): val = ""
+                    c = ws2.cell(r, ci, value=val)
+                    c.border = BD; c.fill = hf(bg); c.alignment = CTR
+                    c.font = bf(False, size=9)
+                    if ci <= len(_gk): c.alignment = LFT; c.font = bf(True, size=9)
+                    if isinstance(val, (int, float)) and val != "":
+                        c.number_format = "0.0" if list(_gi.columns)[ci-1] == "Taux prise %" else "#,##0"
+    ws2.freeze_panes = "A3"
+
+    # ════════════════════════════════════════════════════════════
+    # FEUILLE 3 — 📦 Caisses Vides
+    # ════════════════════════════════════════════════════════════
     ws3 = wb.create_sheet("📦 Caisses Vides")
     ws3.sheet_view.showGridLines = False
-    caisse_cols = [c for c in ["agriculteur","centre","region","usine","affectation_caisse",
-                                "detail_caisse","date_debut_recolte","hectares",
-                                "consigne_caisse","consigne_plateau"] if c in df.columns]
-    if caisse_cols:
-        ws3.merge_cells(start_row=1,start_column=1,end_row=1,end_column=len(caisse_cols))
-        ws3["A1"]="📦 Détail Caisses Vides — 1ère vs 2ème Affectation"
-        ws3["A1"].font=bf(True,white=True,size=12)
-        ws3["A1"].fill=hf("8B3A00"); ws3["A1"].alignment=CTR
-        ws3.row_dimensions[1].height=26
-        for ci3,col in enumerate(caisse_cols,1):
-            c=ws3.cell(2,ci3,value=HDRS_LABELS.get(col,col))
-            c.font=bf(True,white=True,size=10); c.fill=hf("8B3A00")
-            c.alignment=CTR; c.border=BD
-            ws3.column_dimensions[get_column_letter(ci3)].width=18
-        ws3.row_dimensions[2].height=26
-        for ri,(_, row) in enumerate(df[caisse_cols].iterrows()):
-            r3=ri+3
-            is_1ere = "1ère" in str(row.get("affectation_caisse",""))
-            for ci3,val in enumerate(row,1):
-                if isinstance(val,pd.Timestamp): val=val.strftime("%d/%m/%Y")
-                if isinstance(val,float) and np.isnan(val): val=""
-                c=ws3.cell(r3,ci3,value=val); c.border=BD; c.alignment=CTR
-                c.fill=hf("FFF3E0" if is_1ere else "E8F5E9")
-                c.font=bf(bold=is_1ere,size=9,
-                           color="8B3A00" if is_1ere else "1A5C2A")
-        ws3.freeze_panes="A3"
 
-    # ── Feuille 4 : Prévisions ─────────────────────────────
+    _cv_src = [
+        ("Agriculteur",["Agriculteur","agriculteur","client"]),
+        ("Centre",     ["Centre","centre"]),
+        ("Région",     ["Région","region"]),
+        ("Affectation",["Affectation","affectation_caisse"]),
+        ("Détail",     ["detail_caisse"]),
+        ("Déb. Récolte",["Déb. Récolte","date_debut_recolte"]),
+        ("Ha",         ["Ha","hectares"]),
+        ("Consigne Caisse",  ["Consigne Caisse","consigne_caisse"]),
+        ("Consigne Plateau", ["Consigne Plateau","consigne_plateau"]),
+    ]
+    _cv = [(disp, next((c for c in srcs if c in df.columns), None))
+           for disp, srcs in _cv_src]
+    _cv = [(d, s) for d, s in _cv if s]
+
+    ws3.merge_cells(f"A1:{get_column_letter(len(_cv))}1")
+    ws3["A1"] = "📦 CAISSES VIDES — Affectations & Consignes"
+    ws3["A1"].font = bf(True, True, 12); ws3["A1"].fill = hf("7B3F00")
+    ws3["A1"].alignment = CTR; ws3.row_dimensions[1].height = 30
+
+    for ci, (disp, _) in enumerate(_cv, 1):
+        h = ws3.cell(2, ci, value=disp)
+        h.font = bf(True, True, 10); h.fill = hf("7B3F00")
+        h.alignment = CTR; h.border = BD
+        ws3.column_dimensions[get_column_letter(ci)].width = max(16, len(disp) + 4)
+    ws3.row_dimensions[2].height = 28
+
+    for ri, (_, row) in enumerate(df.iterrows()):
+        r = ri + 3
+        aff = str(row.get("affectation_caisse", row.get("Affectation", "")))
+        bg = "FBE9E7" if "1ère" in aff else ("F0F5FF" if ri % 2 == 0 else "FFFFFF")
+        for ci, (_, src_col) in enumerate(_cv, 1):
+            val = row.get(src_col, "")
+            if isinstance(val, float) and _np.isnan(val): val = ""
+            c = ws3.cell(r, ci, value=val)
+            c.border = BD; c.fill = hf(bg); c.alignment = CTR; c.font = bf(False, size=9)
+            if ci == 1: c.alignment = LFT; c.font = bf(True, size=9)
+            if isinstance(val, (int, float)) and val != "": c.number_format = "#,##0"
+    ws3.freeze_panes = "A3"
+
+    # ════════════════════════════════════════════════════════════
+    # FEUILLE 4 — 📈 Prévisions
+    # ════════════════════════════════════════════════════════════
     ws4 = wb.create_sheet("📈 Prévisions")
     ws4.sheet_view.showGridLines = False
-    prev_c = [c for c in ["agriculteur","centre","prevision_dec","prevision_mai",
-                           "prevision_juin","tonnage_livre","tonnage_recouvrement",
-                           "recouvrement_ha","ecart_tonnage"] if c in df.columns]
-    if len(prev_c) > 2:
-        ws4.merge_cells(start_row=1,start_column=1,end_row=1,end_column=len(prev_c))
-        ws4["A1"]="📈 Évolution Prévisions Déc → Mai → Juin → Réalisé vs Recouvrement"
-        ws4["A1"].font=bf(True,white=True,size=12)
-        ws4["A1"].fill=hf("4A235A"); ws4["A1"].alignment=CTR
-        ws4.row_dimensions[1].height=26
-        for ci3,col in enumerate(prev_c,1):
-            c=ws4.cell(2,ci3,value=HDRS_LABELS.get(col,col))
-            c.font=bf(True,white=True,size=10); c.fill=hf("4A235A")
-            c.alignment=CTR; c.border=BD
-            ws4.column_dimensions[get_column_letter(ci3)].width=15
-        ws4.row_dimensions[2].height=24
-        for ri,(_, row) in enumerate(df[prev_c].iterrows()):
-            r4=ri+3
-            for ci3,val in enumerate(row,1):
-                if isinstance(val,float) and np.isnan(val): val=""
-                c=ws4.cell(r4,ci3,value=val); c.border=BD; c.alignment=CTR
-                c.fill=hf("F0F0FF" if ri%2==0 else "FFFFFF")
-                c.font=bf(False,size=9)
-                col_n = prev_c[ci3-1]
-                if col_n == "ecart_tonnage":
-                    try:
-                        v=float(val)
-                        c.fill=hf("E8F5E9" if v>=0 else "FFEBEE")
-                        c.font=bf(True,size=9,
-                                  color="1E8449" if v>=0 else "C0392B")
-                        c.number_format="+0.0;-0.0;0"
-                    except: pass
-        ws4.freeze_panes="A3"
 
-    buf = io.BytesIO()
+    _pv_src = [
+        ("Agriculteur",      ["Agriculteur","agriculteur","client"]),
+        ("Centre",           ["Centre","centre"]),
+        ("Prév. Déc (T)",    ["Prév. Déc (T)","prevision_dec"]),
+        ("Prév. Mai (T)",    ["Prév. Mai (T)","prevision_mai"]),
+        ("Prév. Juin (T)",   ["Prév. Juin (T)","prevision_juin"]),
+        ("Livré (T)",        ["Livré (T)","tonnage_livre"]),
+        ("RECOUVREMENT (T)", ["RECOUVREMENT (T)","tonnage_recouvrement"]),
+        ("Recouv./ha",       ["Recouv./ha","recouvrement_ha"]),
+        ("Écart (T)",        ["Écart (T)","ecart_tonnage"]),
+    ]
+    _pv = [(d, next((c for c in srcs if c in df.columns), None)) for d, srcs in _pv_src]
+    _pv = [(d, s) for d, s in _pv if s]
+
+    ws4.merge_cells(f"A1:{get_column_letter(len(_pv))}1")
+    ws4["A1"] = "📈 PRÉVISIONS vs RÉALISÉ"
+    ws4["A1"].font = bf(True, True, 12); ws4["A1"].fill = hf("4A235A")
+    ws4["A1"].alignment = CTR; ws4.row_dimensions[1].height = 30
+
+    for ci, (disp, _) in enumerate(_pv, 1):
+        h = ws4.cell(2, ci, value=disp)
+        h.font = bf(True, True, 10); h.fill = hf("4A235A")
+        h.alignment = CTR; h.border = BD
+        ws4.column_dimensions[get_column_letter(ci)].width = max(16, len(disp) + 4)
+    ws4.row_dimensions[2].height = 28
+
+    for ri, (_, row) in enumerate(df.iterrows()):
+        r = ri + 3
+        bg = "F0F5FF" if ri % 2 == 0 else "FFFFFF"
+        for ci, (disp, src_col) in enumerate(_pv, 1):
+            val = row.get(src_col, "")
+            if isinstance(val, float) and _np.isnan(val): val = ""
+            c = ws4.cell(r, ci, value=val)
+            c.border = BD; c.alignment = CTR; c.font = bf(False, size=9)
+            if disp == "Écart (T)" and isinstance(val, (int, float)) and val != "":
+                try:
+                    fv = float(val)
+                    c.fill = hf("E8F5E9") if fv >= 0 else hf("FFEBEE")
+                    c.number_format = "+#,##0.0;-#,##0.0;0"
+                except: c.fill = hf(bg)
+            else:
+                c.fill = hf(bg)
+                if isinstance(val, (int, float)) and val != "":
+                    c.number_format = "0.00" if disp in ("Recouv./ha",) else "#,##0.0"
+            if ci <= 2: c.alignment = LFT; c.font = bf(True, size=9)
+    ws4.freeze_panes = "A3"
+
+    buf = _io.BytesIO()
     wb.save(buf); buf.seek(0)
     return buf.read()
 
-
-# ══════════════════════════════════════════════════════════════
-# RENDER PRINCIPAL
-# ══════════════════════════════════════════════════════════════
-
-
-
-
-# ══════════════════════════════════════════════════════════════
-# TABLE DE CONCORDANCE MANUELLE
-# Mappe les noms de la RÉFÉRENCE vers les noms exacts dans SOTUSFA
-# Résout les 3 types de problèmes :
-#   1. Fautes de frappe : ATTIYA → ATTIAA
-#   2. Entités splittées : BILEL GHA 1/2/3 → SOCIETE BILEL GHA
-#   3. Alias : STE BACCARA → SOCIETE BACCARA ET FILS
-# ══════════════════════════════════════════════════════════════
-CONCORDANCE_NOMS = {
-    # ── Fautes d'orthographe (CAUSE 1) ──────────────────────
-    "SAMIR ATTIYA":               "SAMIR ATTIAA",
-    "SAMIR ATTIA":                "SAMIR ATTIAA",
-    "NEGI ZAAFOURI":              "NEJI ZAAFOURI",
-    "ALI KOTLI":                  "ALI EL KOTLI",
-    "ABDELKADER KALBOUSI":        "ABDELKADER KALBOUSSI",
-    "MAKRAM HAFFAR":              "MAKREM HAFFAR",
-    "MAKREM HAFFAR":              "MAKREM HAFFAR",
-    "LASSED NEILI":               "LASSAAD NEILI",
-    "SALEH BEN HAMOUDA":          "SALAH BEN HAMOUDA",
-    "HSSINE BRINI":               "HSSIN BEN MED BEN ABDELKADER BRINI",
-    "HSSINE BRINI":               "HSSIN BEN MED BEN ABDELKADER BRINI",
-    "SAMI KAAB":                  "SAMI BEN HEDI KAAB",
-    "ABDELFATEH BEN SLIMEN":      "ABDELFATEH BEN SLIMENE",
-    "HAMED BEN YOUNIS":           "HAMED BEN YOUNES",
-    "TAREK BEN ABDALAH":          "TAREK BEN ABDALLAH",
-    "TAREK EL BAHRI":             "TAREK ELBAHRI",
-    "TAREK ELBAHRI":              "TAREK ELBAHRI",
-    "SEBTI JABALI":               "Sebti jaballi",
-    "SOUHAIL BOUZANA":            "SOUHAIL BOUZENA",
-    "MOHAMED THAMER BEN ALAYA":   "MOHAMED THAMEUR BEN ALAYA",
-    "SASSI MANSOUR":              "SASSI BEN MANSOUR",
-    "HASSEN BEN ALIA":            "HASSEN BEN ALAYA",
-    "AZAIZ BEN ISSA":             "AZAIZ BEN ISSA",
-    "HAMMADI BENZRIBIA":          "HAMMADI BEN ZRIBIA",
-    "HAFEDH MOSBEH":              "HAFEDH MESBEH",
-    "MOHAMED BEN HEDI MEHEMDI":   "MOHAMED  HEDI MEHEMDI",
-    "MAHER BELHAJ FRAJ":          "MAHER BEL HAJ FRAJ",
-    "ZOUHAIR BEN ECHIK":          "ZOUHAIR BEN  ECHIK",
-    "NOOMEN ECHAGRAOUI":          "NOOMEN ECHAGRAOUI",
-    "MOHAMED ALI MBAREK":         "MOHAMED ALI  BEN MBAREK",
-    "BADIA SAAFI":                "BADIA SAAFI",
-    "IBRAHIM BEN BOUBAKER":       "IBRAHIM BEN BOUBAKER",
-    "IMED TRABILSI":              "IMED TRABILSI",
-    "Mohamed BEDIA NEJI":         "MOHAMED BADIA NEJI",
-    "CHOKRI SAAFI":               "CHOKRI SAAFI",
-    "HICHEM SAAFI":               "HICHEM SAAFI",
-
-    # ── Entités splittées dans référence (CAUSE 2) ──────────
-    # BILEL GHA (4 lignes référence → 1 entrée Sotusfa)
-    "BILEL GHA 1":                "SOCIETE BILEL GHA SERVICE AGRICOLE",
-    "BILEL GHA 2":                "SOCIETE BILEL GHA SERVICE AGRICOLE",
-    "BILEL GHA 3":                "SOCIETE BILEL GHA SERVICE AGRICOLE",
-    "BILEL GHA 4":                "SOCIETE BILEL GHA SERVICE AGRICOLE",
-    "BILEL KEHIL":                "SOCIETE BILEL GHA SERVICE AGRICOLE",
-    # GARMALAH (plusieurs lignes → 1 Sotusfa)
-    "KARIM GARMALAH 1":           "ABDELKARIM GARMALLAH",
-    "KARIM GARMALAH 2":           "ABDELKARIM GARMALLAH",
-    "AMAR GARMALAH":              "ABDELKARIM GARMALLAH",
-    "MED ALI GARMALAH":           "ABDELKARIM GARMALLAH",
-    "HSAN GARMALAH":              "ABDELKARIM GARMALLAH",
-    "JAMEL GARMALAH":             "ABDELKARIM GARMALLAH",
-    "KARIM AMAR":                 "ABDELKARIM GARMALLAH",
-    "KARIM GARMALAH":             "ABDELKARIM GARMALLAH",
-    "ABDELKARIM SAAD":            "ABDELKARIM GARMALLAH",
-    "HAFEDH MOSBEH":              "HAFEDH MESBEH",
-    # BACCARA
-    "STE BACCARA":                "SOCIETE BACCARA ET FILS",
-    "SOCIETE BACCARA":            "SOCIETE BACCARA ET FILS",
-    "SAMEH BACCOUCH":             "SAMAH BACCOUCH",
-    "NAJIB BACCOUCH":             "NEJIB BAKOUCHE",
-    # MANSOURI (plusieurs membres famille)
-    "NOUREDIN MANSOURI":          "MOURAD MANSOURI",
-    "ELIFA MANSOURI":             "MOURAD MANSOURI",
-    "TAHER MANSOURI":             "MOURAD MANSOURI",
-    "ABELSAMII MANSOURI":         "MOURAD MANSOURI",
-    "CHOKRI MANSOURI":            "MOURAD MANSOURI",
-    "LAMINE MANSOURI":            "MOURAD MANSOURI",
-    "AHMED MANSOURI":             "MOURAD MANSOURI",
-
-    # ── Alias et abréviations (CAUSE 2 bis) ─────────────────
-    "HICHEM TRABELSI":            "ABDELHEDI TRABELSSI",
-    "KAMEL TRABELSSI":            "ABDELHEDI TRABELSSI",
-    "MOUHAMED TRABELSI":          "ABDELHEDI TRABELSSI",
-    "ABDELKARIM TRABELSSI":       "ABDELHEDI TRABELSSI",
-    "SABER KHARBESH":             "Saber Kherbech",
-    "ALAEDINE KILENI":            "ALAEDDINE BEN KILANI",
-    "ALI LTIFI":                  "ALI EL KOTLI",
-    "HANI BEN KILANI":            "HANI BELKILANI",
-    "HANI BEN KILANI":            "HANI BEN KILANI",
-    "ADEL JAZI":                  "ADEL ALJAZI",
-    "ABEDRAZEK BEY":              "ABDERRAZEG BEY",
-    "ABDESLEM BEN SOUISSI":       "ABDESLEM BEN SOUISSI",
-    "ABDELKADER MANNA":           "ABDELKADER ELMANAA",
-    "AHMED ATTIA":                "AHMED ECHIKH",
-    "AHMED IDRISSI":              "AHMED ELIDRISSI",
-    "SALEM LEGRERI":              "SALEM LEGRERI",
-    "FEDI AMAYMIA":               "FEDI LEGRERI",
-    "HOUSSEM BRAYEK":             "HOUSSEM BRAYEK",
-    "MED TAHER":                  "MOHAMED TAHRI",
-    "MOUHAMED AOUINET":           "MOUHAMED ALI GHZALA",
-    "MOUHAMED MESSII":            "MOUHAMED ALI GHZALA",
-    "ROMDHAN SAAFI":              "ROMDHAN SAAFI",
-    "BOUBAKER FILALI":            "BOUBAKER FILELI",
-    "KAIS DHAOUI":                "KAIS EDHAOUI",
-    "EZZEDINE GUESMI":            "EZZEDDIN ELGUESMI",
-    "HEDI SLAMA":                 "HEDI SLEMA",
-    "MOURAD HEMMEDI":             "MOURAD BEN SAID HAMMADI",
-    "SAMI FERGENI":               "SAMI BEN AMOR FERJENI",
-    "NEGI ZAAFOURI":              "NEJI ZAAFOURI",
-    "NABIL EL MRIDH":             "NABIL EL MRIDH",
-    "NAWFEL EL KORBI":            "NAWFEL EL  KORBI",
-    "OSAMA KAAB":                 "OSAMA KAAB",
-    # Lotfi
-    "LOTFY HAJIJ":                "LOTFI ABDALLAH",
-    # Slim Marzougui
-    "SLIM MARZOUGUI":             "SLIM ELMARZOUGUI",
-    # Imed
-    "IMED AMDOUNI":               "IMEDDINE AMDOUNI",
-    # Riadh
-    "RIADH KOUKI":                "RIADH OBAY",
-    "ISSAM KOUKI":                "ISSAM KOUKI",
-}
 
 def _get_concordance_key(nom_ref):
     """Trouve le nom Sotusfa correspondant via la table de concordance."""
