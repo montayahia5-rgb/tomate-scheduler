@@ -1701,8 +1701,7 @@ Attendu : qte_livree · qte_actif · qte_extra · tonnage_livre · prix_vente</s
                     f"🔴 {n_r} critiques · 🟡 {n_y} attention · 🟢 {n_g} OK · {_save_icon}")
 
                 if not _save_ok and sb is not None:
-                    st.warning("⚠️ Sauvegarde automatique échouée. "
-                               "Vérifiez que la table `agroeco_session` existe dans Supabase.")
+                    st.warning(f"⚠️ Sauvegarde échouée : **{_save_err}**")
 
                 xl = export_excel(df_merged, st.session_state.get("abo_sotusfa_raw"))
                 st.download_button(
