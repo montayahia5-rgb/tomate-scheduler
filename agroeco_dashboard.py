@@ -1300,7 +1300,7 @@ padding:16px 20px;margin-bottom:18px'>
         if k not in st.session_state:
             st.session_state[k] = None
 
-    t0,t1,t2,t3,t4,t5,t6 = st.tabs([
+    t0,t1,t2,t3,t4,t5,t6,t7 = st.tabs([
         "⚙️ Paramètres & Import",
         "📋 Par Agriculteur",
         "👤 Par Ingénieur / Centre",
@@ -1308,6 +1308,7 @@ padding:16px 20px;margin-bottom:18px'>
         "🍅 Par Variété",
         "💊 Par Famille Intrant",
         "📈 Prévisions vs Réalisé",
+        "🏆 Analyse Efficacité Pro",
     ])
 
     # ══ TAB 0 — PARAMÈTRES ET IMPORT ══════════════════════
@@ -2353,3 +2354,280 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                     file_name="previsions_vs_realise_2026.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True)
+
+    # ══════════════════════════════════════════════════════════
+    # TAB 7 — ANALYSE EFFICACITÉ PROFESSIONNELLE
+    # ══════════════════════════════════════════════════════════
+    with t7:
+        if df is None or df.empty:
+            _no_data()
+            st.caption("Fusionnez les données dans ⚙️ pour voir cette analyse.")
+        else:
+            import numpy as _npro
+            import plotly.graph_objects as _gop
+
+            st.markdown("""<div style='background:linear-gradient(90deg,#0a1628,#1a2332);
+border-radius:12px;padding:16px 24px;margin-bottom:20px;border-left:4px solid #FFD700'>
+<div style='font-size:1.1rem;font-weight:800;color:#f0f6fc'>
+🏆 Analyse Efficacité Professionnelle — Campagne 2026</div>
+<div style='font-size:.82rem;color:#8b949e;margin-top:6px'>
+Score d'efficacité · Benchmark commerciaux · Matrice ROI · Recommandations automatiques
+</div></div>""", unsafe_allow_html=True)
+
+            _df7 = df.copy()
+            for _col in ["hectares","tonnage_livre","taux_prise","charge_totale",
+                         "valeur_livree","total_intrants","solde_final"]:
+                if _col not in _df7.columns:
+                    _df7[_col] = 0
+                _df7[_col] = pd.to_numeric(_df7[_col], errors="coerce").fillna(0)
+            for _sc2 in ["region","variete","commercial"]:
+                if _sc2 not in _df7.columns:
+                    _df7[_sc2] = ""
+
+            # Métriques dérivées
+            _df7["rendement_ha"] = _df7.apply(
+                lambda r: round(r["tonnage_livre"]/r["hectares"],1) if r["hectares"]>0 else 0, axis=1)
+            _df7["cout_intrant_tonne"] = _df7.apply(
+                lambda r: round(r["total_intrants"]/r["tonnage_livre"],1) if r["tonnage_livre"]>0 else 0, axis=1)
+            _df7["cout_intrant_ha"] = _df7.apply(
+                lambda r: round(r["total_intrants"]/r["hectares"],1) if r["hectares"]>0 else 0, axis=1)
+            _df7["roi_pct"] = _df7.apply(
+                lambda r: round((r["valeur_livree"]-r["charge_totale"])/r["charge_totale"]*100,1)
+                          if r["charge_totale"]>0 else 0, axis=1)
+
+            # Score Efficacité (0-100)
+            def _norm7(s, inv=False):
+                mn,mx=s.min(),s.max()
+                if mx==mn: return pd.Series([0.5]*len(s),index=s.index)
+                n=(s-mn)/(mx-mn)
+                return 1-n if inv else n
+
+            _df7["_s_rend"] = 0.0
+            for _rg in _df7["region"].dropna().unique():
+                _mk = _df7["region"]==_rg
+                if _mk.sum()>1:
+                    _df7.loc[_mk,"_s_rend"] = _norm7(_df7.loc[_mk,"rendement_ha"])*0.40
+                else:
+                    _df7.loc[_mk,"_s_rend"] = 0.20
+
+            _sot_gt0 = _df7["cout_intrant_tonne"].where(_df7["cout_intrant_tonne"]>0, 0)
+            _df7["_s_int"] = _norm7(_sot_gt0, inv=True)*0.30
+            _df7["_s_prise"] = _norm7(_df7["taux_prise"])*0.20
+            _df7["_s_roi"] = (_df7["roi_pct"]>0).astype(float)*0.10
+            _df7["score_efficacite"] = ((_df7["_s_rend"]+_df7["_s_int"]+_df7["_s_prise"]+_df7["_s_roi"])*100).round(1)
+
+            def _cat7(s):
+                if s>=75: return "🏆 Excellent"
+                elif s>=55: return "✅ Bon"
+                elif s>=35: return "⚠️ Moyen"
+                else: return "🔴 À améliorer"
+            _df7["categorie"] = _df7["score_efficacite"].apply(_cat7)
+
+            # ── KPIs ─────────────────────────────────────────
+            st.markdown("### 📊 Indicateurs Clés")
+            _kp = st.columns(5)
+            _kp[0].markdown(_metric("Score moyen",f"{_df7['score_efficacite'].mean():.1f}/100",color="#FFD700"),unsafe_allow_html=True)
+            _rend_pos = _df7["rendement_ha"][_df7["rendement_ha"]>0]
+            _kp[1].markdown(_metric("Rendement moyen",f"{_rend_pos.mean():.1f} t/ha" if len(_rend_pos)>0 else "N/A",color="#4CAF50"),unsafe_allow_html=True)
+            _cout_pos = _df7["cout_intrant_tonne"][_df7["cout_intrant_tonne"]>0]
+            _kp[2].markdown(_metric("Coût intrant/tonne",f"{_cout_pos.mean():.0f} DT/T" if len(_cout_pos)>0 else "N/A",color="#FF9800"),unsafe_allow_html=True)
+            _kp[3].markdown(_metric("ROI moyen",f"{_df7['roi_pct'].mean():+.1f}%",
+                color="#4CAF50" if _df7["roi_pct"].mean()>=0 else "#ef5350"),unsafe_allow_html=True)
+            _kp[4].markdown(_metric("Excellents (≥75)",f"{(_df7['score_efficacite']>=75).sum()} agri",color="#FFD700"),unsafe_allow_html=True)
+
+            # ── Matrice Efficacité ────────────────────────────
+            st.markdown("---")
+            st.markdown("### 🔷 Matrice Efficacité — Coût Intrant vs Rendement")
+            st.caption("4 quadrants : Efficace · Surinvesti · Potentiel · Inefficace")
+            _dfm = _df7[(_df7["cout_intrant_ha"]>0)&(_df7["rendement_ha"]>0)].copy()
+            if not _dfm.empty:
+                _med_c = _dfm["cout_intrant_ha"].median()
+                _med_r = _dfm["rendement_ha"].median()
+                _ac = next((c for c in ["agriculteur","client"] if c in _dfm.columns),None)
+                _CAT_COL = {"🏆 Excellent":"#FFD700","✅ Bon":"#4CAF50","⚠️ Moyen":"#FF9800","🔴 À améliorer":"#ef5350"}
+                _figm = _gop.Figure()
+                for _cat7v, _cc in _CAT_COL.items():
+                    _sub = _dfm[_dfm["categorie"]==_cat7v]
+                    if _sub.empty: continue
+                    _figm.add_trace(_gop.Scatter(
+                        x=_sub["cout_intrant_ha"], y=_sub["rendement_ha"],
+                        mode="markers", name=_cat7v,
+                        marker=dict(color=_cc,size=10,opacity=0.85,line=dict(width=1,color="#fff")),
+                        text=_sub[_ac] if _ac else None,
+                        hovertemplate="<b>%{text}</b><br>Coût: %{x:,.0f} DT/ha<br>Rend: %{y:.1f} t/ha<extra></extra>",
+                    ))
+                _figm.add_hline(y=_med_r,line_dash="dash",line_color="#555",line_width=1.5,
+                    annotation_text=f"Médiane {_med_r:.1f}t/ha",annotation_font_color="#999")
+                _figm.add_vline(x=_med_c,line_dash="dash",line_color="#555",line_width=1.5,
+                    annotation_text=f"Médiane {_med_c:.0f}DT/ha",annotation_font_color="#999")
+                _xmax = _dfm["cout_intrant_ha"].quantile(0.9)
+                _ymax = _dfm["rendement_ha"].quantile(0.9)
+                for _ql,_xa,_ya,_qc in [
+                    ("⭐ EFFICACE",_med_c*0.3,_ymax*0.9,"#4CAF50"),
+                    ("💸 SURINVESTI",_xmax*0.75,_ymax*0.9,"#FF9800"),
+                    ("🔍 POTENTIEL",_med_c*0.3,_med_r*0.3,"#42A5F5"),
+                    ("❌ INEFFICACE",_xmax*0.75,_med_r*0.3,"#ef5350")]:
+                    _figm.add_annotation(x=_xa,y=_ya,text=_ql,showarrow=False,
+                        font=dict(size=10,color=_qc),bgcolor="rgba(0,0,0,0.5)",
+                        bordercolor=_qc,borderwidth=1,borderpad=4)
+                _figm.update_layout(template="plotly_dark",paper_bgcolor="#161b22",
+                    plot_bgcolor="#0d1117",height=460,
+                    xaxis_title="Coût intrants / ha (DT)",yaxis_title="Rendement (t/ha)",
+                    legend=dict(orientation="h",y=1.02,font=dict(size=10)),font=dict(color="#f0f6fc"))
+                st.plotly_chart(_figm,use_container_width=True)
+
+            # ── Benchmark Commerciaux ─────────────────────────
+            st.markdown("---")
+            st.markdown("### 👔 Benchmark Commerciaux — Radar 5 axes")
+            if _df7["commercial"].ne("").any():
+                _cb = _df7.groupby("commercial").agg(
+                    Rend_moy=("rendement_ha",lambda x: round(x[x>0].mean(),1) if (x>0).any() else 0),
+                    Taux_prise=("taux_prise",lambda x: round(x[x>0].mean(),1) if (x>0).any() else 0),
+                    Cout_T=("cout_intrant_tonne",lambda x: round(x[x>0].mean(),0) if (x>0).any() else 0),
+                    ROI_pos=("roi_pct",lambda x: round((x>0).mean()*100,0)),
+                    Score=("score_efficacite","mean"),
+                    Nb=("score_efficacite","count"),
+                    Tonnage=("tonnage_livre","sum"),
+                ).reset_index().round(1)
+
+                def _n100(s,inv=False):
+                    mn,mx=s.min(),s.max()
+                    if mx==mn: return pd.Series([50.0]*len(s),index=s.index)
+                    n=(s-mn)/(mx-mn)*100
+                    return 100-n if inv else n
+
+                _rb = _cb.copy()
+                _rb["nRend"]=_n100(_rb["Rend_moy"])
+                _rb["nPrise"]=_n100(_rb["Taux_prise"])
+                _rb["nCout"]=_n100(_rb["Cout_T"],inv=True)
+                _rb["nROI"]=_n100(_rb["ROI_pos"])
+                _rb["nScore"]=_n100(_rb["Score"])
+
+                _CCOL={"KHALIL":"#F5A623","KHALIL MAIRECH":"#F5A623","MAKKI BEN SALAH":"#00E5A0",
+                       "FEDI":"#3B82F6","JILANI OBAY":"#FF6B9D","ACHREF AJLANI":"#8B5CF6"}
+                _theta7=["Rendement/ha","Taux prise","Coût maîtrisé","ROI agri","Score global"]
+
+                _figr = _gop.Figure()
+                for _,_rw in _rb.iterrows():
+                    _cm = str(_rw["commercial"])
+                    _rv = [_rw["nRend"],_rw["nPrise"],_rw["nCout"],_rw["nROI"],_rw["nScore"],_rw["nRend"]]
+                    _figr.add_trace(_gop.Scatterpolar(
+                        r=_rv,theta=_theta7+[_theta7[0]],fill="toself",name=_cm,
+                        line=dict(color=_CCOL.get(_cm,"#888"),width=2),
+                        fillcolor=_CCOL.get(_cm,"#888"),opacity=0.2))
+                _figr.update_layout(template="plotly_dark",paper_bgcolor="#161b22",
+                    polar=dict(bgcolor="#0d1117",
+                               radialaxis=dict(gridcolor="#21262d",range=[0,100]),
+                               angularaxis=dict(gridcolor="#21262d")),
+                    height=420,title="Radar Efficacité — 5 Commerciaux",
+                    legend=dict(orientation="h",y=-0.15,font=dict(size=10)),font=dict(color="#f0f6fc"))
+
+                _cb_sorted = _cb.sort_values("Score",ascending=True)
+                _figb7 = _gop.Figure()
+                _figb7.add_trace(_gop.Bar(
+                    y=_cb_sorted["commercial"],x=_cb_sorted["Score"],orientation="h",
+                    marker_color=[_CCOL.get(c,"#888") for c in _cb_sorted["commercial"]],
+                    text=_cb_sorted["Score"].apply(lambda v: f"{v:.1f}/100"),
+                    textposition="outside",textfont=dict(size=11)))
+                _figb7.update_layout(template="plotly_dark",paper_bgcolor="#161b22",
+                    plot_bgcolor="#0d1117",height=260,title="Classement Score",
+                    xaxis=dict(range=[0,100]),font=dict(color="#f0f6fc"),
+                    margin=dict(l=160,r=80,t=50,b=20))
+
+                _cr1,_cr2 = st.columns([3,2])
+                with _cr1: st.plotly_chart(_figr,use_container_width=True)
+                with _cr2:
+                    st.plotly_chart(_figb7,use_container_width=True)
+                    st.dataframe(_cb[["commercial","Score","Rend_moy","Taux_prise",
+                                      "ROI_pos","Nb","Tonnage"]]                        .rename(columns={"commercial":"Commercial","Score":"Score/100",
+                            "Rend_moy":"Rend(t/ha)","Taux_prise":"Taux prise",
+                            "ROI_pos":"% ROI positif","Nb":"Nb agri","Tonnage":"Tonnage(T)"})                        .sort_values("Score/100",ascending=False),
+                        hide_index=True,use_container_width=True)
+
+            # ── Analyse par Variété ───────────────────────────
+            if _df7["variete"].ne("").any() and (_df7["rendement_ha"]>0).any():
+                st.markdown("---")
+                st.markdown("### 🍅 Efficacité par Variété")
+                _vg = _df7[_df7["rendement_ha"]>0].groupby("variete").agg(
+                    Rend_moy=("rendement_ha","mean"),Score_moy=("score_efficacite","mean"),
+                    Cout_moy=("cout_intrant_tonne","mean"),Nb=("rendement_ha","count"),
+                ).reset_index().sort_values("Rend_moy",ascending=False).round(1)
+                _vg["Recommandation"] = ["⭐ MEILLEURE" if i==0
+                    else ("✅ Bonne" if r["Rend_moy"]>=_vg["Rend_moy"].median() else "💡 À optimiser")
+                    for i,(_,r) in enumerate(_vg.iterrows())]
+                _vg_c1,_vg_c2 = st.columns(2)
+                with _vg_c1:
+                    _figv=_gop.Figure()
+                    _figv.add_trace(_gop.Bar(x=_vg["variete"],y=_vg["Rend_moy"],
+                        marker_color=["#FFD700" if i==0 else "#42A5F5" for i in range(len(_vg))],
+                        text=_vg["Rend_moy"].apply(lambda v: f"{v:.1f} t/ha"),textposition="outside"))
+                    _figv.update_layout(template="plotly_dark",paper_bgcolor="#161b22",
+                        plot_bgcolor="#0d1117",height=320,title="Rendement moyen par variété",
+                        yaxis_title="t/ha",font=dict(color="#f0f6fc"))
+                    st.plotly_chart(_figv,use_container_width=True)
+                with _vg_c2:
+                    st.dataframe(_vg.rename(columns={"variete":"Variété","Rend_moy":"Rend(t/ha)",
+                        "Score_moy":"Score/100","Cout_moy":"Coût/T(DT)","Nb":"Nb agri"}),
+                        hide_index=True,use_container_width=True,height=320)
+
+            # ── Tableau complet avec score ────────────────────
+            st.markdown("---")
+            st.markdown("### 📋 Tableau Score Efficacité Complet")
+            _ac7 = next((c for c in ["agriculteur","client"] if c in _df7.columns),None)
+            _v7 = [c for c in [_ac7,"commercial","region","variete","score_efficacite",
+                "categorie","rendement_ha","taux_prise","cout_intrant_tonne","roi_pct","solde_final"]
+                if c and c in _df7.columns]
+            _df7d = _df7[_v7].sort_values("score_efficacite",ascending=False).round(1)
+            st.dataframe(_df7d,hide_index=True,use_container_width=True,height=380,
+                column_config={
+                    "score_efficacite":st.column_config.ProgressColumn("Score/100",min_value=0,max_value=100,format="%.1f"),
+                    "roi_pct":st.column_config.NumberColumn("ROI%",format="%+.1f%%"),
+                    "rendement_ha":st.column_config.NumberColumn("Rend(t/ha)",format="%.1f"),
+                    "cout_intrant_tonne":st.column_config.NumberColumn("Coût/T(DT)",format="%.0f"),
+                    "solde_final":st.column_config.NumberColumn("Solde(DT)",format="%+,.0f"),
+                })
+
+            # ── Top & Bottom ──────────────────────────────────
+            _tb1,_tb2 = st.columns(2)
+            with _tb1:
+                st.markdown("**⭐ Top 10**")
+                for idx,(_,r) in enumerate(_df7d.head(10).iterrows()):
+                    _med = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"][idx]
+                    _nm7 = r[_ac7] if _ac7 and _ac7 in r else str(r.name)
+                    st.caption(f"{_med} **{_nm7}** — Score {r['score_efficacite']:.0f}/100 | Rend {r['rendement_ha']:.1f}t/ha | ROI {r['roi_pct']:+.0f}%")
+            with _tb2:
+                st.markdown("**🔴 À améliorer (10 derniers)**")
+                for _,r in _df7d.tail(10).sort_values("score_efficacite").iterrows():
+                    _nm7 = r[_ac7] if _ac7 and _ac7 in r else str(r.name)
+                    _cause = ("faible rendement" if r["rendement_ha"]<15
+                              else ("coût élevé" if r["cout_intrant_tonne"]>80 else "taux prise bas"))
+                    st.caption(f"⚠️ **{_nm7}** — {r['score_efficacite']:.0f}/100 | Cause : {_cause}")
+
+            # ── Recommandations ───────────────────────────────
+            st.markdown("---")
+            st.markdown("### 💡 Recommandations Automatiques")
+            _rc1,_rc2 = st.columns(2)
+            with _rc1:
+                if _df7["variete"].ne("").any() and (_df7["rendement_ha"]>0).any():
+                    _bv = _df7[_df7["rendement_ha"]>0].groupby("variete")["rendement_ha"].mean().idxmax()
+                    st.info(f"🌱 **Variété recommandée : {_bv}** — meilleur rendement moyen. Priorité pour la prochaine campagne.")
+                if _df7["commercial"].ne("").any():
+                    _bc = _df7.groupby("commercial")["score_efficacite"].mean().idxmax()
+                    st.success(f"👔 **Meilleur commercial : {_bc}** — partager ses méthodes de suivi avec les autres équipes.")
+            with _rc2:
+                _n_sous = (_df7["score_efficacite"]<35).sum()
+                _n_sur  = (_df7["cout_intrant_ha"]>_df7["cout_intrant_ha"].quantile(0.75)).sum()
+                if _n_sous > 0:
+                    st.warning(f"⚠️ **{_n_sous} agriculteurs** ont un score < 35/100 — nécessitent un accompagnement terrain urgent.")
+                if _n_sur > 0:
+                    st.error(f"💸 **{_n_sur} agriculteurs** surinvestissent en intrants (quartile supérieur) sans rendement proportionnel — rationaliser les doses DAP/fongicides.")
+
+            st.download_button("📥 Excel — Analyse Efficacité Complète",
+                data=_export_excel_table(_df7d.rename(columns={
+                    "score_efficacite":"Score/100","categorie":"Catégorie",
+                    "rendement_ha":"Rend(t/ha)","cout_intrant_tonne":"Coût/T(DT)",
+                    "roi_pct":"ROI%","solde_final":"Solde(DT)"}),
+                    "Analyse Efficacite","Score Efficacité & ROI — 2026","FFD700"),
+                file_name="analyse_efficacite_2026.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True)
