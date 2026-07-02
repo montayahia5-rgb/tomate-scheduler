@@ -2648,33 +2648,107 @@ Score d'efficacité · Benchmark commerciaux · Matrice ROI · Recommandations a
                 lambda r: round((r["valeur_livree"]-r["charge_totale"])/r["charge_totale"]*100,1)
                           if r["charge_totale"]>0 else 0, axis=1)
 
-            # Score Efficacité (0-100)
-            def _norm7(s, inv=False):
-                mn,mx=s.min(),s.max()
-                if mx==mn: return pd.Series([0.5]*len(s),index=s.index)
-                n=(s-mn)/(mx-mn)
-                return 1-n if inv else n
+            # ══ Score Efficacité ABSOLU (0-100) ══════════════════
+            # Barèmes réels tomate industrielle Tunisie — NON relatif
+            # Source : références AVFA / GIFruits Tunisie
+            # ─────────────────────────────────────────────────────
 
-            _df7["_s_rend"] = 0.0
-            for _rg in _df7["region"].dropna().unique():
-                _mk = _df7["region"]==_rg
-                if _mk.sum()>1:
-                    _df7.loc[_mk,"_s_rend"] = _norm7(_df7.loc[_mk,"rendement_ha"])*0.40
-                else:
-                    _df7.loc[_mk,"_s_rend"] = 0.20
+            def _score_rendement(t_ha):
+                """Barème absolu rendement t/ha — tomate industrielle Tunisie."""
+                try: v = float(t_ha)
+                except: return 30.0
+                if v >= 55:   return 100.0
+                elif v >= 48: return 88.0
+                elif v >= 42: return 74.0
+                elif v >= 35: return 58.0
+                elif v >= 28: return 40.0
+                elif v >= 20: return 22.0
+                else:         return 5.0
 
-            _sot_gt0 = _df7["cout_intrant_tonne"].where(_df7["cout_intrant_tonne"]>0, 0)
-            _df7["_s_int"] = _norm7(_sot_gt0, inv=True)*0.30
-            _df7["_s_prise"] = _norm7(_df7["taux_prise"])*0.20
-            _df7["_s_roi"] = (_df7["roi_pct"]>0).astype(float)*0.10
-            _df7["score_efficacite"] = ((_df7["_s_rend"]+_df7["_s_int"]+_df7["_s_prise"]+_df7["_s_roi"])*100).round(1)
+            def _score_taux_prise(tp):
+                """Barème absolu taux de prise %."""
+                try: v = float(tp)
+                except: return 40.0
+                if v >= 93:   return 100.0
+                elif v >= 90: return 82.0
+                elif v >= 87: return 65.0
+                elif v >= 83: return 45.0
+                elif v >= 78: return 25.0
+                else:         return 10.0
 
+            def _score_intrant(cout_tonne):
+                """Barème coût intrant/tonne (DT/T) — moins = mieux."""
+                try: v = float(cout_tonne)
+                except: return 50.0
+                if v <= 0:    return 50.0   # Données manquantes → neutre
+                elif v <= 30: return 100.0  # Très économique
+                elif v <= 50: return 82.0
+                elif v <= 70: return 64.0
+                elif v <= 90: return 46.0
+                elif v <= 120:return 28.0
+                else:         return 10.0   # Très coûteux
+
+            def _score_roi(roi):
+                """Score ROI : positif = bon, très positif = excellent."""
+                try: v = float(roi)
+                except: return 0.0
+                if v >= 200:  return 100.0
+                elif v >= 100:return 80.0
+                elif v >= 50: return 60.0
+                elif v >= 0:  return 40.0
+                else:         return 0.0
+
+            # ─── Application des barèmes ───────────────────────
+            # Poids : Rendement 45% | Taux prise 25% | Intrants 20% | ROI 10%
+            _df7["_s_rend"]  = _df7["rendement_ha"].apply(_score_rendement)
+            _df7["_s_prise"] = _df7["taux_prise"].apply(_score_taux_prise)
+            _df7["_s_int"]   = _df7["cout_intrant_tonne"].apply(_score_intrant)
+            _df7["_s_roi"]   = _df7["roi_pct"].apply(_score_roi)
+
+            # Si pas de données intrants (cout = 0) → ignorer ce critère
+            # et redistribuer son poids sur rendement + taux prise
+            _no_intrant = _df7["cout_intrant_tonne"].fillna(0).eq(0)
+            if _no_intrant.any():
+                # Sans intrants : 55% rendement + 35% taux prise + 10% ROI
+                _df7.loc[_no_intrant, "score_efficacite"] = (
+                    _df7.loc[_no_intrant, "_s_rend"]  * 0.55 +
+                    _df7.loc[_no_intrant, "_s_prise"] * 0.35 +
+                    _df7.loc[_no_intrant, "_s_roi"]   * 0.10
+                ).round(1)
+            if (~_no_intrant).any():
+                # Avec intrants : 45% rendement + 25% prise + 20% intrants + 10% ROI
+                _df7.loc[~_no_intrant, "score_efficacite"] = (
+                    _df7.loc[~_no_intrant, "_s_rend"]  * 0.45 +
+                    _df7.loc[~_no_intrant, "_s_prise"] * 0.25 +
+                    _df7.loc[~_no_intrant, "_s_int"]   * 0.20 +
+                    _df7.loc[~_no_intrant, "_s_roi"]   * 0.10
+                ).round(1)
+
+            # ─── Catégorie ABSOLUE ─────────────────────────────
             def _cat7(s):
-                if s>=75: return "🏆 Excellent"
-                elif s>=55: return "✅ Bon"
-                elif s>=35: return "⚠️ Moyen"
-                else: return "🔴 À améliorer"
+                """Catégorie basée sur barèmes absolus."""
+                if s >= 80:   return "🏆 Excellent"
+                elif s >= 65: return "✅ Très bon"
+                elif s >= 50: return "✅ Bon"
+                elif s >= 35: return "⚠️ Moyen"
+                else:         return "🔴 À améliorer"
+
             _df7["categorie"] = _df7["score_efficacite"].apply(_cat7)
+
+            # ─── Note explicative ──────────────────────────────
+            st.info("""
+**📐 Méthode de calcul du Score Efficacité (barèmes absolus — tomate industrielle Tunisie)**
+
+| Critère | Poids* | Barème |
+|---|---|---|
+| **Rendement (t/ha)** | 55% | <20→5pts · 20-28→22 · 28-35→40 · 35-42→58 · 42-48→74 · 48-55→88 · 55+→100 |
+| **Taux de prise (%)** | 35% | <78→10pts · 78-83→25 · 83-87→45 · 87-90→65 · 90-93→82 · 93+→100 |
+| **ROI** | 10% | <0→0pts · 0-50→40 · 50-100→60 · 100-200→80 · 200+→100 |
+
+*Poids sans données intrants. Avec intrants Sotusfa : Rendement 45% · Prise 25% · Intrants 20% · ROI 10%.
+
+**Seuils catégories** : 🔴 <35 · ⚠️ 35-50 · ✅ 50-65 · ✅ 65-80 · 🏆 80+
+""")
 
             # ── KPIs ─────────────────────────────────────────
             st.markdown("### 📊 Indicateurs Clés")
