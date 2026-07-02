@@ -504,25 +504,21 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         q = _upper(df_quantite.copy(), KEY)
         base = base.merge(q, on=KEY, how="left")
 
-    # ── Merge PRÉVISIONS ───────────────────────────────────
+    # ── Merge PRÉVISIONS (avec fuzzy matching sur noms) ────
     for df_p, col in [(df_prev_dec,"prevision_dec"),
                       (df_prev_mai,"prevision_mai"),
                       (df_prev_juin,"prevision_juin")]:
         if df_p is not None and not df_p.empty and col in df_p.columns:
             p = df_p.copy()
-            p = _upper(p, [c for c in ["client","centre"] if c in p.columns])
-            # Merge sur client seul si centre vide/absent dans le fichier prévision
-            merge_key = []
-            for k in ["client","centre"]:
-                if k in p.columns and k in base.columns:
-                    vals = p[k].astype(str).str.strip()
-                    if vals.replace("","NaN").ne("NaN").any():
-                        merge_key.append(k)
-            if not merge_key and "client" in p.columns and "client" in base.columns:
-                merge_key = ["client"]
-            if merge_key:
-                p_clean = p[merge_key + [col]].drop_duplicates(subset=merge_key)
-                base = base.merge(p_clean, on=merge_key, how="left")
+            # Dédupliquer : sum par client si même client dans plusieurs usines
+            if "client" in p.columns:
+                p[col] = pd.to_numeric(p[col], errors="coerce").fillna(0)
+                p = p.groupby("client")[col].sum().reset_index()
+            # Merge avec fuzzy (gère NEGI/NEJI, GUESMI/ELGUESMI, etc.)
+            if "client" in p.columns and "client" in base.columns:
+                base, n_m, n_t = _fuzzy_match_clients(base, p, col)
+            else:
+                base[col] = np.nan
 
     # ══ CALCULS ═══════════════════════════════════════════
     df = base.copy()
@@ -951,6 +947,48 @@ def export_excel(df, df_sotusfa_raw=None):
 # ══════════════════════════════════════════════════════════════
 
 
+
+def _fuzzy_match_clients(df_base, df_prev, col_prev):
+    """Merge fuzzy : gère abréviations, espaces doubles, SOCIETE→STE."""
+    import unicodedata as _uni, re as _re2
+
+    def _clean(s):
+        s = str(s).upper().strip()
+        s = _re2.sub(r'\bSOCIETE\b', 'STE', s)
+        s = "".join(c for c in _uni.normalize("NFD", s) if _uni.category(c) != "Mn")
+        s = _re2.sub(r"\([^)]*\)", " ", s)
+        s = _re2.sub(r"[^A-Z0-9 ]", " ", s)
+        return _re2.sub(r"\s+", " ", s).strip()
+
+    def _score(a, b):
+        wa, wb = set(a.split()), set(b.split())
+        if not wa or not wb: return 0.0
+        inter = len(wa & wb); union = len(wa | wb)
+        sj = inter / union if union else 0
+        sh, lo = (wa, wb) if len(wa) <= len(wb) else (wb, wa)
+        sc = sum(1 for w in sh if any(lw.startswith(w[:4]) for lw in lo) and len(w) > 2) / max(len(sh),1) * 0.85
+        return max(sj, sc)
+
+    df_base = df_base.copy(); df_prev = df_prev.copy()
+    df_base["_km"] = df_base["client"].apply(_clean)
+    df_prev["_km"] = df_prev["client"].apply(_clean)
+    prev_clean = df_prev[["_km", col_prev]].drop_duplicates("_km")
+    result = df_base.merge(prev_clean, on="_km", how="left")
+    unmatched = result[col_prev].isna()
+    if unmatched.any():
+        pk = prev_clean["_km"].tolist()
+        pv = dict(zip(prev_clean["_km"], prev_clean[col_prev]))
+        def _best(k):
+            bs=0; bv=None
+            for c in pk:
+                sc=_score(k,c)
+                if sc>bs and sc>=0.40: bs=sc; bv=pv[c]
+            return bv
+        result.loc[unmatched, col_prev] = result.loc[unmatched, "_km"].apply(_best).values
+    result = result.drop(columns=["_km"])
+    return result, result[col_prev].notna().sum(), len(result)
+
+
 def _export_excel_table(df, sheet_title="Data",
                         header_text="Export", color_hex="1F3864"):
     """Excel formaté attractif pour n'importe quel DataFrame."""
@@ -985,19 +1023,56 @@ def _export_excel_table(df, sheet_title="Data",
         c.border = BD
         ws.column_dimensions[get_column_letter(ci)].width = max(14, len(str(col)) + 4)
     ws.row_dimensions[2].height = 28
+    ALERTE_COLORS = {
+        "🔴":("FFCDD2","C0392B"), "🟡":("FFF9C4","D4AC0D"),
+        "🟢":("E8F5E9","1E8449"),
+    }
+    # Détecter colonnes numériques
+    _num_cols = {col: i+1 for i, col in enumerate(df.columns)
+                 if str(df[col].dtype).startswith(("int","float"))}
+
     for ri, (_, row) in enumerate(df.iterrows()):
         r = ri + 3
-        bg = "F0F5FF" if ri % 2 == 0 else "FFFFFF"
+        # Couleur ligne selon alerte si présente
+        alerte_val = str(row.get("alerte","")) if "alerte" in df.columns else ""
+        if "🔴" in alerte_val: row_bg = "FFEBEE"
+        elif "🟡" in alerte_val: row_bg = "FFF9E6"
+        elif "🟢" in alerte_val: row_bg = "E8F5E9"
+        else: row_bg = "F0F5FF" if ri % 2 == 0 else "FFFFFF"
+
         for ci, val in enumerate(row, 1):
+            col_name = df.columns[ci-1]
             if isinstance(val, float) and _np.isnan(val):
                 val = ""
             c = ws.cell(r, ci, value=val)
             c.border = BD
-            c.fill = hf(bg)
             c.alignment = LFT if ci == 1 else CTR
-            c.font = bf(ci == 1, size=10)
-            if isinstance(val, (int, float)) and val == val and val != "":
-                c.number_format = "#,##0" if abs(float(val)) >= 100 else "0.0"
+            c.font = bf(ci == 1, size=9)
+
+            # Couleur spéciale selon colonne
+            if col_name == "alerte" and val:
+                for emoji,(bg2,fg2) in ALERTE_COLORS.items():
+                    if emoji in str(val):
+                        c.fill = hf(bg2)
+                        c.font = bf(True, size=9, color=fg2)
+                        break
+                else:
+                    c.fill = hf(row_bg)
+            elif col_name in ("ecart_tonnage","solde_final") and isinstance(val,(int,float)) and val==val and val!="":
+                c.fill = hf("E8F5E9") if float(val) >= 0 else hf("FFEBEE")
+                c.font = bf(True, size=9, color="1E8449" if float(val)>=0 else "C0392B")
+                c.number_format = "+#,##0;-#,##0;0"
+            elif col_name == "taux_prise" and isinstance(val,(int,float)) and val==val:
+                v = float(val)
+                c.fill = hf("E8F5E9" if v>=90 else ("FFF9E6" if v>=85 else "FFEBEE"))
+                c.number_format = "0.0"
+            elif col_name == "affectation_caisse":
+                c.fill = hf("FBE9E7") if "1ère" in str(val) else hf("E8F5E9")
+            else:
+                c.fill = hf(row_bg)
+
+            if isinstance(val,(int,float)) and val==val and val!="" and col_name not in ("ecart_tonnage","solde_final","taux_prise"):
+                c.number_format = "#,##0" if abs(float(val))>=100 else "0.0"
     num_ci = [i + 1 for i, col in enumerate(df.columns)
               if str(df[col].dtype).startswith(("int", "float"))]
     if num_ci:
@@ -1347,13 +1422,48 @@ Attendu : qte_livree · qte_actif · qte_extra · tonnage_livre · prix_vente</s
         else:
             kc = st.columns(6)
             kc[0].markdown(_metric("Agriculteurs",len(df)), unsafe_allow_html=True)
-            kc[1].markdown(_metric("Charge totale",f"{df['charge_totale'].sum():,.0f} DT",color="#FF9800"),unsafe_allow_html=True)
+            kc[1].markdown(_metric("Charge à Recouvrir",f"{df['charge_totale'].sum():,.0f} DT",color="#FF9800"),unsafe_allow_html=True)
             kc[2].markdown(_metric("Recouvrement",f"{df['tonnage_recouvrement'].sum():,.1f} T",color="#ef5350"),unsafe_allow_html=True)
-            kc[3].markdown(_metric("Livré réel",f"{df['tonnage_livre'].sum():,.1f} T",color="#4CAF50"),unsafe_allow_html=True)
-            n_crit=(df["alerte"].str.contains("🔴")).sum()
-            kc[4].markdown(_metric("⚠️ Critiques",n_crit,color="#ef5350"),unsafe_allow_html=True)
+
+            # Tonnage réalisé : depuis Quantité ou prévision
+            _ton_reel = df["tonnage_livre"].fillna(0).sum() if "tonnage_livre" in df.columns else 0
+            _has_quantite = st.session_state.get("abo_quantite") is not None
+            _ton_label = f"{_ton_reel:,.1f} T" if _has_quantite else "Non importé"
+            _ton_color = "#4CAF50" if _has_quantite and _ton_reel > 0 else "#888"
+            kc[3].markdown(_metric("Livré réel", _ton_label, color=_ton_color),
+                           unsafe_allow_html=True)
+
+            # Prévision Mai : total brut du fichier (pas juste les matchés)
+            _prev_mai_brut = 0
+            _df_prev_mai = st.session_state.get("abo_prev_mai")
+            if _df_prev_mai is not None and "prevision_mai" in _df_prev_mai.columns:
+                _prev_mai_brut = _df_prev_mai["prevision_mai"].sum()
+            _prev_mai_merged = df["prevision_mai"].fillna(0).sum() if "prevision_mai" in df.columns else 0
+
+            if _prev_mai_brut > 0:
+                _pct_match = round(_prev_mai_merged / _prev_mai_brut * 100) if _prev_mai_brut > 0 else 0
+                kc[4].markdown(_metric("Prévision Mai",
+                    f"{_prev_mai_brut:,.0f} T",
+                    color="#42A5F5",
+                    delta=_prev_mai_merged - _prev_mai_brut,
+                    delta_label=f"T matchés ({_pct_match}%)"),
+                    unsafe_allow_html=True)
+            else:
+                n_crit=(df["alerte"].str.contains("🔴")).sum()
+                kc[4].markdown(_metric("⚠️ Critiques",n_crit,color="#ef5350"),unsafe_allow_html=True)
+
             kc[5].markdown(_metric("Solde global",f"{df['solde_final'].sum():+,.0f} DT",
                 color="#4CAF50" if df["solde_final"].sum()>=0 else "#ef5350"),unsafe_allow_html=True)
+
+            # Avertissement si données fictives
+            if not _has_quantite:
+                st.warning("⚠️ **Tonnage réalisé = 0** — Le fichier **Tableau Quantité** n'est pas encore importé. "
+                           "Les calculs de recouvrement et solde sont basés sur les prévisions uniquement.")
+            if _prev_mai_brut > 0 and _prev_mai_merged < _prev_mai_brut * 0.5:
+                st.info(f"ℹ️ **Prévision Mai** : {_prev_mai_brut:,.0f} T dans le fichier, "
+                        f"mais seulement **{_prev_mai_merged:,.0f} T matchés** ({round(_prev_mai_merged/_prev_mai_brut*100)}%) "
+                        f"car certains noms d'agriculteurs diffèrent entre les fichiers. "
+                        f"Le total affiché dans les tableaux = valeurs matchées uniquement.")
 
             fc1,fc2,fc3,fc4 = st.columns(4)
             alerte_f = fc1.selectbox("Alerte",["Toutes","🔴","🟡","🟢"],key="t1a")
@@ -1443,10 +1553,10 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
 
             VIEW = [c for c in ["agriculteur","commercial","ingenieur","centre","variete",
                                   "hectares","affectation_caisse","detail_caisse","taux_prise",
-                                  "charge_totale","consigne_caisse","consigne_plateau",
+                                  "report","charge_a_recouvrir","consigne_caisse","consigne_plateau",
                                   "mo_recolte","tonnage_recouvrement","tonnage_livre",
                                   "ecart_tonnage","valeur_livree","solde_final",
-                                  "report","alerte"] if c in df_f.columns]
+                                  "alerte"] if c in df_f.columns]
             st.dataframe(df_f[VIEW].round(1),
                 use_container_width=True,hide_index=True,height=400,
                 column_config={
@@ -1455,11 +1565,24 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                     "ecart_tonnage":st.column_config.NumberColumn("Écart (T)",format="%+.1f"),
                     "solde_final":st.column_config.NumberColumn("Solde (DT)",format="%+,.0f"),
                 })
-            xl2 = export_excel(df_f, st.session_state.get("abo_sotusfa_raw"))
-            st.download_button("📥 Exporter cette vue",data=xl2,
-                file_name="agroeco_vue.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True)
+            # Exports multiples tab1
+            _dl1, _dl2 = st.columns(2)
+            with _dl1:
+                xl2 = export_excel(df_f, st.session_state.get("abo_sotusfa_raw"))
+                st.download_button("📥 Excel complet (4 feuilles)",data=xl2,
+                    file_name="agroeco_vue.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True, type="primary")
+            with _dl2:
+                _view_df = df_f[[c for c in VIEW if c in df_f.columns]].round(1)
+                st.download_button("📥 Excel — Vue actuelle",
+                    data=_export_excel_table(
+                        _view_df, "Par Agriculteur",
+                        "Tableau Agroéconomique par Agriculteur — Campagne 2026",
+                        "1F3864"),
+                    file_name="agroeco_par_agriculteur.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True)
 
     # ══ TAB 2 — PAR INGÉNIEUR / CENTRE ════════════════════
     with t2:
@@ -1499,6 +1622,15 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                     height=340,title=f"Recouvrement vs Livré par {grp_col}")
                 st.plotly_chart(fig2,use_container_width=True)
                 st.dataframe(g2,use_container_width=True,hide_index=True)
+                st.download_button(
+                    "📥 Excel — Par Ingénieur/Centre",
+                    data=_export_excel_table(g2,
+                        "Par Ingenieur Centre",
+                        f"Synthèse par {grp_col} — Campagne 2026",
+                        "0B4F6C"),
+                    file_name="agroeco_par_ingenieur.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True)
 
     # ══ TAB 3 — PAR RÉGION ════════════════════════════════
     with t3:
@@ -1525,6 +1657,15 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
             fig3.update_layout(paper_bgcolor="#161b22",plot_bgcolor="#0d1117",height=340)
             st.plotly_chart(fig3,use_container_width=True)
             st.dataframe(rg,use_container_width=True,hide_index=True)
+            st.download_button(
+                "📥 Excel — Par Région",
+                data=_export_excel_table(rg,
+                    "Par Region",
+                    "Performance par Région — Campagne 2026",
+                    "1A5C2A"),
+                file_name="agroeco_par_region.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True)
 
     # ══ TAB 4 — PAR VARIÉTÉ ═══════════════════════════════
     with t4:
@@ -1550,6 +1691,15 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
             fig4.update_layout(paper_bgcolor="#161b22",plot_bgcolor="#0d1117",height=340)
             st.plotly_chart(fig4,use_container_width=True)
             st.dataframe(vg,use_container_width=True,hide_index=True)
+            st.download_button(
+                "📥 Excel — Par Variété",
+                data=_export_excel_table(vg,
+                    "Par Variete",
+                    "Performance par Variété — Campagne 2026",
+                    "375623"),
+                file_name="agroeco_par_variete.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True)
 
     # ══ TAB 5 — PAR FAMILLE INTRANT ═══════════════════════
     with t5:
