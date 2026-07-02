@@ -1943,203 +1943,225 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True)
 
-            # ══ ANALYSE AGRONOMIQUE : DAP / FUMIER / FUMURE ═════
+            # ══ ANALYSE AGRONOMIQUE ══════════════════════════════════
             st.markdown("---")
-            st.markdown("#### 🌱 Analyse Agronomique — Impact DAP · Fumier · Fumure de Fond sur la Production")
-            st.caption("Corrélation entre les intrants utilisés et le tonnage produit par agriculteur")
+            st.markdown("#### 🌱 Analyse Agronomique — Intrants vs Production")
+            st.caption("DAP · Engrais · Fertilissants · Fongicides · Insecticides par agriculteur")
 
-            if df is not None and not df.empty and "tonnage_livre" in df.columns:
-                # Construire le pivot intrants par client
-                _ds2 = ds.copy() if ds is not None and not ds.empty else pd.DataFrame()
+            # ── Données disponibles ──────────────────────────────
+            _ds_agro = st.session_state.get("abo_sotusfa_raw")
+            _df_main = df  # merged data
 
-                if not _ds2.empty:
-                    # Normaliser les familles vers 3 catégories
-                    _FAM_AGRO = {
-                        "fumier":        ["fumier","fumier animal","fumure animale","organique"],
-                        "fumure_fond":   ["fumure","fumure de fond","fumure organique",
-                                          "fertilissant","fertilisant","compost"],
-                        "dap":           ["dap","engrais","engrais starter","diammonium",
-                                          "engrais mineral","mineral","nitrate"],
-                    }
-                    def _cat_agro(fam):
-                        f = str(fam).lower().strip()
-                        for cat, kws in _FAM_AGRO.items():
-                            if any(kw in f for kw in kws): return cat
-                        return None
-
-                    _cl2 = "client" if "client" in _ds2.columns else                            ("agriculteur" if "agriculteur" in _ds2.columns else None)
-                    _val2 = "valeur" if "valeur" in _ds2.columns else                             ("total_ttc" if "total_ttc" in _ds2.columns else None)
-                    _qte2 = "qte" if "qte" in _ds2.columns else None
-
-                    if _cl2 and _val2 and "famille" in _ds2.columns:
-                        _ds2["_cat_agro"] = _ds2["famille"].apply(_cat_agro)
-                        _ds2 = _ds2[_ds2["_cat_agro"].notna()]
-
-                        if not _ds2.empty:
-                            # Pivot : 1 ligne par client × colonnes = familles
-                            _pivot = _ds2.groupby([_cl2, "_cat_agro"])[_val2].sum()                                         .unstack("_cat_agro", fill_value=0).reset_index()
-                            _pivot.columns.name = None
-                            _pivot = _pivot.rename(columns={_cl2: "client"})
-
-                            # Joindre avec tonnage
-                            _ton_df = df[["agriculteur","tonnage_livre","region",
-                                          "commercial"]].copy() if "agriculteur" in df.columns else                                       df[["client","tonnage_livre","region",
-                                          "commercial"]].copy() if "client" in df.columns else None
-                            if _ton_df is not None:
-                                _ton_df = _ton_df.rename(columns={_ton_df.columns[0]: "client"})
-                                _ton_df["tonnage_livre"] = pd.to_numeric(
-                                    _ton_df["tonnage_livre"], errors="coerce").fillna(0)
-                                _ton_df = _ton_df[_ton_df["tonnage_livre"] > 0]
-
-                                _merge_agro = _pivot.merge(_ton_df, on="client", how="inner")
-
-                                if not _merge_agro.empty:
-                                    _cats_found = [c for c in
-                                                   ["fumier","fumure_fond","dap"]
-                                                   if c in _merge_agro.columns]
-
-                                    if _cats_found:
-                                        # ── GRAPHIQUE SCATTER par intrant ────────────────
-                                        st.markdown("##### 📊 Corrélation Intrant → Production (scatter par agriculteur)")
-                                        _COLORS_AGR = {
-                                            "fumier":     "#8D6E63",  # marron
-                                            "fumure_fond":"#66BB6A",  # vert
-                                            "dap":        "#42A5F5",  # bleu
-                                        }
-                                        _LABELS_AGR = {
-                                            "fumier":     "🪣 Fumier animal (DT)",
-                                            "fumure_fond":"🌿 Fumure de fond (DT)",
-                                            "dap":        "🧪 DAP / Engrais minéral (DT)",
-                                        }
-                                        _ncols = len(_cats_found)
-                                        _sc_cols = st.columns(_ncols)
-
-                                        for ci3, cat in enumerate(_cats_found):
-                                            _df_sc = _merge_agro[["client", cat,
-                                                                    "tonnage_livre",
-                                                                    "region","commercial"]].copy()
-                                            _df_sc = _df_sc[_df_sc[cat] > 0]
-                                            if _df_sc.empty:
-                                                continue
-                                            # Tendance (régression linéaire)
-                                            import numpy as _np2
-                                            _x = _df_sc[cat].values
-                                            _y = _df_sc["tonnage_livre"].values
-                                            try:
-                                                _a, _b = _np2.polyfit(_x, _y, 1)
-                                                _corr  = float(_np2.corrcoef(_x, _y)[0, 1])
-                                            except Exception:
-                                                _a = _b = 0; _corr = 0
-
-                                            _fig_sc = px.scatter(
-                                                _df_sc,
-                                                x=cat, y="tonnage_livre",
-                                                color="region",
-                                                hover_name="client",
-                                                hover_data={"commercial": True,
-                                                            cat: ":,.0f",
-                                                            "tonnage_livre": ":,.0f"},
-                                                labels={cat: _LABELS_AGR[cat],
-                                                        "tonnage_livre": "Tonnage produit (T)"},
-                                                title=f"{_LABELS_AGR[cat]}<br>"
-                                                      f"<sup>Corrélation : r = {_corr:.2f}</sup>",
-                                                template="plotly_dark",
-                                            )
-                                            # Ligne de tendance
-                                            if _a != 0:
-                                                _x_line = _np2.linspace(_x.min(), _x.max(), 50)
-                                                _fig_sc.add_scatter(
-                                                    x=_x_line, y=_a * _x_line + _b,
-                                                    mode="lines", name="Tendance",
-                                                    line=dict(color=_COLORS_AGR[cat],
-                                                              width=3, dash="dot"),
-                                                    showlegend=True,
-                                                )
-                                            _fig_sc.update_layout(
-                                                paper_bgcolor="#161b22",
-                                                plot_bgcolor="#0d1117",
-                                                height=400,
-                                                legend=dict(font=dict(size=9)),
-                                                font=dict(color="#f0f6fc"),
-                                            )
-                                            with _sc_cols[ci3]:
-                                                st.plotly_chart(_fig_sc, use_container_width=True)
-
-                                        # ── GRAPHIQUE BAR : Top producteurs par intrant ──
-                                        st.markdown("##### 🏆 Top 20 — Tonnage vs usage des 3 intrants")
-                                        _top20 = _merge_agro.nlargest(20, "tonnage_livre").copy()
-                                        _top20 = _top20.sort_values("tonnage_livre", ascending=True)
-
-                                        _fig_bar = go.Figure()
-                                        _fig_bar.add_trace(go.Bar(
-                                            y=_top20["client"], x=_top20["tonnage_livre"],
-                                            name="Tonnage produit (T)",
-                                            orientation="h",
-                                            marker_color="#FF9800", marker_opacity=0.9,
-                                            text=_top20["tonnage_livre"].apply(
-                                                lambda v: f"{v:,.0f}T"),
-                                            textposition="outside",
-                                        ))
-                                        for cat, col_c in _COLORS_AGR.items():
-                                            if cat in _top20.columns:
-                                                _fig_bar.add_trace(go.Bar(
-                                                    y=_top20["client"],
-                                                    x=_top20[cat] / _top20[cat].max() *                                                       _top20["tonnage_livre"].max() * 0.3
-                                                      if _top20[cat].max() > 0 else 0,
-                                                    name=_LABELS_AGR[cat],
-                                                    orientation="h",
-                                                    marker_color=col_c, marker_opacity=0.6,
-                                                    xaxis="x2",
-                                                    visible="legendonly",
-                                                ))
-
-                                        _fig_bar.update_layout(
-                                            barmode="overlay",
-                                            template="plotly_dark",
-                                            paper_bgcolor="#161b22",
-                                            plot_bgcolor="#0d1117",
-                                            height=max(400, len(_top20) * 25),
-                                            title="Top 20 Agriculteurs — Production vs Intrants",
-                                            yaxis=dict(tickfont=dict(size=9)),
-                                            legend=dict(orientation="h",
-                                                        yanchor="bottom", y=1.02),
-                                            font=dict(color="#f0f6fc"),
-                                        )
-                                        st.plotly_chart(_fig_bar, use_container_width=True)
-
-                                        # ── TABLEAU RÉCAP ─────────────────────────────
-                                        st.markdown("##### 📋 Tableau — Production vs Intrants par agriculteur")
-                                        _tbl_cols = ["client"] + _cats_found +                                                     ["tonnage_livre", "region", "commercial"]
-                                        _tbl = _merge_agro[[c for c in _tbl_cols
-                                                             if c in _merge_agro.columns]].copy()
-                                        _tbl = _tbl.sort_values("tonnage_livre", ascending=False)
-                                        _tbl = _tbl.rename(columns={
-                                            "fumier":     "Fumier (DT)",
-                                            "fumure_fond":"Fumure fond (DT)",
-                                            "dap":        "DAP/Engrais (DT)",
-                                            "tonnage_livre":"Tonnage (T)",
-                                        })
-                                        st.dataframe(_tbl.round(0), use_container_width=True,
-                                            hide_index=True, height=380)
-                                        st.download_button(
-                                            "📥 Excel — Analyse Agro (DAP / Fumier / Fumure)",
-                                            data=_export_excel_table(
-                                                _tbl, "Analyse Agronomique",
-                                                "Production vs Intrants (DAP · Fumier · Fumure) — 2026",
-                                                "1A5C2A"),
-                                            file_name="analyse_agronomique_2026.xlsx",
-                                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                            use_container_width=True)
-                                    else:
-                                        st.info("ℹ️ Les familles DAP/Fumier/Fumure ne sont pas trouvées dans les données Sotusfa importées.")
-                        else:
-                            st.info("ℹ️ Aucun intrant agronomique (fumier/fumure/DAP) trouvé dans les données Sotusfa.")
-                else:
-                    st.info("Importez d'abord les données Sotusfa dans l'onglet ⚙️.")
+            if _ds_agro is None or _ds_agro.empty:
+                st.warning("⚠️ Importez le fichier **Sotusfa** dans ⚙️ pour voir cette analyse.")
             else:
-                st.info("Importez le fichier Tableau Quantité (avec colonne tonnage) pour voir cette analyse.")
+                import plotly.graph_objects as _go2
+                import numpy as _np_agro
 
-    # ══ TAB 6 — PRÉVISIONS VS RÉALISÉ ═════════════════════
+                _ds_agro = _ds_agro.copy()
+
+                # Colonnes
+                _cl_agro  = next((c for c in ["client","agriculteur"] if c in _ds_agro.columns), None)
+                _fam_agro = next((c for c in ["famille","famille_norm"] if c in _ds_agro.columns), None)
+                _val_agro = next((c for c in ["valeur","total_ttc","Total TTC"] if c in _ds_agro.columns), None)
+                _qte_agro = next((c for c in ["qte","Qte"] if c in _ds_agro.columns), None)
+                _art_agro = next((c for c in ["article","Article"] if c in _ds_agro.columns), None)
+
+                if not _cl_agro or not _fam_agro:
+                    st.info("Structure Sotusfa incompatible — colonnes client/famille manquantes.")
+                else:
+                    # Mapping familles réelles Sotusfa → catégories agro
+                    _FAM_MAP = {
+                        "engrais":      "🧪 DAP & Engrais",
+                        "Engrais":      "🧪 DAP & Engrais",
+                        "fertilissant": "🌿 Fertilissants",
+                        "Fertilissant": "🌿 Fertilissants",
+                        "fongicide":    "🛡️ Fongicides",
+                        "Fongicide":    "🛡️ Fongicides",
+                        "insecticide":  "🦟 Insecticides",
+                        "Insecticide":  "🦟 Insecticides",
+                        "IRRIGATIONS":  "💧 Irrigation",
+                        "IRRIGATIONS TURK": "💧 Irrigation",
+                        "HERBICIDE":    "🌾 Herbicides",
+                        "Divers":       "📦 Divers",
+                    }
+                    _ds_agro["_cat"] = _ds_agro[_fam_agro].astype(str).str.strip().map(_FAM_MAP)
+                    _ds_agro = _ds_agro[_ds_agro["_cat"].notna()]
+
+                    _val_col = _val_agro if _val_agro else (_qte_agro if _qte_agro else None)
+                    if _val_col:
+                        _ds_agro[_val_col] = pd.to_numeric(_ds_agro[_val_col], errors="coerce").fillna(0)
+
+                    # Pivot : 1 ligne par client, colonnes = catégories
+                    if _val_col:
+                        _pivot = _ds_agro.groupby([_cl_agro, "_cat"])[_val_col].sum()                                         .unstack("_cat", fill_value=0).reset_index()
+                        _pivot.columns.name = None
+                        _pivot = _pivot.rename(columns={_cl_agro: "client"})
+                    else:
+                        _pivot = _ds_agro.groupby([_cl_agro, "_cat"])["_cat"].count()                                         .unstack("_cat", fill_value=0).reset_index()                                         .rename(columns={_cl_agro: "client"})
+
+                    # Tonnage : depuis df merged ou depuis prévision Mai
+                    _ton_col = None
+                    if _df_main is not None and not _df_main.empty:
+                        _agri_col = next((c for c in ["agriculteur","client"] if c in _df_main.columns), None)
+                        for tc in ["tonnage_livre","prevision_juin","prevision_mai","prevision_dec"]:
+                            if tc in _df_main.columns and _df_main[tc].fillna(0).sum() > 0:
+                                _ton_col = tc; break
+                        if _agri_col and _ton_col:
+                            _ton_df = _df_main[[_agri_col, _ton_col, "commercial",
+                                                "region"] if "region" in _df_main.columns
+                                               else [_agri_col, _ton_col, "commercial"]].copy()
+                            _ton_df = _ton_df.rename(columns={_agri_col: "client"})
+                            _ton_df[_ton_col] = pd.to_numeric(_ton_df[_ton_col], errors="coerce").fillna(0)
+                            _ton_df = _ton_df[_ton_df[_ton_col] > 0]
+                            _ma = _pivot.merge(_ton_df, on="client", how="inner")
+                        else:
+                            _ma = _pivot.copy()
+                            _ton_col = None
+                    else:
+                        _ma = _pivot.copy()
+                        _ton_col = None
+
+                    _cats = [c for c in _ma.columns if c not in
+                             ["client","commercial","region",_ton_col or "x"]]
+
+                    # ── KPIs intrants ────────────────────────────────
+                    st.markdown("**📊 Total intrants Sotusfa par catégorie**")
+                    _kpi_cols = st.columns(min(len(_cats), 5))
+                    _COLORS_AGR = {
+                        "🧪 DAP & Engrais": "#42A5F5",
+                        "🌿 Fertilissants": "#66BB6A",
+                        "🛡️ Fongicides":    "#AB47BC",
+                        "🦟 Insecticides":  "#FF7043",
+                        "💧 Irrigation":    "#26C6DA",
+                        "🌾 Herbicides":    "#FFA726",
+                        "📦 Divers":        "#78909C",
+                    }
+                    for ci4, cat in enumerate(_cats):
+                        if ci4 < 5:
+                            tot_cat = _ma[cat].sum() if cat in _ma.columns else 0
+                            _kpi_cols[ci4].metric(cat, f"{tot_cat:,.0f} DT")
+
+                    # ── GRAPHIQUE 1 : Scatter corrélation ────────────
+                    if _ton_col and _cats:
+                        st.markdown(f"**📈 Corrélation Intrants → {_ton_col.replace('_',' ').title()}**")
+                        _scatter_cats = [c for c in _cats if c in ["🧪 DAP & Engrais",
+                                         "🌿 Fertilissants","🛡️ Fongicides","🦟 Insecticides"]]
+                        if not _scatter_cats:
+                            _scatter_cats = _cats[:4]
+
+                        _sc_cols = st.columns(min(len(_scatter_cats), 3))
+                        for ci5, cat in enumerate(_scatter_cats[:3]):
+                            _df_sc = _ma[_ma[cat] > 0][["client", cat, _ton_col] +
+                                        (["region"] if "region" in _ma.columns else [])].copy()
+                            if len(_df_sc) < 3:
+                                continue
+                            _x = _df_sc[cat].values
+                            _y = _df_sc[_ton_col].values
+                            try:
+                                _a, _b = _np_agro.polyfit(_x, _y, 1)
+                                _r = float(_np_agro.corrcoef(_x, _y)[0,1])
+                            except Exception:
+                                _a = _b = _r = 0.0
+
+                            _fig_sc = px.scatter(
+                                _df_sc, x=cat, y=_ton_col,
+                                hover_name="client",
+                                color="region" if "region" in _df_sc.columns else None,
+                                labels={cat: f"{cat} (DT)",
+                                        _ton_col: "Tonnage (T)"},
+                                title=f"{cat}<br><sup>r = {_r:.2f} | {len(_df_sc)} agriculteurs</sup>",
+                                template="plotly_dark",
+                                color_discrete_sequence=px.colors.qualitative.Set2,
+                            )
+                            # Ligne de tendance
+                            if abs(_r) > 0.05 and _a != 0:
+                                _xl = _np_agro.linspace(_x.min(), _x.max(), 50)
+                                _fig_sc.add_scatter(
+                                    x=_xl, y=_a*_xl+_b,
+                                    mode="lines", name="Tendance",
+                                    line=dict(color=_COLORS_AGR.get(cat,"#fff"),
+                                              width=2.5, dash="dot"),
+                                    showlegend=False,
+                                )
+                            _fig_sc.update_layout(
+                                paper_bgcolor="#161b22",
+                                plot_bgcolor="#0d1117",
+                                height=340,
+                                font=dict(color="#f0f6fc", size=10),
+                                showlegend=("region" in _df_sc.columns),
+                                legend=dict(font=dict(size=8)),
+                                margin=dict(t=60,b=30,l=50,r=20),
+                            )
+                            with _sc_cols[ci5 % 3]:
+                                st.plotly_chart(_fig_sc, use_container_width=True)
+
+                    # ── GRAPHIQUE 2 : Top 20 barres horizontales ─────
+                    st.markdown("**🏆 Top 20 Agriculteurs — Production vs Intrants**")
+                    _sort_col = _ton_col if _ton_col and _ton_col in _ma.columns else                                 (_cats[0] if _cats else None)
+                    if _sort_col:
+                        _top20 = _ma.nlargest(20, _sort_col).sort_values(_sort_col, ascending=True)
+                        _fig_top = _go2.Figure()
+
+                        # Barre principale = tonnage
+                        if _ton_col and _ton_col in _top20.columns:
+                            _fig_top.add_trace(_go2.Bar(
+                                y=_top20["client"], x=_top20[_ton_col],
+                                name="Tonnage (T)", orientation="h",
+                                marker_color="#FF9800", marker_opacity=0.9,
+                                text=_top20[_ton_col].apply(lambda v: f"{v:,.0f}T"),
+                                textposition="outside", textfont=dict(size=9),
+                            ))
+
+                        # Barres intrants (en % max pour superposition)
+                        for cat in (_scatter_cats if _ton_col else _cats[:4]):
+                            if cat not in _top20.columns: continue
+                            _max_v = _top20[cat].max()
+                            _max_t = _top20[_ton_col].max() if _ton_col in _top20.columns else 1
+                            _norm = _top20[cat] / _max_v * _max_t * 0.4 if _max_v > 0 else 0
+                            _fig_top.add_trace(_go2.Bar(
+                                y=_top20["client"], x=_norm,
+                                name=f"{cat} (normalisé)",
+                                orientation="h",
+                                marker_color=_COLORS_AGR.get(cat,"#888"),
+                                marker_opacity=0.55,
+                                visible="legendonly",
+                                customdata=_top20[[cat]],
+                                hovertemplate="%{y}<br>" + cat + ": %{customdata[0]:,.0f} DT<extra></extra>",
+                            ))
+
+                        _fig_top.update_layout(
+                            barmode="overlay",
+                            template="plotly_dark",
+                            paper_bgcolor="#161b22",
+                            plot_bgcolor="#0d1117",
+                            height=max(400, len(_top20)*22),
+                            title="Top 20 — Activer les intrants dans la légende pour comparer",
+                            yaxis=dict(tickfont=dict(size=9)),
+                            legend=dict(orientation="h", yanchor="bottom",
+                                        y=1.01, font=dict(size=9)),
+                            font=dict(color="#f0f6fc"),
+                            margin=dict(l=200, r=80, t=80, b=30),
+                        )
+                        st.plotly_chart(_fig_top, use_container_width=True)
+
+                    # ── TABLEAU ──────────────────────────────────────
+                    st.markdown("**📋 Tableau complet**")
+                    _tbl_cols = ["client"] + _cats +                                 ([_ton_col] if _ton_col else []) +                                 [c for c in ["commercial","region"] if c in _ma.columns]
+                    _tbl_show = _ma[[c for c in _tbl_cols if c in _ma.columns]]                                .sort_values(_sort_col if _sort_col else _tbl_cols[1],
+                                             ascending=False).round(0)
+                    st.dataframe(_tbl_show, use_container_width=True,
+                                 hide_index=True, height=350)
+                    st.download_button(
+                        "📥 Excel — Analyse Intrants vs Production",
+                        data=_export_excel_table(
+                            _tbl_show, "Analyse Intrants",
+                            "Intrants vs Production — Campagne 2026", "1A5C2A"),
+                        file_name="analyse_intrants_production_2026.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True)
+
+    # ══ TAB 6 — PRÉVISIONS VS RÉALISÉ ═════════════════════    # ══ TAB 6 — PRÉVISIONS VS RÉALISÉ ═════════════════════
     with t6:
         if df is None or df.empty:
             _no_data()
