@@ -374,8 +374,7 @@ def parse_quantite(file_obj):
         "prix_vente":   ["prix_vente","prix","prix_unitaire_vente",
                           "prix_vente_dt","prix_t","prix_tonne"],
         "commercial":   ["commercial","responsable","comm","ing"],
-        "hectares":     ["hectares","ha","ha_reels","superficie","surface"],
-        "rendement":    ["rendement","rend_t_ha","rend","rend_ha"],
+        # NOTE: hectares vient du Bourak — PAS de Quantite (éviter conflit de merge)
     }
     rename = {}
     for tgt, cands in MAP.items():
@@ -524,7 +523,15 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             r_grp  = r_grp.rename(columns={"consigne_pl":"consigne_plateau"})
         else:
             r_grp["consigne_plateau"] = 0
-        base = base.merge(r_grp, on=KEY, how="outer")
+        base = base.merge(r_grp, on=KEY, how="outer", suffixes=("","_r"))
+        # Résoudre conflits _r
+        for _col_r in [c for c in base.columns if c.endswith("_r")]:
+            _col_orig = _col_r[:-2]
+            if _col_orig in base.columns:
+                base[_col_orig] = base[_col_orig].fillna(base[_col_r])
+                base = base.drop(columns=[_col_r])
+            else:
+                base = base.rename(columns={_col_r: _col_orig})
         # Restaurer commercial perdu par le outer merge
         if "commercial" in base.columns:
             base["commercial"] = base["commercial"].fillna(
@@ -557,7 +564,19 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     # ── Merge QUANTITÉ ─────────────────────────────────────
     if df_quantite is not None and not df_quantite.empty:
         q = _upper(df_quantite.copy(), KEY)
-        base = base.merge(q, on=KEY, how="left")
+        # Garder seulement les colonnes utiles de Quantite (pas hectares qui vient de Bourak)
+        _q_keep = ["client","centre","qte_livree","qte_actif","qte_extra",
+                   "tonnage_livre","prix_vente","commercial"]
+        q = q[[c for c in _q_keep if c in q.columns]]
+        base = base.merge(q, on=KEY, how="left", suffixes=("","_q"))
+        # Résoudre conflits _q (garder valeur Bourak si présente)
+        for _col_q in [c for c in base.columns if c.endswith("_q")]:
+            _col_orig = _col_q[:-2]
+            if _col_orig in base.columns:
+                base[_col_orig] = base[_col_orig].fillna(base[_col_q])
+                base = base.drop(columns=[_col_q])
+            else:
+                base = base.rename(columns={_col_q: _col_orig})
 
     # ── Merge PRÉVISIONS (concordance + fuzzy matching) ────
     for df_p, col in [(df_prev_dec,"prevision_dec"),
@@ -656,48 +675,77 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     df["detail_caisse"] = df.apply(_detail_caisse, axis=1)
 
     df["consigne_plateau"] = g("consigne_plateau")
-    mo = params.get("mo_tonne", MO_TONNE_DEFAULT)
-    df["tonnage_livre"]    = g("tonnage_livre")
-    df["mo_recolte"]       = df["tonnage_livre"] * mo
+    # Consigne caisse : 1ère affectation = ha × nb_caisses/ha × prix_caisse
+    # Plants (calcul complet dans la section ci-dessous)
+    # ── Plants et Ha (en premier car tout dépend de Ha) ──────────
+    df["hectares"]    = g("hectares")      # Ha réels depuis Bourak
+    df["qte_livree"]  = g("qte_livree")    # Plants livrés
+    df["qte_actif"]   = g("qte_actif")     # Plants actifs (pris racine)
+    df["qte_extra"]   = g("qte_extra")     # Plants perdus
+    df["qte_royal"]   = df["qte_livree"]   # alias
 
-    # Plants
-    df["qte_livree"]  = g("qte_livree")
-    df["qte_actif"]   = g("qte_actif")
-    df["qte_extra"]   = g("qte_extra")
-    df["hectares"]    = g("hectares")
+    _ha   = df["hectares"].fillna(0)
+    _pl   = df["qte_livree"].fillna(0)
+    _ha_s = _ha.where(_ha > 0, np.nan)    # NaN si ha=0 → résultats NaN→0
+    _pl_s = _pl.where(_pl > 0, np.nan)
 
-    df["taux_prise"]  = np.where(df["qte_livree"]>0,
+    # Taux prise et densité
+    df["taux_prise"] = np.where(df["qte_livree"]>0,
                          (df["qte_actif"]/df["qte_livree"]*100).round(1), 0)
-    df["densite_ha"]  = np.where(df["hectares"]>0,
-                         (df["qte_actif"]/df["hectares"]).round(0), 0)
+    df["densite_ha"] = (_pl / _ha_s).fillna(0).round(0)   # plants/ha
 
-    # Prix vente
-    df["prix_vente"]  = g("prix_vente")
-    df["prix_vente"]  = df["prix_vente"].where(df["prix_vente"]>0,
-                         params.get("prix_vente_global", 270))
+    # ── Prix vente ────────────────────────────────────────────────
+    df["prix_vente"] = g("prix_vente")
+    df["prix_vente"] = df["prix_vente"].where(df["prix_vente"]>0,
+                        params.get("prix_vente_global", 270))
 
-    # Tonnage recouvrement
-    charges_totales = (df["charge_totale"] + df["consigne_plateau"]
-                     + df["consigne_caisse"] + df["mo_recolte"])
-    df["charges_totales"]       = charges_totales
-    df["tonnage_recouvrement"]  = np.where(df["prix_vente"]>0,
-                                   (charges_totales / df["prix_vente"]).round(2), 0)
+    # ── Tonnage livré et MO récolte ───────────────────────────────
+    df["tonnage_livre"] = g("tonnage_livre")
+    mo = params.get("mo_tonne", MO_TONNE_DEFAULT)
+    df["mo_recolte"]    = (df["tonnage_livre"] * mo).round(0)
 
-    # Indicateurs /ha
-    df["recouvrement_ha"]   = np.where(df["hectares"]>0,
-                               (df["tonnage_recouvrement"]/df["hectares"]).round(2),0)
-    df["tonnage_ha_realise"]= np.where(df["hectares"]>0,
-                               (df["tonnage_livre"]/df["hectares"]).round(2),0)
-    df["cout_ha"]           = np.where(df["hectares"]>0,
-                               (df["charge_totale"]/df["hectares"]).round(0),0)
-    df["cout_plant_actif"]  = np.where(df["qte_actif"]>0,
-                               (df["charge_totale"]/df["qte_actif"]).round(4),0)
+    # ── Consigne caisse (recalcul car ha maintenant disponible) ───
+    _usine = params.get("usine_active", "SICAM")
+    _pc = CAISSES_USINE_DEFAULTS.get(_usine, CAISSES_USINE_DEFAULTS.get("SICAM", {}))
+    _is_1ere = df["affectation_caisse"].astype(str).str.startswith("1ère")
+    df["consigne_caisse"] = np.where(_is_1ere,
+        (_ha * _pc.get("nb_ha", 80) * _pc.get("prix", 3.0)).round(0), 0)
 
-    # Solde et valeur
+    # ── Charges totales ───────────────────────────────────────────
+    charges_totales = (df["charge_totale"].fillna(0)
+                     + df["consigne_plateau"].fillna(0)
+                     + df["consigne_caisse"].fillna(0)
+                     + df["mo_recolte"].fillna(0))
+    df["charges_totales"] = charges_totales
+
+    # ── Recouvrement ──────────────────────────────────────────────
+    df["tonnage_recouvrement"] = np.where(df["prix_vente"]>0,
+                                  (charges_totales / df["prix_vente"]).round(2), 0)
+
+    # ── Charges à recouvrir (= tout ce que l'agri doit récupérer) ─
+    df["charge_a_recouvrir"] = (charges_totales + df["report"].fillna(0)).round(0)
+
+    # ── Indicateurs /ha ───────────────────────────────────────────
+    df["recouvrement_ha"]   = (df["tonnage_recouvrement"] / _ha_s).fillna(0).round(2)
+    df["rendement_ha_reel"] = (df["tonnage_livre"]        / _ha_s).fillna(0).round(1)
+    df["cout_ha"]           = (df["charge_totale"].fillna(0) / _ha_s).fillna(0).round(0)
+    df["cout_plant"]        = (df["charge_totale"].fillna(0) / _pl_s).fillna(0).round(4)
+
+    # ── Prévision Mai ─────────────────────────────────────────────
+    df["prevision_mai"]     = g("prevision_mai")
+    df["prevision_dec"]     = g("prevision_dec")
+    df["prevision_juin"]    = g("prevision_juin")
+
+    # ── Solde et valeur ───────────────────────────────────────────
     df["valeur_livree"] = (df["tonnage_livre"] * df["prix_vente"]).round(0)
     df["ecart_tonnage"] = (df["tonnage_livre"] - df["tonnage_recouvrement"]).round(2)
-    df["solde_final"]   = (df["valeur_livree"] - charges_totales).round(0)
+    df["solde_final"]   = (df["valeur_livree"] - charges_totales
+                          - df["report"].fillna(0)).round(0)
     df["report"]        = g("report")
+
+    # ── Ingénieur auto si absent ──────────────────────────────────
+    if "ingenieur" not in df.columns or df["ingenieur"].fillna("").astype(str).eq("").all():
+        df["ingenieur"] = ("ING. " + df["commercial"].astype(str).str[:8]).str.upper()
 
     # Alertes
     def _alerte(row):
