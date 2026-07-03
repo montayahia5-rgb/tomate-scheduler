@@ -1150,92 +1150,98 @@ def export_excel(df, df_sotusfa_raw=None):
     return buf.read()
 
 
-# ── Table de concordance : nom dans fichiers → nom canonique ──
-# Mappe les variantes orthographiques vers les noms officiels des 220
-CONCORDANCE_NOMS = {
-    # KHALIL
-    "NEGI ZAAFOURI":           "NEJI ZAAFOURI",
-    "HEDI SLAMA":              "HEDI SLAMA",
-    "SAMIR ATTIYA":            "SAMIR ATTIYA",
-    "BOUBAKER FILALI":         "BOUBAKER FILALI",
-    "KAIS DHAOUI":             "KAIS DHAOUI",
-    "EZZEDINE GUESMI":         "EZZEDINE GUESMI",
-    "MOURAD HEMMEDI":          "MOURAD HEMMEDI",
-    "SAMI FERGENI":            "SAMI FERGENI",
-    "SALEM EL MEJRI":          "SALEM EL MEJRI",
-    "NEJI ZAAFOURI":           "NEGI ZAAFOURI",
-    "HEDI SLEMA":              "HEDI SLAMA",
-    "SAMIR ATTIAA":            "SAMIR ATTIYA",
-    "BOUBAKER FILELI":         "BOUBAKER FILALI",
-    "KAIS EDHAOUI":            "KAIS DHAOUI",
-    "EZZEDDIN ELGUESMI":       "EZZEDINE GUESMI",
-    "MOURAD BEN SAID HAMMADI": "MOURAD HEMMEDI",
-    "SAMI BEN AMOR FERJENI":   "SAMI FERGENI",
-    "SALEM ELMEJRI":           "SALEM EL MEJRI",
-    # MAKKI
-    "ALI EL KOTLI":            "ALI KOTLI",
-    "SASSI BEN MANSOUR":       "SASSI MANSOUR",
-    "ABDELAZIZ LAYARI":        "ABEDLAZIZ LAYARI",
-    "ABDERRAZEK BEY":          "ABEDRAZEK BEY",
-    "MAKREM HAFFAR":           "MAKRAM HAFFAR",
-    "SALAH BEN HAMOUDA":       "SALEH BEN HAMOUDA",
-    "LASSAAD NEILI":           "LASSED NEILI",
-    "ALAEDDINE BEN KILANI":    "ALAEDINE KILENI",
-    "ADEL ALJAZI":             "ADEL JAZI",
-    "MOHAMED BADIA NEJI":      "MOHAMED BEDIA NEJI",
-    "SLAH BEN SLIMEN":         "SLAH BEN ABDALLAH",
-    "ROMDHAN ELMEHEDEBI":      "RAMDHAN MHEDHBI",
-    "AYMEN CHAABEN":           "AYMEN CHABEN",
-    # FEDI
-    "ABDELFATEH BEN SLIMENE":  "ABDELFATEH BEN SLIMEN",
-    "HAMED BEN YOUNES":        "HAMED BEN YOUNIS",
-    "SAMI BEN HEDI KAAB":      "SAMI KAAB",
-    "TAREK BEN ABDALLAH":      "TAREK BEN ABDALAH",
-    "TAREK ELBAHRI":           "TAREK EL BAHRI",
-    "SOCIETE BACCARA ET FILS": "STE BACCARA",
-    "NEJIB BAKOUCHE":          "NAJIB BACCOUCH",
-    "HASSEN BEN ALAYA":        "HASSEN BEN ALIA",
-    "ANIS DHAOUADI":           "ANIS DHAWADI",
-    "MAHER BELHAJ SALAH":      "MAHER BELHAJ FRAJ",
-    "HANI BELKILANI":          "HANI BEN KILANI",
-    "AHMED ELIDRISSI":         "AHMED IDRISSI",
-    "HAMMADI BEN ZRIBIA":      "HAMMADI BENZRIBIA",
-    # ACHREF (centres → sous-membres)
-    "ABDELKARIM GARMALLAH":    "KARIM GARMALAH 1",
-    "SOCIETE BILEL GHA SERVICE AGRICOLE": "BILEL GHA 1",
-    "MOURAD MANSOURI":         "MOURAD MANSOURI",
-    "SEBTI JABALI":            "SEBTI JABALI",
-    "SOUHAIL BOUZANA":         "SOUHAIL BOUZANA",
-    "HAFEDH MESBEH":           "HAFEDH MOSBEH",
-    "SEBTI JBALLAH":           "SEBTI JABALI",
-    "SOUHAIEL BOUZ":           "SOUHAIL BOUZANA",
-    "KARIM GARMAL":            "KARIM GARMALAH 1",
-    # JILANI
-    "SLIM MARZOUGUI":          "Slim Marzougui",
-    "FETHI SDIRI":             "Fethi Sdiri",
-    "ISSAM KOUKI":             "Issam Kouki",
-    "SLIM ELMARZOUGUI":        "Slim Marzougui",
-    "AHMED BALAGUI":           "Ahmed Ballagui",
-    "RIADH KOUKI":             "Riadh Kouki",
-}
 
 def _get_concordance_key(nom_ref):
-    """Trouve le nom canonique correspondant via la table de concordance."""
-    nom_up = str(nom_ref).strip().upper()
-    # Recherche exacte dans la table
-    for ref_key, sot_val in CONCORDANCE_NOMS.items():
-        if ref_key.upper() == nom_up:
-            return sot_val
-    # Recherche normalisée (sans accents, espaces)
-    import unicodedata, re as _re
-    def _n(s):
-        s = str(s).upper()
-        s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
-        return _re.sub(r'\s+', ' ', _re.sub(r'[^A-Z0-9 ]', ' ', s)).strip()
-    nom_clean = _n(nom_up)
-    for ref_key, sot_val in CONCORDANCE_NOMS.items():
-        if _n(ref_key) == nom_clean:
-            return sot_val
+    """Trouve le nom canonique correspondant via la table de concordance.
+    La table est définie localement pour éviter tout NameError.
+    """
+    import unicodedata as _uc, re as _re
+
+    # Table de concordance LOCALE (robuste — pas de variable globale requise)
+    _CONC = {
+        # KHALIL
+        "NEJI ZAAFOURI":           "NEGI ZAAFOURI",
+        "HEDI SLEMA":              "HEDI SLAMA",
+        "SAMIR ATTIAA":            "SAMIR ATTIYA",
+        "BOUBAKER FILELI":         "BOUBAKER FILALI",
+        "KAIS EDHAOUI":            "KAIS DHAOUI",
+        "EZZEDDIN ELGUESMI":       "EZZEDINE GUESMI",
+        "MOURAD BEN SAID HAMMADI": "MOURAD HEMMEDI",
+        "SAMI BEN AMOR FERJENI":   "SAMI FERGENI",
+        "SALEM ELMEJRI":           "SALEM EL MEJRI",
+        # MAKKI
+        "ALI EL KOTLI":            "ALI KOTLI",
+        "SASSI BEN MANSOUR":       "SASSI MANSOUR",
+        "ABDELAZIZ LAYARI":        "ABEDLAZIZ LAYARI",
+        "ABDERRAZEK BEY":          "ABEDRAZEK BEY",
+        "MAKREM HAFFAR":           "MAKRAM HAFFAR",
+        "SALAH BEN HAMOUDA":       "SALEH BEN HAMOUDA",
+        "LASSAAD NEILI":           "LASSED NEILI",
+        "ALAEDDINE BEN KILANI":    "ALAEDINE KILENI",
+        "ADEL ALJAZI":             "ADEL JAZI",
+        "MOHAMED BADIA NEJI":      "MOHAMED BEDIA NEJI",
+        "SLAH BEN SLIMEN":         "SLAH BEN ABDALLAH",
+        "ROMDHAN ELMEHEDEBI":      "RAMDHAN MHEDHBI",
+        "AYMEN CHAABEN":           "AYMEN CHABEN",
+        "SLAH BANNI":              "SLAH BANI",
+        "SAMAH BACCOUCH":          "SAMEH BACCOUCH",
+        "MOUHAMED GHARBI":         "MOHAMED GHARBI",
+        "ZOUHAIR BEAICH":          "ZOUHAIR BAICH",
+        # FEDI
+        "ABDELFATEH BEN SLIMENE":  "ABDELFATEH BEN SLIMEN",
+        "HAMED BEN YOUNES":        "HAMED BEN YOUNIS",
+        "SAMI BEN HEDI KAAB":      "SAMI KAAB",
+        "TAREK BEN ABDALLAH":      "TAREK BEN ABDALAH",
+        "TAREK ELBAHRI":           "TAREK EL BAHRI",
+        "SOCIETE BACCARA ET FILS": "STE BACCARA",
+        "NEJIB BAKOUCHE":          "NAJIB BACCOUCH",
+        "HASSEN BEN ALAYA":        "HASSEN BEN ALIA",
+        "ANIS DHAOUADI":           "ANIS DHAWADI",
+        "MAHER BELHAJ SALAH":      "MAHER BELHAJ FRAJ",
+        "HANI BELKILANI":          "HANI BEN KILANI",
+        "AHMED ELIDRISSI":         "AHMED IDRISSI",
+        "HAMMADI BEN ZRIBIA":      "HAMMADI BENZRIBIA",
+        "OSAMA KAAB":              "SAMI KAAB",
+        "SOFYEN GHZALA":           "SOFIENNE GHZELA",
+        "MOUHAMED ALI GHZALA":     "MOHAMED ALI GHZELA",
+        "MOUHAMED ALI BELMADHI":   "MOHAMED BEL MADHI",
+        "MED MANOUBI":             "MOHAMED MANNOUBI",
+        # ACHREF (centres → sous-membres)
+        "ABDELKARIM GARMALLAH":    "KARIM GARMALAH 1",
+        "SOCIETE BILEL GHA SERVICE AGRICOLE": "BILEL GHA 1",
+        "SEBTI JBALLAH":           "SEBTI JABALI",
+        "SOUHAIEL BOUZ":           "SOUHAIL BOUZANA",
+        "HAFEDH MESBEH":           "HAFEDH MOSBEH",
+        "HAFEDH MOSBE":            "HAFEDH MOSBEH",
+        "KARIM GARMAL":            "KARIM GARMALAH 1",
+        # JILANI
+        "SLIM MARZOUGUI":          "Slim Marzougui",
+        "SLIM ELMARZOUGUI":        "Slim Marzougui",
+        "AHMED BALAGUI":           "Ahmed Ballagui",
+        "RIADH KOUKI":             "Riadh Kouki",
+        "IMED AMDOU":              "Imed Amdouni",
+        "NEJIB MECHRG":            "Nejib Mechrgui",
+    }
+
+    def _norm(s):
+        s = str(s).strip().upper()
+        s = ''.join(c for c in _uc.normalize('NFD', s)
+                    if _uc.category(c) != 'Mn')
+        s = _re.sub(r'[(][^)]*[)]', ' ', s)
+        s = _re.sub(r'[^A-Z0-9 ]', ' ', s)
+        return _re.sub(r'\s+', ' ', s).strip()
+
+    nom_up    = str(nom_ref).strip().upper()
+    nom_clean = _norm(nom_up)
+
+    # 1. Recherche exacte
+    for k, v in _CONC.items():
+        if k.upper() == nom_up:
+            return v
+    # 2. Recherche normalisée
+    for k, v in _CONC.items():
+        if _norm(k) == nom_clean:
+            return v
     return None
 
 def _fuzzy_match_clients(df_base, df_prev, col_prev):
