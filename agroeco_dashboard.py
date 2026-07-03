@@ -2241,19 +2241,40 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
         elif "region" not in df.columns:
             st.warning("Colonne 'region' absente — vérifiez le fichier Bourak.")
         else:
-            # Colonnes sécurisées (vérifier existence avant groupby)
-            _agri_c = "agriculteur" if "agriculteur" in df.columns else                       ("client" if "client" in df.columns else None)
-            _rend_c = "rendement_ha_reel" if "rendement_ha_reel" in df.columns else                       ("rendement_ha_reel" if "rendement_ha_reel" in df.columns else None)
-            _agg_rg = {}
-            if _agri_c: _agg_rg["Agriculteurs"] = (_agri_c,"count")
-            if "hectares" in df.columns: _agg_rg["Hectares"] = ("hectares","sum")
-            if "cout_ha" in df.columns: _agg_rg["Cout_ha_moy"] = ("cout_ha","mean")
-            if _rend_c: _agg_rg["Rendement_moy"] = (_rend_c,"mean")
-            if "taux_prise" in df.columns: _agg_rg["Taux_prise_moy"] = ("taux_prise","mean")
-            if "recouvrement_ha" in df.columns: _agg_rg["Recouvrement_ha"] = ("recouvrement_ha","mean")
-            if "tonnage_livre" in df.columns: _agg_rg["Tonnage_total"] = ("tonnage_livre","sum")
-            if "alerte" in df.columns: _agg_rg["Alertes_rouges"] = ("alerte",lambda x:x.astype(str).str.contains("🔴",na=False).sum())
-            rg = df.groupby("region").agg(**_agg_rg).reset_index().round(1)
+            # Agrégation par région — approche défensive sans named agg
+            try:
+                _df_rg = df.copy()
+                # S'assurer que toutes les colonnes numériques sont bien numériques
+                for _c in ["hectares","cout_ha","rendement_ha_reel","taux_prise",
+                           "recouvrement_ha","tonnage_livre"]:
+                    if _c in _df_rg.columns:
+                        _df_rg[_c] = pd.to_numeric(_df_rg[_c], errors="coerce")
+                # Colonne agriculteur
+                _ac = next((c for c in ["agriculteur","client"] if c in _df_rg.columns), None)
+                # Alerte rouge
+                if "alerte" in _df_rg.columns:
+                    _df_rg["_rouge"] = _df_rg["alerte"].astype(str).str.contains("🔴", na=False).astype(int)
+                else:
+                    _df_rg["_rouge"] = 0
+                # Construction agg simple
+                _rg_dict = {"_rouge": "sum"}
+                if _ac: _rg_dict[_ac] = "count"
+                for _c in ["hectares","cout_ha","rendement_ha_reel",
+                           "taux_prise","recouvrement_ha","tonnage_livre"]:
+                    if _c in _df_rg.columns:
+                        _rg_dict[_c] = "mean" if _c not in ["hectares","tonnage_livre"] else "sum"
+                rg_raw = _df_rg.groupby("region").agg(_rg_dict).reset_index().round(1)
+                # Renommer
+                _rename_map = {
+                    _ac: "Agriculteurs", "hectares": "Hectares",
+                    "cout_ha": "Cout_ha_moy", "rendement_ha_reel": "Rendement_moy",
+                    "taux_prise": "Taux_prise_moy", "recouvrement_ha": "Recouvrement_ha",
+                    "tonnage_livre": "Tonnage_total", "_rouge": "Alertes_rouges"
+                }
+                rg = rg_raw.rename(columns={k:v for k,v in _rename_map.items() if k in rg_raw.columns})
+            except Exception as _e3:
+                st.warning(f"Erreur agrégation région : {_e3}")
+                rg = pd.DataFrame({"region":[]})
 
             fig3 = px.bar(rg,x="region",y="Rendement_moy",
                 color="Rendement_moy",
