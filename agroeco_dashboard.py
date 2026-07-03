@@ -281,7 +281,10 @@ def parse_royal(file_obj):
             df[c] = pd.to_datetime(df[c], errors="coerce")
 
     df["client"] = df["client"].astype(str).str.strip()
-    df = df[~df["client"].str.upper().isin(["","NAN","TOTAL"])]
+    df = df[~df["client"].str.upper().isin(["","NAN","TOTAL","CLIENT","AGRICULTEUR"])]
+    df = df[~df["client"].str.startswith("──")]
+    df = df[~df["client"].str.startswith("--")]
+    df = df[df["client"].str.len() > 2]
     return df, ""
 
 
@@ -364,8 +367,15 @@ def parse_quantite(file_obj):
         "qte_livree":   ["quantite_livree","qte_livree","livree","plants_livres"],
         "qte_actif":    ["quantite_actif","qte_actif","actif","plants_actifs"],
         "qte_extra":    ["quantite_extra","qte_extra","extra","pertes"],
-        "tonnage_livre":["tonnage_livre","tonnage","recolte","livraison_t"],
-        "prix_vente":   ["prix_vente","prix","prix_unitaire_vente"],
+        "tonnage_livre":["tonnage_livre","tonnage","recolte","livraison_t",
+                          "tonnage_plan","tonnage_plan_","tonnage_planif",
+                          "tonnage_prevu","tonnage_planifie","tonnage_livre_t",
+                          "volume","volume_t"],
+        "prix_vente":   ["prix_vente","prix","prix_unitaire_vente",
+                          "prix_vente_dt","prix_t","prix_tonne"],
+        "commercial":   ["commercial","responsable","comm","ing"],
+        "hectares":     ["hectares","ha","ha_reels","superficie","surface"],
+        "rendement":    ["rendement","rend_t_ha","rend","rend_ha"],
     }
     rename = {}
     for tgt, cands in MAP.items():
@@ -664,7 +674,7 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     # Prix vente
     df["prix_vente"]  = g("prix_vente")
     df["prix_vente"]  = df["prix_vente"].where(df["prix_vente"]>0,
-                         params.get("prix_vente_global", 0))
+                         params.get("prix_vente_global", 270))
 
     # Tonnage recouvrement
     charges_totales = (df["charge_totale"] + df["consigne_plateau"]
