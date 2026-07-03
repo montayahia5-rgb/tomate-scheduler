@@ -1150,8 +1150,77 @@ def export_excel(df, df_sotusfa_raw=None):
     return buf.read()
 
 
+# ── Table de concordance : nom dans fichiers → nom canonique ──
+# Mappe les variantes orthographiques vers les noms officiels des 220
+CONCORDANCE_NOMS = {
+    # KHALIL
+    "NEGI ZAAFOURI":           "NEJI ZAAFOURI",
+    "HEDI SLAMA":              "HEDI SLAMA",
+    "SAMIR ATTIYA":            "SAMIR ATTIYA",
+    "BOUBAKER FILALI":         "BOUBAKER FILALI",
+    "KAIS DHAOUI":             "KAIS DHAOUI",
+    "EZZEDINE GUESMI":         "EZZEDINE GUESMI",
+    "MOURAD HEMMEDI":          "MOURAD HEMMEDI",
+    "SAMI FERGENI":            "SAMI FERGENI",
+    "SALEM EL MEJRI":          "SALEM EL MEJRI",
+    "NEJI ZAAFOURI":           "NEGI ZAAFOURI",
+    "HEDI SLEMA":              "HEDI SLAMA",
+    "SAMIR ATTIAA":            "SAMIR ATTIYA",
+    "BOUBAKER FILELI":         "BOUBAKER FILALI",
+    "KAIS EDHAOUI":            "KAIS DHAOUI",
+    "EZZEDDIN ELGUESMI":       "EZZEDINE GUESMI",
+    "MOURAD BEN SAID HAMMADI": "MOURAD HEMMEDI",
+    "SAMI BEN AMOR FERJENI":   "SAMI FERGENI",
+    "SALEM ELMEJRI":           "SALEM EL MEJRI",
+    # MAKKI
+    "ALI EL KOTLI":            "ALI KOTLI",
+    "SASSI BEN MANSOUR":       "SASSI MANSOUR",
+    "ABDELAZIZ LAYARI":        "ABEDLAZIZ LAYARI",
+    "ABDERRAZEK BEY":          "ABEDRAZEK BEY",
+    "MAKREM HAFFAR":           "MAKRAM HAFFAR",
+    "SALAH BEN HAMOUDA":       "SALEH BEN HAMOUDA",
+    "LASSAAD NEILI":           "LASSED NEILI",
+    "ALAEDDINE BEN KILANI":    "ALAEDINE KILENI",
+    "ADEL ALJAZI":             "ADEL JAZI",
+    "MOHAMED BADIA NEJI":      "MOHAMED BEDIA NEJI",
+    "SLAH BEN SLIMEN":         "SLAH BEN ABDALLAH",
+    "ROMDHAN ELMEHEDEBI":      "RAMDHAN MHEDHBI",
+    "AYMEN CHAABEN":           "AYMEN CHABEN",
+    # FEDI
+    "ABDELFATEH BEN SLIMENE":  "ABDELFATEH BEN SLIMEN",
+    "HAMED BEN YOUNES":        "HAMED BEN YOUNIS",
+    "SAMI BEN HEDI KAAB":      "SAMI KAAB",
+    "TAREK BEN ABDALLAH":      "TAREK BEN ABDALAH",
+    "TAREK ELBAHRI":           "TAREK EL BAHRI",
+    "SOCIETE BACCARA ET FILS": "STE BACCARA",
+    "NEJIB BAKOUCHE":          "NAJIB BACCOUCH",
+    "HASSEN BEN ALAYA":        "HASSEN BEN ALIA",
+    "ANIS DHAOUADI":           "ANIS DHAWADI",
+    "MAHER BELHAJ SALAH":      "MAHER BELHAJ FRAJ",
+    "HANI BELKILANI":          "HANI BEN KILANI",
+    "AHMED ELIDRISSI":         "AHMED IDRISSI",
+    "HAMMADI BEN ZRIBIA":      "HAMMADI BENZRIBIA",
+    # ACHREF (centres → sous-membres)
+    "ABDELKARIM GARMALLAH":    "KARIM GARMALAH 1",
+    "SOCIETE BILEL GHA SERVICE AGRICOLE": "BILEL GHA 1",
+    "MOURAD MANSOURI":         "MOURAD MANSOURI",
+    "SEBTI JABALI":            "SEBTI JABALI",
+    "SOUHAIL BOUZANA":         "SOUHAIL BOUZANA",
+    "HAFEDH MESBEH":           "HAFEDH MOSBEH",
+    "SEBTI JBALLAH":           "SEBTI JABALI",
+    "SOUHAIEL BOUZ":           "SOUHAIL BOUZANA",
+    "KARIM GARMAL":            "KARIM GARMALAH 1",
+    # JILANI
+    "SLIM MARZOUGUI":          "Slim Marzougui",
+    "FETHI SDIRI":             "Fethi Sdiri",
+    "ISSAM KOUKI":             "Issam Kouki",
+    "SLIM ELMARZOUGUI":        "Slim Marzougui",
+    "AHMED BALAGUI":           "Ahmed Ballagui",
+    "RIADH KOUKI":             "Riadh Kouki",
+}
+
 def _get_concordance_key(nom_ref):
-    """Trouve le nom Sotusfa correspondant via la table de concordance."""
+    """Trouve le nom canonique correspondant via la table de concordance."""
     nom_up = str(nom_ref).strip().upper()
     # Recherche exacte dans la table
     for ref_key, sot_val in CONCORDANCE_NOMS.items():
