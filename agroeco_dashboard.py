@@ -570,7 +570,10 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     # ══ CALCULS ═══════════════════════════════════════════
     df = base.copy()
     def g(col, d=0):
-        return pd.to_numeric(df.get(col, d), errors="coerce").fillna(d)
+        """Getter sécurisé : retourne toujours une Series, jamais un scalaire."""
+        if col in df.columns:
+            return pd.to_numeric(df[col], errors="coerce").fillna(d)
+        return pd.Series([d] * len(df), index=df.index, dtype=float)
 
     # Charges
     df["charge_plants"]   = g("valeur_plants")
