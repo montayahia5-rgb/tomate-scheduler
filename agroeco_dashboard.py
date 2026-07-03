@@ -60,6 +60,17 @@ def _norm(c):
             .replace("'",""))
 
 def _find_header(raw, keywords, max_rows=8):
+    """
+    Trouve la ligne header en cherchant celle qui contient
+    ≥2 mots-clés distincts (évite les faux positifs sur lignes titre).
+    """
+    for i in range(min(max_rows, len(raw))):
+        vals = [_norm(str(v)) for v in raw.iloc[i].values if pd.notna(v)]
+        # Compter combien de mots-clés différents matchent
+        n_match = sum(1 for kw in keywords if any(kw in v for v in vals))
+        if n_match >= 2:
+            return i
+    # Fallback : 1 seul match
     for i in range(min(max_rows, len(raw))):
         vals = [_norm(str(v)) for v in raw.iloc[i].values if pd.notna(v)]
         if any(any(kw in v for v in vals) for kw in keywords):
