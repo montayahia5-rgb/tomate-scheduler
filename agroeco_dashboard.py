@@ -181,14 +181,21 @@ def parse_bourak(file_obj):
          ["client","responsable","ingenieur","centre","avance","report"])
 
     MAP = {
-        "client":     ["client","agriculteur","nom"],
-        "commercial": ["responsable","commercial","resp"],
-        "ingenieur":  ["ingenieur","ing","ingenieur_agronome"],
-        "centre":     ["centre","centre_collecte"],
-        "region":     ["region","zone"],
-        "hectares":   ["hectares","ha","surface","nb_hectares"],
-        "avance":     ["avance","avances","total_avance","montant_avance"],
-        "report":     ["report","reste","solde_precedent","non_paye"],
+        "client":        ["client","agriculteur","nom"],
+        "commercial":    ["responsable","commercial","resp"],
+        "ingenieur":     ["ingenieur","ing","ingenieur_agronome"],
+        "centre":        ["centre","centre_collecte"],
+        "region":        ["region","zone"],
+        "hectares":      ["hectares","ha","surface","nb_hectares","ha_reels"],
+        "avance":        ["avance","avances","total_avance","montant_avance",
+                          "avance_dt","avance_dinar"],
+        "report":        ["report","reste","solde_precedent","non_paye","report_dt"],
+        "plt_livres":    ["plt_livres","plateaux_livres","nb_plateaux_livres",
+                          "plt_livre","nb_plt_livres"],
+        "plt_retour":    ["plt_retour","plateaux_retour","nb_plateaux_retour",
+                          "plt_ret","retour_plateaux"],
+        "plt_perdus":    ["plt_perdus","plateaux_perdus","nb_plateaux_perdus",
+                          "plt_perd"],
     }
     rename = {}
     for tgt, cands in MAP.items():
@@ -203,9 +210,13 @@ def parse_bourak(file_obj):
     if "centre" not in df.columns:
         df["centre"] = ""
 
-    for c in ["hectares","avance","report"]:
+    for c in ["hectares","avance","report","plt_livres","plt_retour","plt_perdus"]:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+    # Calculer plt_perdus si colonnes présentes
+    if "plt_livres" in df.columns and "plt_retour" in df.columns:
+        if "plt_perdus" not in df.columns or df["plt_perdus"].sum() == 0:
+            df["plt_perdus"] = df["plt_livres"] - df["plt_retour"]
     df["client"] = df["client"].astype(str).str.strip()
     # Filtrer : vides, TOTAL, et séparateurs "── COMM ──" générés par les fichiers test
     df = df[~df["client"].str.upper().isin(["","NAN","TOTAL","SOUS-TOTAL"])]
@@ -476,6 +487,10 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     base["commercial"] = base["commercial"].fillna("").astype(str).str.strip()
     # Après chaque merge outer, préserver commercial depuis le côté gauche
     _comm_series = base.set_index("client")["commercial"].to_dict() if "client" in base.columns else {}
+    # Plateaux depuis Bourak
+    for _pc in ["plt_livres","plt_retour","plt_perdus"]:
+        if _pc not in base.columns: base[_pc] = 0
+        base[_pc] = pd.to_numeric(base[_pc], errors="coerce").fillna(0)
 
     # ── Merge ROYAL ────────────────────────────────────────
     if df_royal is not None and not df_royal.empty:
@@ -744,6 +759,9 @@ def export_excel(df, df_sotusfa_raw=None):
         "Extra (pertes)"      : ["Extra (pertes)","qte_extra"],
         "Taux prise %"        : ["Taux prise %","taux_prise"],
         "Densité/ha"          : ["Densité/ha","densite_ha"],
+        "Plt Livrés"          : ["Plt Livrés","plt_livres","nb_plateaux"],
+        "Plt Retour"          : ["Plt Retour","plt_retour"],
+        "Plt Perdus"          : ["Plt Perdus","plt_perdus"],
         "Affectation"         : ["Affectation","affectation_caisse"],
         "Déb. Récolte"        : ["Déb. Récolte","date_debut_recolte"],
         "Plants (DT)"         : ["Plants (DT)","charge_plants","valeur_plants"],
@@ -776,6 +794,8 @@ def export_excel(df, df_sotusfa_raw=None):
         "PLANT": [
             "Variété","Ha","Plants Livrés","Plants Actifs",
             "Extra (pertes)","Taux prise %","Densité/ha"],
+        "PLATEAUX": [
+            "Plt Livrés","Plt Retour","Plt Perdus"],
         "AFFECTATION CAISSES VIDES": [
             "Affectation","Déb. Récolte"],
         "CHARGES (DT)": [
@@ -793,6 +813,7 @@ def export_excel(df, df_sotusfa_raw=None):
     GRP_COLORS = {
         "IDENTIFICATION":            "1F3864",
         "PLANT":                     "1A5C2A",
+        "PLATEAUX":                  "0B4F6C",
         "AFFECTATION CAISSES VIDES": "7B3F00",
         "CHARGES (DT)":              "8B0000",
         "PRÉVISIONS (T)":            "4A235A",
@@ -2638,8 +2659,14 @@ Score d'efficacité · Benchmark commerciaux · Matrice ROI · Recommandations a
                     _df7[_sc2] = ""
 
             # Métriques dérivées
-            _df7["rendement_ha"] = _df7.apply(
-                lambda r: round(r["tonnage_livre"]/r["hectares"],1) if r["hectares"]>0 else 0, axis=1)
+            # Utiliser rendement_ha_reel si disponible, sinon rendement_ha_prevu
+            if "rendement_ha_reel" in _df7.columns and _df7["rendement_ha_reel"].fillna(0).gt(0).any():
+                _df7["rendement_ha"] = _df7["rendement_ha_reel"].fillna(0)
+            elif "rendement_ha_prevu" in _df7.columns and _df7["rendement_ha_prevu"].fillna(0).gt(0).any():
+                _df7["rendement_ha"] = _df7["rendement_ha_prevu"].fillna(0)
+            else:
+                _df7["rendement_ha"] = _df7.apply(
+                    lambda r: round(r["tonnage_livre"]/r["hectares"],1) if r.get("hectares",0)>0 else 0, axis=1)
             _df7["cout_intrant_tonne"] = _df7.apply(
                 lambda r: round(r["total_intrants"]/r["tonnage_livre"],1) if r["tonnage_livre"]>0 else 0, axis=1)
             _df7["cout_intrant_ha"] = _df7.apply(
