@@ -2241,16 +2241,19 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
         elif "region" not in df.columns:
             st.warning("Colonne 'region' absente — vérifiez le fichier Bourak.")
         else:
-            rg = df.groupby("region").agg(
-                Agriculteurs    = ("agriculteur","count"),
-                Hectares        = ("hectares","sum"),
-                Cout_ha_moy     = ("cout_ha","mean"),
-                Rendement_moy   = ("tonnage_ha_realise","mean"),
-                Taux_prise_moy  = ("taux_prise","mean"),
-                Recouvrement_ha = ("recouvrement_ha","mean"),
-                Tonnage_total   = ("tonnage_livre","sum"),
-                Alertes_rouges  = ("alerte",lambda x:(x.str.contains("🔴")).sum()),
-            ).reset_index().round(1)
+            # Colonnes sécurisées (vérifier existence avant groupby)
+            _agri_c = "agriculteur" if "agriculteur" in df.columns else                       ("client" if "client" in df.columns else None)
+            _rend_c = "rendement_ha_reel" if "rendement_ha_reel" in df.columns else                       ("rendement_ha_reel" if "rendement_ha_reel" in df.columns else None)
+            _agg_rg = {}
+            if _agri_c: _agg_rg["Agriculteurs"] = (_agri_c,"count")
+            if "hectares" in df.columns: _agg_rg["Hectares"] = ("hectares","sum")
+            if "cout_ha" in df.columns: _agg_rg["Cout_ha_moy"] = ("cout_ha","mean")
+            if _rend_c: _agg_rg["Rendement_moy"] = (_rend_c,"mean")
+            if "taux_prise" in df.columns: _agg_rg["Taux_prise_moy"] = ("taux_prise","mean")
+            if "recouvrement_ha" in df.columns: _agg_rg["Recouvrement_ha"] = ("recouvrement_ha","mean")
+            if "tonnage_livre" in df.columns: _agg_rg["Tonnage_total"] = ("tonnage_livre","sum")
+            if "alerte" in df.columns: _agg_rg["Alertes_rouges"] = ("alerte",lambda x:x.astype(str).str.contains("🔴",na=False).sum())
+            rg = df.groupby("region").agg(**_agg_rg).reset_index().round(1)
 
             fig3 = px.bar(rg,x="region",y="Rendement_moy",
                 color="Rendement_moy",
@@ -2280,7 +2283,7 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                 Agriculteurs  = ("agriculteur","count"),
                 Hectares      = ("hectares","sum"),
                 Densite_moy   = ("densite_ha","mean"),
-                Rendement_moy = ("tonnage_ha_realise","mean"),
+                Rendement_moy = ("rendement_ha_reel","mean"),
                 Taux_prise    = ("taux_prise","mean"),
                 Cout_ha_moy   = ("cout_ha","mean"),
                 Tonnage_total = ("tonnage_livre","sum"),
@@ -2806,11 +2809,11 @@ Score d'efficacité · Benchmark commerciaux · Matrice ROI · Recommandations a
                     _df7[_sc2] = ""
 
             # Métriques dérivées
-            # Utiliser rendement_ha_reel si disponible, sinon rendement_ha_prevu
+            # Utiliser rendement_ha_reel (calculé dans merge_and_calculate)
             if "rendement_ha_reel" in _df7.columns and _df7["rendement_ha_reel"].fillna(0).gt(0).any():
                 _df7["rendement_ha"] = _df7["rendement_ha_reel"].fillna(0)
-            elif "rendement_ha_prevu" in _df7.columns and _df7["rendement_ha_prevu"].fillna(0).gt(0).any():
-                _df7["rendement_ha"] = _df7["rendement_ha_prevu"].fillna(0)
+            elif "rendement_ha_reel" in _df7.columns and _df7["rendement_ha_reel"].fillna(0).gt(0).any():
+                _df7["rendement_ha"] = _df7["rendement_ha_reel"].fillna(0)
             else:
                 _df7["rendement_ha"] = _df7.apply(
                     lambda r: round(r["tonnage_livre"]/r["hectares"],1) if r.get("hectares",0)>0 else 0, axis=1)
