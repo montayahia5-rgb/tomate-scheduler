@@ -512,7 +512,7 @@ def render_centre_dashboard(sb, role_filter, centre_name):
               <li>Revenez ici pour voir votre tableau de bord ✅</li>
             </ol>
             </div>""", unsafe_allow_html=True)
-            return
+            # ← PAS de return : les autres tabs (Upload, Agriculteurs...) doivent rester accessibles
 
         # KPIs agriculteurs
         if not df_agri.empty:
