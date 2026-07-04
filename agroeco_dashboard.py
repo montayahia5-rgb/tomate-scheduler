@@ -62,18 +62,23 @@ def _norm(c):
 def _find_header(raw, keywords, max_rows=8):
     """
     Trouve la ligne header en cherchant celle qui contient
-    ≥2 mots-clés distincts (évite les faux positifs sur lignes titre).
+    ≥2 mots-clés dans des CELLULES SÉPARÉES (évite les faux positifs sur
+    les lignes titre qui contiennent tout en une seule cellule).
     """
     for i in range(min(max_rows, len(raw))):
-        vals = [_norm(str(v)) for v in raw.iloc[i].values if pd.notna(v)]
-        # Compter combien de mots-clés différents matchent
-        n_match = sum(1 for kw in keywords if any(kw in v for v in vals))
+        # Filtrer : seulement les cellules courtes (< 60 chars) = vraies colonnes
+        cells = [_norm(str(v)) for v in raw.iloc[i].values
+                 if pd.notna(v) and len(str(v).strip()) < 60]
+        # Compter les mots-clés dans des CELLULES DIFFÉRENTES
+        kw_cells = {kw: any(kw in c for c in cells) for kw in keywords}
+        n_match = sum(kw_cells.values())
         if n_match >= 2:
             return i
-    # Fallback : 1 seul match
+    # Fallback : 1 seul match dans cellules courtes
     for i in range(min(max_rows, len(raw))):
-        vals = [_norm(str(v)) for v in raw.iloc[i].values if pd.notna(v)]
-        if any(any(kw in v for v in vals) for kw in keywords):
+        cells = [_norm(str(v)) for v in raw.iloc[i].values
+                 if pd.notna(v) and len(str(v).strip()) < 60]
+        if any(any(kw in c for c in cells) for kw in keywords):
             return i
     return 0
 
@@ -564,13 +569,33 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         base["affectation_caisse"] = "2ème (sans caisses)"
         base["date_debut_recolte"] = pd.NaT
 
-    # ── Merge SOTUSFA ──────────────────────────────────────
-    if df_sotusfa_pivot is not None and not df_sotusfa_pivot.empty:
-        s = _upper(df_sotusfa_pivot.copy(), KEY)
-        # Merge flexible : KEY disponibles dans les 2 DataFrames
-        sot_key = [c for c in KEY if c in s.columns and c in base.columns]
-        if sot_key:
-            base = base.merge(s, on=sot_key, how="left")
+    # ── Merge SOTUSFA — approche directe par client ───────────
+    if df_sotusfa_raw is not None and not df_sotusfa_raw.empty:
+        _sraw = df_sotusfa_raw.copy()
+        # S'assurer que client et valeur sont présents
+        _cli  = next((c for c in _sraw.columns if c in ["client","agriculteur","nom"]), None)
+        _val  = next((c for c in _sraw.columns if c in ["valeur","total_ttc","total","montant"]), None)
+        if _cli and _val:
+            _sraw[_cli] = _sraw[_cli].astype(str).str.strip().str.upper()
+            _sraw[_val] = pd.to_numeric(_sraw[_val], errors="coerce").fillna(0)
+            # Agréger : 1 ligne par client = somme des intrants
+            _sot_agg = _sraw.groupby(_cli)[_val].sum().reset_index()
+            _sot_agg.columns = ["client","total_intrants"]
+            # Merge sur client uniquement
+            _base_cli = base["client"].astype(str).str.strip().str.upper()
+            _sot_dict = _sot_agg.set_index("client")["total_intrants"].to_dict()
+            base["total_intrants"] = _base_cli.map(_sot_dict).fillna(0)
+        elif df_sotusfa_pivot is not None and not df_sotusfa_pivot.empty:
+            # Fallback : utiliser le pivot si raw indisponible
+            s = _upper(df_sotusfa_pivot.copy(), ["client"])
+            if "client" in s.columns and "total_intrants" in s.columns:
+                _sot_dict2 = s.set_index("client")["total_intrants"].to_dict()
+                base["total_intrants"] = base["client"].astype(str).str.upper().map(_sot_dict2).fillna(0)
+    elif df_sotusfa_pivot is not None and not df_sotusfa_pivot.empty:
+        s = _upper(df_sotusfa_pivot.copy(), ["client"])
+        if "client" in s.columns and "total_intrants" in s.columns:
+            _sot_dict3 = s.set_index("client")["total_intrants"].to_dict()
+            base["total_intrants"] = base["client"].astype(str).str.upper().map(_sot_dict3).fillna(0)
 
     # ── Merge QUANTITÉ ─────────────────────────────────────
     if df_quantite is not None and not df_quantite.empty:
@@ -609,6 +634,16 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
 
     # ══ CALCULS ═══════════════════════════════════════════
     df = base.copy()
+
+    # ── Plt Retour = Plt Livrés par défaut ───────────────────────
+    # Si plt_retour = 0 (pas encore saisi), on considère
+    # que tous les plateaux ont été retournés (pertes = 0)
+    if "plt_livres" in df.columns:
+        _plt_l_mc = pd.to_numeric(df["plt_livres"], errors="coerce").fillna(0)
+        _plt_r_mc = pd.to_numeric(df.get("plt_retour", 0), errors="coerce").fillna(0)
+        df["plt_retour"] = _plt_r_mc.where(_plt_r_mc > 0, _plt_l_mc)
+        df["plt_perdus"]  = (_plt_l_mc - df["plt_retour"]).clip(lower=0)
+
     def g(col, d=0):
         """Getter sécurisé : retourne toujours une Series, jamais un scalaire."""
         if col in df.columns:
@@ -619,7 +654,14 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     df["charge_plants"]   = g("valeur_plants")
     df["charge_intrants"] = g("total_intrants")
     df["avance_bourak"]   = g("avance")
-    df["charge_totale"]   = df["charge_plants"] + df["charge_intrants"] + df["avance_bourak"]
+    # Charge totale = plants + intrants Sotusfa + avance + report
+    df["charge_totale"] = (
+        df["charge_plants"].fillna(0)
+        + df["charge_intrants"].fillna(0)   # ← intrants engrais/pesticides Sotusfa
+        + df["avance_bourak"].fillna(0)
+    )
+    # Assurer charge_intrants visible en DT dans l'export
+    df["intrants_dt"] = df["charge_intrants"].fillna(0)
 
     # ── commercial : récupéré depuis Bourak (base) ───────────
     # La colonne "commercial" vient de parse_bourak (colonne "responsable")
@@ -715,12 +757,17 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     mo = params.get("mo_tonne", MO_TONNE_DEFAULT)
     df["mo_recolte"]    = (df["tonnage_livre"] * mo).round(0)
 
-    # ── Consigne caisse (recalcul car ha maintenant disponible) ───
+    # ── Consigne caisse + Caisses Vides ──────────────────────────
     _usine = params.get("usine_active", "SICAM")
     _pc = CAISSES_USINE_DEFAULTS.get(_usine, CAISSES_USINE_DEFAULTS.get("SICAM", {}))
-    _is_1ere = df["affectation_caisse"].astype(str).str.startswith("1ère")
-    df["consigne_caisse"] = np.where(_is_1ere,
-        (_ha * _pc.get("nb_ha", 80) * _pc.get("prix", 3.0)).round(0), 0)
+    _nb_ha_c   = _pc.get("nb_ha", 80)     # caisses par hectare
+    _prix_c    = _pc.get("prix", 3.0)     # prix consigne par caisse
+    _is_1ere   = df["affectation_caisse"].astype(str).str.startswith("1ère")
+    # Nb caisses vides nécessaires (pour la récolte)
+    df["nb_caisses_vides"] = np.where(_is_1ere,
+        (_ha * _nb_ha_c).round(0), 0)
+    # Consigne caisse = nb_caisses × prix_consigne
+    df["consigne_caisse"] = (df["nb_caisses_vides"] * _prix_c).round(0)
 
     # ── Charges totales ───────────────────────────────────────────
     charges_totales = (df["charge_totale"].fillna(0)
@@ -834,10 +881,12 @@ def export_excel(df, df_sotusfa_raw=None):
         "Plt Livrés"          : ["Plt Livrés","plt_livres","nb_plateaux"],
         "Plt Retour"          : ["Plt Retour","plt_retour"],
         "Plt Perdus"          : ["Plt Perdus","plt_perdus"],
+        "Caisses Vides"       : ["Caisses Vides","nb_caisses_vides","nb_caisses","caisses_vides"],
         "Affectation"         : ["Affectation","affectation_caisse"],
         "Déb. Récolte"        : ["Déb. Récolte","date_debut_recolte"],
         "Plants (DT)"         : ["Plants (DT)","charge_plants","valeur_plants"],
-        "Intrants (DT)"       : ["Intrants (DT)","charge_intrants","total_intrants"],
+        "Intrants (DT)"       : ["Intrants (DT)","charge_intrants","total_intrants",
+                               "intrants_dt","intrants"],
         "Avance Bourak (DT)"  : ["Avance Bourak (DT)","avance_bourak"],
         "Charge Totale (DT)"  : ["Charge Totale (DT)","charge_totale"],
         "Consigne Plateau"    : ["Consigne Plateau","consigne_plateau"],
@@ -867,9 +916,9 @@ def export_excel(df, df_sotusfa_raw=None):
             "Variété","Ha","Plants Livrés","Plants Actifs",
             "Extra (pertes)","Taux prise %","Densité/ha"],
         "PLATEAUX": [
-            "Plt Livrés","Plt Retour","Plt Perdus"],
+            "Plt Livrés","Plt Retour"],
         "AFFECTATION CAISSES VIDES": [
-            "Affectation","Déb. Récolte"],
+            "Caisses Vides","Affectation","Déb. Récolte"],
         "CHARGES (DT)": [
             "Plants (DT)","Intrants (DT)","Avance Bourak (DT)",
             "Charge Totale (DT)","Consigne Plateau","Report (DT)",
