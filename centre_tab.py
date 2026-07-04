@@ -123,19 +123,32 @@ def _parse_agriculteurs(file_obj, centre, commercial):
     """
     errors = []
     try:
-        # Essayer la feuille "Agriculteurs" d'abord, puis sheet_name=0
-        for hdr in [0, 1, 2, 3]:
-            try:
+        # Lire d'abord en raw pour détecter la ligne header (titre en L0, headers en L1)
+        _sheets_to_try = ["Agriculteurs", 0]
+        df = None
+        for _sh in _sheets_to_try:
+            for hdr in [1, 0, 2, 3]:
                 try:
-                    df = pd.read_excel(file_obj, sheet_name="Agriculteurs", header=hdr)
+                    _df_try = pd.read_excel(file_obj, sheet_name=_sh, header=hdr)
+                    _df_try.columns = [str(c).strip() for c in _df_try.columns]
+                    _df_try = _df_try.dropna(how="all")
+                    # Vérifier qu'on a une colonne NOM/AGRICULTEUR/CLIENT
+                    _nc = [_norm_col(c) for c in _df_try.columns]
+                    if any(c in _nc for c in ["nom","agriculteur","client","name","nbrnom"]) and len(_df_try) > 0:
+                        df = _df_try
+                        break
                 except Exception:
-                    df = pd.read_excel(file_obj, sheet_name=0, header=hdr)
-                df.columns = [str(c).strip() for c in df.columns]
-                df = df.dropna(how='all')
-                if len(df) > 0 and len(df.columns) >= 2:
-                    break
+                    continue
+            if df is not None:
+                break
+        if df is None:
+            # Fallback: essayer header=1 systématiquement
+            try:
+                df = pd.read_excel(file_obj, sheet_name="Agriculteurs", header=1)
             except Exception:
-                continue
+                df = pd.read_excel(file_obj, sheet_name=0, header=1)
+            df.columns = [str(c).strip() for c in df.columns]
+            df = df.dropna(how="all")
 
         # Identifier colonnes
         nom_col   = _find(df, ["nom","agriculteur","name","client"])
@@ -219,16 +232,31 @@ def _parse_transport(file_obj, centre, commercial):
     Colonnes : USINE · TYPE_VEHICULE · NB_BENNES · CAP_TONNE · DISPO_DU · DISPO_AU · NOTE
     """
     try:
-        # Essayer la feuille "Transport" d'abord, puis sheet_name=1
-        try:
-            df = pd.read_excel(file_obj, sheet_name="Transport", header=0)
-        except Exception:
+        # Détecter automatiquement le bon header (titre en L0, headers en L1)
+        _df_t = None
+        for _sh in ["Transport", 1, 0]:
+            for _hdr in [1, 0, 2]:
+                try:
+                    _df_try = pd.read_excel(file_obj, sheet_name=_sh, header=_hdr)
+                    _df_try.columns = [str(c).strip() for c in _df_try.columns]
+                    _df_try = _df_try.dropna(how="all")
+                    _nc = [_norm_col(c) for c in _df_try.columns]
+                    # Vérifier présence d'une colonne transport
+                    if any(c in _nc for c in ["nb_bennes","nb","type_vehicule","type","usine"]) and len(_df_try) > 0:
+                        _df_t = _df_try
+                        break
+                except Exception:
+                    continue
+            if _df_t is not None:
+                break
+        if _df_t is None:
             try:
-                df = pd.read_excel(file_obj, sheet_name=1, header=0)
+                _df_t = pd.read_excel(file_obj, sheet_name="Transport", header=1)
             except Exception:
-                df = pd.read_excel(file_obj, sheet_name=0, header=0)
-        df.columns = [str(c).strip() for c in df.columns]
-        df = df.dropna(how='all')
+                _df_t = pd.read_excel(file_obj, sheet_name=0, header=1)
+            _df_t.columns = [str(c).strip() for c in _df_t.columns]
+            _df_t = _df_t.dropna(how="all")
+        df = _df_t
 
         usi_col = _find(df, ["usine","factory"])
         typ_col = _find(df, ["type_vehicule","type vehicule","type","vehicule"])
