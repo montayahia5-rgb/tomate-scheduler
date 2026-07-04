@@ -1665,6 +1665,109 @@ def _auto_save(sb, user_name):
         })
     except Exception:
         pass  # Silencieux — ne pas bloquer l'UI
+    # ══ TAB 8 — PLAN RÉCOLTE & TRANSPORT ═══════════════════
+    with t8:
+        st.markdown("## 🚛 Plan Récolte & Transport")
+        st.caption("Vue du planning de récolte par ingénieur et par camion de transport.")
+
+        # Récupérer les données prévision
+        _df_prev = st.session_state.get("abo_prev_mai")
+        _df_merge = df if df is not None and not (hasattr(df,"empty") and df.empty) else None
+
+        if _df_merge is None and _df_prev is None:
+            st.info("📥 Importez le fichier **Plan Récolte** (Prévisions) dans ⚙️ Paramètres & Import")
+            st.markdown("**Format attendu :** `PLAN_Recolte_Centre_2026.xlsx` avec les colonnes :")
+            st.code("Client · Centre · Ha · Rendement_Ha · Usine · Date_Debut · Date_Fin · Ingénieur · Transport")
+            st.stop()
+
+        # Utiliser le df_merged si disponible, sinon prévisions
+        _src = _df_merge.copy() if _df_merge is not None else pd.DataFrame()
+
+        # ── Section 1 : Par Ingénieur ──────────────────────
+        st.markdown("### 👤 Par Ingénieur")
+        if _src is not None and "ingenieur" in _src.columns:
+            _ing_df = _src[_src["ingenieur"].astype(str).str.strip().ne("")].copy() if "ingenieur" in _src.columns else _src.copy()
+            if len(_ing_df) == 0:
+                st.warning("⚠️ Colonne **Ingénieur** vide — remplissez-la dans le fichier Plan Récolte.")
+            else:
+                ing_list = sorted(_ing_df["ingenieur"].dropna().unique().tolist())
+                sel_ing = st.selectbox("Filtrer par ingénieur", ["Tous"] + ing_list, key="plan_ing")
+                if sel_ing != "Tous":
+                    _ing_df = _ing_df[_ing_df["ingenieur"] == sel_ing]
+
+                # Tableau par ingénieur
+                _ing_cols = [c for c in ["ingenieur","client","centre","hectares",
+                             "rendement_ha_reel","tonnage_livre","date_debut_recolte",
+                             "date_fin_recolte","usine","acces"] if c in _ing_df.columns]
+                if _ing_cols:
+                    _display = _ing_df[_ing_cols].copy()
+                    _rename = {"ingenieur":"Ingénieur","client":"Client","centre":"Centre",
+                               "hectares":"Ha","rendement_ha_reel":"T/ha",
+                               "tonnage_livre":"Tonnage(T)","date_debut_recolte":"Déb. Récolte",
+                               "date_fin_recolte":"Fin Récolte","usine":"Usine","acces":"Accès"}
+                    _display.rename(columns=_rename, inplace=True)
+                    st.dataframe(_display, use_container_width=True, hide_index=True)
+
+                    # Résumé par ingénieur
+                    if "ingenieur" in _ing_df.columns:
+                        st.markdown("**Résumé par ingénieur :**")
+                        _sum_ing = _ing_df.groupby("ingenieur").agg(
+                            Agriculteurs=("client","count"),
+                            Ha_total=("hectares","sum"),
+                            Tonnage=("tonnage_livre","sum"),
+                        ).reset_index().round(1)
+                        _sum_ing.columns=["Ingénieur","Agriculteurs","Ha total","Tonnage(T)"]
+                        st.dataframe(_sum_ing, use_container_width=True, hide_index=True)
+        else:
+            st.info("ℹ️ La colonne **Ingénieur** n'est pas encore renseignée dans les données fusionnées.")
+            st.markdown("""
+**Pour afficher le planning par ingénieur :**
+1. Ouvrez le fichier **PLAN_Recolte_Centre_2026.xlsx**
+2. Feuille **Par Ingénieur** → remplissez la colonne **Ingénieur**
+3. Feuille **Plan_Recolte_2026** → la colonne **Ingénieur** se met à jour
+4. Ré-importez le fichier dans ⚙️ Paramètres & Import
+""")
+
+        st.divider()
+
+        # ── Section 2 : Planning par Usine/Date ─────────────
+        st.markdown("### 🏭 Calendrier récolte par usine")
+        if _df_merge is not None and not _df_merge.empty:
+            _usine_col = next((c for c in _src.columns if "usine" in c.lower()), None)
+            _date_col  = next((c for c in _src.columns if "date_debut" in c.lower() or "deb_recolt" in c.lower()), None)
+            if _usine_col and _date_col:
+                _cal = _src.dropna(subset=[_date_col]).copy()
+                _cal["_date"] = pd.to_datetime(_cal[_date_col], errors="coerce")
+                _cal = _cal.dropna(subset=["_date"]).sort_values("_date")
+                for usine, grp in _cal.groupby(_usine_col):
+                    n = len(grp)
+                    ha = pd.to_numeric(grp.get("hectares",0),errors="coerce").sum()
+                    ton = pd.to_numeric(grp.get("tonnage_livre",0),errors="coerce").sum()
+                    with st.expander(f"🏭 {usine} — {n} agriculteurs · {ha:.0f} ha · {ton:.0f} T"):
+                        show_cols = [c for c in ["client","hectares","tonnage_livre",_date_col,"acces"] if c in grp.columns]
+                        st.dataframe(grp[show_cols], use_container_width=True, hide_index=True)
+            else:
+                st.info("Colonnes Usine ou Date début récolte absentes.")
+
+        st.divider()
+
+        # ── Section 3 : Transport ────────────────────────────
+        st.markdown("### 🚛 Transport & Logistique")
+        if _df_merge is not None and "acces" in _df_merge.columns:
+            _trans_df = _src.copy()
+            # Grouper par accessibilité (PL / PPL / PL+SEMI...)
+            _acc_grp = _trans_df.groupby("acces").agg(
+                Nb=("client","count"),
+                Ha=("hectares","sum"),
+                Tonnage=("tonnage_livre","sum"),
+            ).reset_index().round(1)
+            _acc_grp.columns = ["Accessibilité","Nb Agriculteurs","Ha","Tonnage(T)"]
+            st.dataframe(_acc_grp, use_container_width=True, hide_index=True)
+            st.caption("PL = camion plateau libre · PPL = plateau avec pente · SEMI = semi-remorque")
+        else:
+            st.info("ℹ️ Données transport non disponibles.")
+
+
 
 def render_agroeco_tab(sb=None, CURRENT_ROLE="directeur", CURRENT_NAME=""):
 
@@ -1714,7 +1817,7 @@ padding:16px 20px;margin-bottom:18px'>
             _ts = str(_saved.get("saved_at",""))[:16].replace("T"," ")
             st.toast(f"✅ Session restaurée ({_ts})", icon="🔄")
 
-    t0,t1,t2,t3,t4,t5,t6,t7 = st.tabs([
+    t0,t1,t2,t3,t4,t5,t6,t7,t8 = st.tabs([
         "⚙️ Paramètres & Import",
         "📋 Par Agriculteur",
         "👤 Par Ingénieur / Centre",
@@ -1723,6 +1826,7 @@ padding:16px 20px;margin-bottom:18px'>
         "💊 Par Famille Intrant",
         "📈 Prévisions vs Réalisé",
         "🏆 Analyse Efficacité Pro",
+        "🚛 Plan Récolte & Transport",
     ])
 
     # ══ TAB 0 — PARAMÈTRES ET IMPORT ══════════════════════
@@ -1731,13 +1835,18 @@ padding:16px 20px;margin-bottom:18px'>
         _is_admin = (CURRENT_ROLE in ("directeur", "admin"))
 
         if not _is_admin:
-            # Utilisateur non-admin : affiche statut session partagée
-            _shared_data = load_session_from_supabase(sb, "SHARED_2026") if sb else None
+            # Utilisateur non-admin : lecture seule, données depuis session partagée
+            _role_label = {
+                "commercial": "Commercial",
+                "centre":     "Centre",
+                "usine":      "Usine",
+            }.get(CURRENT_ROLE.lower(), CURRENT_ROLE)
+
             if st.session_state.get("abo_merged") is not None:
-                st.success("✅ Données chargées automatiquement depuis la session partagée.")
-                st.info("🔒 L'upload des fichiers est réservé à l'administrateur. "
-                        "Les données se mettent à jour automatiquement.")
-                if st.button("🔄 Rafraîchir les données"):
+                st.success(f"✅ Données disponibles — Connecté en tant que **{_role_label} : {CURRENT_NAME}**")
+                col_r1, col_r2 = st.columns([3,1])
+                col_r1.info("🔒 Upload réservé à l'administrateur. Vos données sont filtrées par votre profil.")
+                if col_r2.button("🔄 Rafraîchir"):
                     if sb:
                         _sd = load_session_from_supabase(sb, "SHARED_2026")
                         if _sd and _sd.get("merged") is not None:
@@ -1753,8 +1862,23 @@ padding:16px 20px;margin-bottom:18px'>
                         else:
                             st.warning("Aucune session partagée trouvée.")
             else:
-                st.warning("⏳ En attente des données — l'administrateur doit importer et sauvegarder les fichiers.")
-            return  # Arrêter le rendu de render_agroeco_tab pour les non-admins
+                st.warning("⏳ En attente des données — demandez à l'administrateur d'importer et sauvegarder les fichiers.")
+                if st.button("🔄 Essayer de charger depuis Supabase"):
+                    if sb:
+                        _sd = load_session_from_supabase(sb, "SHARED_2026")
+                        if _sd and _sd.get("merged") is not None:
+                            st.session_state["abo_merged"]  = _sd["merged"]
+                            for _k,_sk in [("abo_bourak","bourak"),("abo_royal","royal"),
+                                           ("abo_sotusfa_raw","sotusfa_raw"),
+                                           ("abo_sotusfa_pivot","sotusfa_pivot"),
+                                           ("abo_quantite","quantite"),
+                                           ("abo_prev_mai","prev_mai")]:
+                                if _sd.get(_sk) is not None:
+                                    st.session_state[_k] = _sd[_sk]
+                            st.rerun()
+                        else:
+                            st.error("Aucune donnée disponible dans Supabase.")
+            # ← PAS de return : on continue pour afficher les tabs filtrés
 
         # ── Paramètres (admin seulement) ─────────────────────
         st.markdown("### ⚙️ Paramètres de calcul")
@@ -2061,11 +2185,35 @@ Attendu : qte_livree · qte_actif · qte_extra · tonnage_livre · prix_vente</s
                     use_container_width=True)
 
     # ── Données fusionnées ─────────────────────────────────
-    df = st.session_state.get("abo_merged")
+    # ── df filtré selon le rôle de l'utilisateur ────────────────
+    _df_all = st.session_state.get("abo_merged")
+    _role_l = CURRENT_ROLE.lower() if CURRENT_ROLE else "directeur"
+    _name_u = str(CURRENT_NAME).strip().upper()
+
+    if _df_all is not None and not (hasattr(_df_all,"empty") and _df_all.empty):
+        df = _df_all.copy()
+        if _role_l == "commercial":
+            if "commercial" in df.columns:
+                df = df[df["commercial"].astype(str).str.upper()
+                        .str.contains(_name_u, na=False, regex=False)]
+        elif _role_l == "centre":
+            # kerkouane → "KERKOUANE", baccara → "BACCARA", centre428 → "428"
+            _ck = (_name_u.replace("CENTRE","").strip() or _name_u)
+            if "centre" in df.columns:
+                df = df[df["centre"].astype(str).str.upper()
+                        .str.contains(_ck, na=False, regex=False)]
+        # directeur / admin / usine → voient tout
+    else:
+        df = _df_all  # None ou vide
 
     def _no_data():
-        st.info("📥 Importez les fichiers dans l'onglet **⚙️ Paramètres & Import** "
-                "puis cliquez **Fusionner**.")
+        if _df_all is None or (hasattr(_df_all,"empty") and _df_all.empty):
+            st.info("📥 Importez les fichiers dans l'onglet **⚙️ Paramètres & Import** "
+                    "puis cliquez **Fusionner**.")
+        else:
+            n_total = len(_df_all) if _df_all is not None else 0
+            st.info(f"📭 Aucun agriculteur pour ce centre/commercial. "
+                    f"({n_total} agriculteurs au total dans la base)")
 
     # ══ TAB 1 — PAR AGRICULTEUR ════════════════════════════
     with t1:
