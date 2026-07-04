@@ -569,33 +569,109 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         base["affectation_caisse"] = "2ème (sans caisses)"
         base["date_debut_recolte"] = pd.NaT
 
-    # ── Merge SOTUSFA — approche directe par client ───────────
-    if df_sotusfa_raw is not None and not df_sotusfa_raw.empty:
-        _sraw = df_sotusfa_raw.copy()
-        # S'assurer que client et valeur sont présents
-        _cli  = next((c for c in _sraw.columns if c in ["client","agriculteur","nom"]), None)
-        _val  = next((c for c in _sraw.columns if c in ["valeur","total_ttc","total","montant"]), None)
-        if _cli and _val:
-            _sraw[_cli] = _sraw[_cli].astype(str).str.strip().str.upper()
-            _sraw[_val] = pd.to_numeric(_sraw[_val], errors="coerce").fillna(0)
-            # Agréger : 1 ligne par client = somme des intrants
-            _sot_agg = _sraw.groupby(_cli)[_val].sum().reset_index()
-            _sot_agg.columns = ["client","total_intrants"]
-            # Merge sur client uniquement
-            _base_cli = base["client"].astype(str).str.strip().str.upper()
-            _sot_dict = _sot_agg.set_index("client")["total_intrants"].to_dict()
-            base["total_intrants"] = _base_cli.map(_sot_dict).fillna(0)
-        elif df_sotusfa_pivot is not None and not df_sotusfa_pivot.empty:
-            # Fallback : utiliser le pivot si raw indisponible
-            s = _upper(df_sotusfa_pivot.copy(), ["client"])
-            if "client" in s.columns and "total_intrants" in s.columns:
-                _sot_dict2 = s.set_index("client")["total_intrants"].to_dict()
-                base["total_intrants"] = base["client"].astype(str).str.upper().map(_sot_dict2).fillna(0)
-    elif df_sotusfa_pivot is not None and not df_sotusfa_pivot.empty:
-        s = _upper(df_sotusfa_pivot.copy(), ["client"])
-        if "client" in s.columns and "total_intrants" in s.columns:
-            _sot_dict3 = s.set_index("client")["total_intrants"].to_dict()
-            base["total_intrants"] = base["client"].astype(str).str.upper().map(_sot_dict3).fillna(0)
+    # ── Merge SOTUSFA — mapping direct + fuzzy + distribution ACHREF ──
+    def _sot_merge(df_raw, df_pivot, base_df):
+        """
+        1. Map exact client → total_intrants depuis Sotusfa
+        2. Fuzzy matching pour les noms légèrement différents
+        3. Distribution proportionnelle pour ACHREF sous-membres
+        """
+        import re as _re, unicodedata as _uc
+
+        def _cn(n):
+            n = str(n).strip().upper()
+            n = _re.sub(r"[(][^)]*[)]","",n)
+            n = "".join(c for c in _uc.normalize("NFD",n) if _uc.category(c) != "Mn")
+            n = _re.sub(r"[^A-Z0-9 ]"," ",n)
+            return _re.sub(r"[ ]+"," ",n).strip()
+
+        def _sco(a, b):
+            wa, wb = set(a.split()), set(b.split())
+            if not wa or not wb: return 0.0
+            inter = len(wa & wb); union = len(wa | wb)
+            sj = inter / union if union else 0
+            sh, lo = (wa, wb) if len(wa) <= len(wb) else (wb, wa)
+            sc = sum(1 for w in sh if any(lw.startswith(w[:4]) for lw in lo) and len(w) > 2) / max(len(sh), 1) * 0.85
+            return max(sj, sc)
+
+        # Groupes ACHREF (centre → sous-membres)
+        ACHREF_GROUPES = {
+            _cn("ABDELKARIM GARMALLAH"):            ["KARIM GARMALAH 1","KARIM GARMALAH 2","AMAR GARMALAH","HSAN GARMALAH","JAMEL GARMALAH","MED ALI GARMALAH","KARIM AMAR","MOHAMED GARMALAH"],
+            _cn("SOCIETE BILEL GHA SERVICE AGRICOLE"):["BILEL GHA 1","BILEL GHA 2","BILEL GHA 3","BILEL GHA 4","BILEL KEHIL"],
+            _cn("MOURAD MANSOURI"):                  ["MOURAD MANSOURI","NOUREDIN MANSOURI","ELIFA MANSOURI","TAHER MANSOURI","ABELSAMII MANSOURI","CHOKRI MANSOURI","LAMINE MANSOURI","AHMED MANSOURI"],
+            _cn("SEBTI JABALI"):                     ["SEBTI JABALI","KHAMES JABALI","ARBI JABALI","TALEB JABLAH"],
+            _cn("HAFEDH MOSBEH"):                    ["HAFEDH MOSBEH"],
+            _cn("SOUHAIL BOUZANA"):                  ["SOUHAIL BOUZANA"],
+        }
+
+        src = df_raw if (df_raw is not None and not df_raw.empty) else None
+        if src is None and df_pivot is not None and not df_pivot.empty:
+            src = df_pivot
+
+        if src is None:
+            return base_df
+
+        _cli = next((c for c in src.columns if c in ["client","agriculteur","nom"]), None)
+        _val = next((c for c in src.columns if c in ["valeur","total_ttc","total","montant","total_intrants"]), None)
+        if not _cli or not _val:
+            return base_df
+
+        src = src.copy()
+        src[_cli] = src[_cli].astype(str).str.strip().str.upper()
+        src[_val] = pd.to_numeric(src[_val], errors="coerce").fillna(0)
+        sot_agg = src.groupby(_cli)[_val].sum().to_dict()
+
+        # Dict nettoyé
+        sot_clean = {_cn(k): v for k, v in sot_agg.items()}
+        sot_keys  = list(sot_clean.keys())
+
+        # Tonnages depuis base pour distribution proportionnelle
+        base_tons = {}
+        if "tonnage_livre" in base_df.columns:
+            for _,r in base_df.iterrows():
+                k = _cn(str(r.get("client","")))
+                base_tons[k] = float(pd.to_numeric(r.get("tonnage_livre",0), errors="coerce") or 0)
+
+        result = {}
+        for _, row in base_df.iterrows():
+            client_raw = str(row.get("client","")).strip()
+            ck = _cn(client_raw)
+
+            # 1. Exact match
+            if ck in sot_clean:
+                result[client_raw] = sot_clean[ck]
+                continue
+
+            # 2. ACHREF : appartient à un groupe → distribution proportionnelle
+            assigned = False
+            for grp_k, membres in ACHREF_GROUPES.items():
+                membres_cn = [_cn(m) for m in membres]
+                if ck in membres_cn:
+                    if grp_k in sot_clean:
+                        grp_total_intrants = sot_clean[grp_k]
+                        # Tonnages de tous les membres du groupe
+                        membres_tons = {_cn(m): base_tons.get(_cn(m), 1.0) for m in membres}
+                        tot = sum(membres_tons.values()) or 1.0
+                        mon_ton = membres_tons.get(ck, 1.0)
+                        result[client_raw] = round(grp_total_intrants * mon_ton / tot, 3)
+                        assigned = True
+                        break
+            if assigned:
+                continue
+
+            # 3. Fuzzy match (seuil 0.55)
+            best_k = max(sot_keys, key=lambda k: _sco(ck, k), default=None)
+            if best_k and _sco(ck, best_k) >= 0.55:
+                result[client_raw] = sot_clean[best_k]
+                continue
+
+            # 4. Pas trouvé → 0
+            result[client_raw] = 0.0
+
+        base_df["total_intrants"] = base_df["client"].apply(lambda x: result.get(str(x).strip(), 0.0))
+        return base_df
+
+    base = _sot_merge(df_sotusfa_raw, df_sotusfa_pivot, base)
 
     # ── Merge QUANTITÉ ─────────────────────────────────────
     if df_quantite is not None and not df_quantite.empty:
