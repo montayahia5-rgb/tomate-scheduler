@@ -2852,100 +2852,134 @@ Score d'efficacité · Benchmark commerciaux · Matrice ROI · Recommandations a
             # ─────────────────────────────────────────────────────
 
             def _score_rendement(t_ha):
-                """Barème absolu rendement t/ha — tomate industrielle Tunisie."""
+                """
+                Barème rendement t/ha — calibré sur données réelles 2026.
+                Vos agriculteurs sont dans la plage 60-110 t/ha.
+                Données aberrantes (>120) → exclus (erreur de calcul ha).
+                """
                 try: v = float(t_ha)
                 except: return 30.0
-                if v >= 55:   return 100.0
-                elif v >= 48: return 88.0
-                elif v >= 42: return 74.0
-                elif v >= 35: return 58.0
-                elif v >= 28: return 40.0
-                elif v >= 20: return 22.0
-                else:         return 5.0
+                if v > 110:   return None   # Aberrant (>110 t/ha) → exclu du score
+                if v >= 90:   return 100.0  # Exceptionnel
+                elif v >= 75: return 88.0   # Excellent
+                elif v >= 65: return 74.0   # Très bon
+                elif v >= 55: return 58.0   # Bon
+                elif v >= 42: return 40.0   # Moyen
+                elif v >= 28: return 22.0   # Faible
+                else:         return 5.0    # Très faible
 
             def _score_taux_prise(tp):
-                """Barème absolu taux de prise %."""
+                """Barème taux de prise % — vos données : 83-94%."""
                 try: v = float(tp)
                 except: return 40.0
-                if v >= 93:   return 100.0
-                elif v >= 90: return 82.0
-                elif v >= 87: return 65.0
-                elif v >= 83: return 45.0
-                elif v >= 78: return 25.0
-                else:         return 10.0
+                if v >= 93:   return 100.0  # Exceptionnel
+                elif v >= 91: return 85.0   # Excellent
+                elif v >= 88: return 70.0   # Très bon
+                elif v >= 85: return 52.0   # Bon
+                elif v >= 80: return 35.0   # Moyen
+                else:         return 15.0   # Faible
 
             def _score_intrant(cout_tonne):
-                """Barème coût intrant/tonne (DT/T) — moins = mieux."""
+                """
+                Barème coût intrant/tonne (DT/T).
+                Si = 0 → données Sotusfa absentes → score neutre 50.
+                """
                 try: v = float(cout_tonne)
                 except: return 50.0
-                if v <= 0:    return 50.0   # Données manquantes → neutre
-                elif v <= 30: return 100.0  # Très économique
-                elif v <= 50: return 82.0
-                elif v <= 70: return 64.0
-                elif v <= 90: return 46.0
-                elif v <= 120:return 28.0
-                else:         return 10.0   # Très coûteux
+                if v <= 0:    return 50.0   # Absent → neutre (ni bon ni mauvais)
+                elif v <= 40: return 100.0  # Très économique
+                elif v <= 60: return 80.0
+                elif v <= 80: return 60.0
+                elif v <= 100:return 40.0
+                elif v <= 130:return 20.0
+                else:         return 5.0    # Très coûteux
 
             def _score_roi(roi):
-                """Score ROI : positif = bon, très positif = excellent."""
-                try: v = float(roi)
+                """
+                Score ROI — plafonné à 300% pour éviter l'inflation.
+                Note : ROI élevé (~500%) est NORMAL car les charges ne
+                comprennent que les avances société (plants + intrants + Bourak),
+                PAS les frais réels de l'agriculteur (irrigation, labour...).
+                → On plafonne à 300% pour neutraliser cet effet.
+                """
+                try: v = min(float(roi), 300.0)   # Plafond 300%
                 except: return 0.0
                 if v >= 200:  return 100.0
-                elif v >= 100:return 80.0
-                elif v >= 50: return 60.0
-                elif v >= 0:  return 40.0
-                else:         return 0.0
+                elif v >= 100:return 75.0
+                elif v >= 50: return 55.0
+                elif v >= 0:  return 35.0
+                else:         return 0.0   # Perte
 
             # ─── Application des barèmes ───────────────────────
-            # Poids : Rendement 45% | Taux prise 25% | Intrants 20% | ROI 10%
+            # Poids : Rendement 55% | Taux prise 35% | ROI 10%
+            # (intrants à 0 = données absentes → poids redistribué)
             _df7["_s_rend"]  = _df7["rendement_ha"].apply(_score_rendement)
             _df7["_s_prise"] = _df7["taux_prise"].apply(_score_taux_prise)
             _df7["_s_int"]   = _df7["cout_intrant_tonne"].apply(_score_intrant)
             _df7["_s_roi"]   = _df7["roi_pct"].apply(_score_roi)
 
-            # Si pas de données intrants (cout = 0) → ignorer ce critère
-            # et redistribuer son poids sur rendement + taux prise
-            _no_intrant = _df7["cout_intrant_tonne"].fillna(0).eq(0)
+            # Marquer les données aberrantes (rendement > 120 t/ha)
+            _aberrant = _df7["_s_rend"].isna()
+            _df7.loc[_aberrant, "score_efficacite"] = float("nan")
+            _df7.loc[_aberrant, "categorie"] = "⚠️ Données à vérifier"
+
+            _valid = ~_aberrant
+            _no_intrant = _df7["cout_intrant_tonne"].fillna(0).eq(0) & _valid
+            _with_intrant = ~_df7["cout_intrant_tonne"].fillna(0).eq(0) & _valid
+
+            # Sans intrants (0) : 55% rendement + 35% taux prise + 10% ROI
             if _no_intrant.any():
-                # Sans intrants : 55% rendement + 35% taux prise + 10% ROI
                 _df7.loc[_no_intrant, "score_efficacite"] = (
-                    _df7.loc[_no_intrant, "_s_rend"]  * 0.55 +
+                    _df7.loc[_no_intrant, "_s_rend"].fillna(0)  * 0.55 +
                     _df7.loc[_no_intrant, "_s_prise"] * 0.35 +
                     _df7.loc[_no_intrant, "_s_roi"]   * 0.10
                 ).round(1)
-            if (~_no_intrant).any():
-                # Avec intrants : 45% rendement + 25% prise + 20% intrants + 10% ROI
-                _df7.loc[~_no_intrant, "score_efficacite"] = (
-                    _df7.loc[~_no_intrant, "_s_rend"]  * 0.45 +
-                    _df7.loc[~_no_intrant, "_s_prise"] * 0.25 +
-                    _df7.loc[~_no_intrant, "_s_int"]   * 0.20 +
-                    _df7.loc[~_no_intrant, "_s_roi"]   * 0.10
+            # Avec intrants : 45% rendement + 25% prise + 20% intrants + 10% ROI
+            if _with_intrant.any():
+                _df7.loc[_with_intrant, "score_efficacite"] = (
+                    _df7.loc[_with_intrant, "_s_rend"].fillna(0)  * 0.45 +
+                    _df7.loc[_with_intrant, "_s_prise"] * 0.25 +
+                    _df7.loc[_with_intrant, "_s_int"]   * 0.20 +
+                    _df7.loc[_with_intrant, "_s_roi"]   * 0.10
                 ).round(1)
 
             # ─── Catégorie ABSOLUE ─────────────────────────────
             def _cat7(s):
-                """Catégorie basée sur barèmes absolus."""
-                if s >= 80:   return "🏆 Excellent"
-                elif s >= 65: return "✅ Très bon"
-                elif s >= 50: return "✅ Bon"
-                elif s >= 35: return "⚠️ Moyen"
-                else:         return "🔴 À améliorer"
+                """
+                Catégorie basée sur barèmes — calibrée sur vos données 2026.
+                Score réel observé: 24-94/100 après révision.
+                """
+                if pd.isna(s):    return "⚠️ Données à vérifier"
+                if s >= 85:       return "🏆 Excellent"
+                elif s >= 70:     return "✅ Très bon"
+                elif s >= 55:     return "✅ Bon"
+                elif s >= 40:     return "⚠️ Moyen"
+                else:             return "🔴 À améliorer"
 
             _df7["categorie"] = _df7["score_efficacite"].apply(_cat7)
 
             # ─── Note explicative ──────────────────────────────
             st.info("""
-**📐 Méthode de calcul du Score Efficacité (barèmes absolus — tomate industrielle Tunisie)**
+**📐 Méthode Score Efficacité — Campagne Tomate 2026**
 
-| Critère | Poids* | Barème |
+**C'est quoi chaque indicateur ?**
+- **Rendement t/ha** = Tonnes livrées ÷ Hectares réels. Vos données : 30-110 t/ha.
+- **Taux prise %** = Plants actifs ÷ Plants livrés × 100 (% des plants qui ont produit). Vos données : 83-94%.
+- **ROI %** = (Valeur livrée − Charges société) ÷ Charges société × 100. ⚠️ Note : ce ROI ne compte QUE les avances de la société (plants, intrants, avance Bourak), PAS les frais réels de l'agriculteur (irrigation, labour, location). C'est pour ça qu'il est élevé (200-600%). On le plafonne à 300% dans le calcul.
+- **Coût maîtrisé** (radar commerciaux) = Score inversé du coût intrant/tonne. Moins l'agriculteur dépense en intrants pour produire 1 tonne, meilleur est le score.
+
+**Barèmes calibrés sur vos données réelles :**
+
+| Critère | Poids* | Barème (vos données 60-110 t/ha) |
 |---|---|---|
-| **Rendement (t/ha)** | 55% | <20→5pts · 20-28→22 · 28-35→40 · 35-42→58 · 42-48→74 · 48-55→88 · 55+→100 |
-| **Taux de prise (%)** | 35% | <78→10pts · 78-83→25 · 83-87→45 · 87-90→65 · 90-93→82 · 93+→100 |
-| **ROI** | 10% | <0→0pts · 0-50→40 · 50-100→60 · 100-200→80 · 200+→100 |
+| **Rendement t/ha** | 55% | <28→5 · 28-42→22 · 42-55→40 · 55-65→58 · 65-75→74 · 75-90→88 · 90+→100 |
+| **Taux prise %** | 35% | <80→15 · 80-85→35 · 85-88→52 · 88-91→70 · 91-93→85 · 93+→100 |
+| **ROI (plafonné 300%)** | 10% | <0→0 · 0-50→35 · 50-100→55 · 100-200→75 · 200+→100 |
 
-*Poids sans données intrants. Avec intrants Sotusfa : Rendement 45% · Prise 25% · Intrants 20% · ROI 10%.
+*Sans données Sotusfa (coût=0). Avec : Rendement 45% · Prise 25% · Intrants 20% · ROI 10%.
 
-**Seuils catégories** : 🔴 <35 · ⚠️ 35-50 · ✅ 50-65 · ✅ 65-80 · 🏆 80+
+**Catégories** : 🔴 <40 · ⚠️ 40-55 · ✅ 55-70 · ✅ 70-85 · 🏆 85+
+⚠️ Rendement >110 t/ha = données suspectes (prob. erreur ha ACHREF) → exclu du score.
 """)
 
             # ── KPIs ─────────────────────────────────────────
