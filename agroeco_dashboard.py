@@ -1776,309 +1776,311 @@ padding:16px 20px;margin-bottom:18px'>
                             st.error("Aucune donnée disponible dans Supabase.")
             # ← PAS de return : on continue pour afficher les tabs filtrés
 
-        # ── Paramètres (admin seulement) ─────────────────────
-        st.markdown("### ⚙️ Paramètres de calcul")
-        pc1,pc2,pc3 = st.columns(3)
-        with pc1:
-            st.markdown("**💰 Prix vente global (DT/tonne)**")
-            st.caption("Utilisé si absent du tableau quantité")
-            prix_global = st.number_input("Prix vente DT/T",0.0,1000.0,240.0,10.0,key="px_g")
-        with pc2:
-            st.markdown("**🔲 Consigne plateaux (DT/plateau)**")
-            p228pvc  = st.number_input("Pltx 228 PVC", 0.0,50.0,2.5,0.1,key="p1")
-            p228poly = st.number_input("Pltx 228 POLY",0.0,50.0,2.0,0.1,key="p2")
-            p160pvc  = st.number_input("Pltx 160 PVC", 0.0,50.0,2.0,0.1,key="p3")
-            p160poly = st.number_input("Pltx 160 POLY",0.0,50.0,1.8,0.1,key="p4")
-        with pc3:
-            st.markdown("**📦 Caisses vides — MO récolte**")
-            mo_tonne = st.number_input("MO récolte (DT/T)",0.0,200.0,50.0,5.0,key="mo")
-            st.caption("Condition caisses : date début RÉCOLTE < 10 juil. → 1ère affectation")
+        if _is_admin:
+            # ── Paramètres (admin seulement) ─────────────────────
+            st.markdown("### ⚙️ Paramètres de calcul")
+            pc1,pc2,pc3 = st.columns(3)
+            with pc1:
+                st.markdown("**💰 Prix vente global (DT/tonne)**")
+                st.caption("Utilisé si absent du tableau quantité")
+                prix_global = st.number_input("Prix vente DT/T",0.0,1000.0,240.0,10.0,key="px_g")
+            with pc2:
+                st.markdown("**🔲 Consigne plateaux (DT/plateau)**")
+                p228pvc  = st.number_input("Pltx 228 PVC", 0.0,50.0,2.5,0.1,key="p1")
+                p228poly = st.number_input("Pltx 228 POLY",0.0,50.0,2.0,0.1,key="p2")
+                p160pvc  = st.number_input("Pltx 160 PVC", 0.0,50.0,2.0,0.1,key="p3")
+                p160poly = st.number_input("Pltx 160 POLY",0.0,50.0,1.8,0.1,key="p4")
+            with pc3:
+                st.markdown("**📦 Caisses vides — MO récolte**")
+                mo_tonne = st.number_input("MO récolte (DT/T)",0.0,200.0,50.0,5.0,key="mo")
+                st.caption("Condition caisses : date début RÉCOLTE < 10 juil. → 1ère affectation")
 
-        # ── Caisses vides PAR USINE ───────────────────────────
-        st.markdown("---")
-        st.markdown("#### 📦 Caisses vides — Paramètres par usine")
-        st.caption("1ère affectation (début récolte < 10 juillet) = caisses facturées | 2ème = 0 DT")
+            # ── Caisses vides PAR USINE ───────────────────────────
+            st.markdown("---")
+            st.markdown("#### 📦 Caisses vides — Paramètres par usine")
+            st.caption("1ère affectation (début récolte < 10 juillet) = caisses facturées | 2ème = 0 DT")
 
-        caisses_par_usine = {}
-        _saved_caisses = (st.session_state.get("abo_params") or {}).get("caisses_par_usine", {})
-        usine_cols = st.columns(5)
-        usine_names = ["SICAM","TUCAL","COMOCAP","ABIDA","ELFALLEH"]
-        usine_colors = {"SICAM":"#F5A623","TUCAL":"#8B5CF6","COMOCAP":"#3B82F6",
-                        "ABIDA":"#FF6B9D","ELFALLEH":"#00E5A0"}
+            caisses_par_usine = {}
+            _saved_caisses = (st.session_state.get("abo_params") or {}).get("caisses_par_usine", {})
+            usine_cols = st.columns(5)
+            usine_names = ["SICAM","TUCAL","COMOCAP","ABIDA","ELFALLEH"]
+            usine_colors = {"SICAM":"#F5A623","TUCAL":"#8B5CF6","COMOCAP":"#3B82F6",
+                            "ABIDA":"#FF6B9D","ELFALLEH":"#00E5A0"}
 
-        for ci2, usine in enumerate(usine_names):
-            dft = CAISSES_USINE_DEFAULTS.get(usine, {"nb_ha":80,"prix":3.0,"type":"Caisse 25kg","cap_kg":25})
-            saved_u = _saved_caisses.get(usine, dft)
-            uc = usine_colors.get(usine,"#888")
-            with usine_cols[ci2]:
-                st.markdown(f"<div style='background:#1a2332;border-radius:8px;padding:8px;"
-                            f"border-top:3px solid {uc};margin-bottom:4px'>"
-                            f"<b style='color:{uc};font-size:12px'>{usine}</b><br>"
-                            f"<span style='font-size:10px;color:#aaa'>{dft['type']}</span>"
-                            f"</div>", unsafe_allow_html=True)
-                nb_ha = st.number_input(f"Nb caisses/ha",
-                    min_value=0.0, max_value=300.0,
-                    value=float(saved_u.get("nb_ha", dft["nb_ha"])),
-                    step=5.0, key=f"nb_c_{usine}")
-                prix_c = st.number_input(f"Prix/caisse (DT)",
-                    min_value=0.0, max_value=20.0,
-                    value=float(saved_u.get("prix", dft["prix"])),
-                    step=0.25, key=f"px_c_{usine}")
-                cout_ha = round(nb_ha * prix_c, 2)
-                st.caption(f"→ **{cout_ha:.1f} DT/ha** (1ère affectation)")
-                caisses_par_usine[usine] = {"nb_ha": nb_ha, "prix": prix_c,
-                                            "type": dft["type"], "cap_kg": dft["cap_kg"]}
+            for ci2, usine in enumerate(usine_names):
+                dft = CAISSES_USINE_DEFAULTS.get(usine, {"nb_ha":80,"prix":3.0,"type":"Caisse 25kg","cap_kg":25})
+                saved_u = _saved_caisses.get(usine, dft)
+                uc = usine_colors.get(usine,"#888")
+                with usine_cols[ci2]:
+                    st.markdown(f"<div style='background:#1a2332;border-radius:8px;padding:8px;"
+                                f"border-top:3px solid {uc};margin-bottom:4px'>"
+                                f"<b style='color:{uc};font-size:12px'>{usine}</b><br>"
+                                f"<span style='font-size:10px;color:#aaa'>{dft['type']}</span>"
+                                f"</div>", unsafe_allow_html=True)
+                    nb_ha = st.number_input(f"Nb caisses/ha",
+                        min_value=0.0, max_value=300.0,
+                        value=float(saved_u.get("nb_ha", dft["nb_ha"])),
+                        step=5.0, key=f"nb_c_{usine}")
+                    prix_c = st.number_input(f"Prix/caisse (DT)",
+                        min_value=0.0, max_value=20.0,
+                        value=float(saved_u.get("prix", dft["prix"])),
+                        step=0.25, key=f"px_c_{usine}")
+                    cout_ha = round(nb_ha * prix_c, 2)
+                    st.caption(f"→ **{cout_ha:.1f} DT/ha** (1ère affectation)")
+                    caisses_par_usine[usine] = {"nb_ha": nb_ha, "prix": prix_c,
+                                                "type": dft["type"], "cap_kg": dft["cap_kg"]}
 
-        params = {
-            "prix_vente_global": prix_global,
-            "prix_consigne": {
-                "Pltx 228 PVC":p228pvc,"Pltx 228 POLY":p228poly,
-                "Pltx 160 PVC":p160pvc,"Pltx 160 POLY":p160poly,
-            },
-            "caisses_par_usine": caisses_par_usine,
-            # Rétrocompat : valeurs globales = moyenne pondérée SICAM (usine principale)
-            "prix_caisse":   caisses_par_usine.get("SICAM",{}).get("prix", 3.0),
-            "nb_caisses_ha": caisses_par_usine.get("SICAM",{}).get("nb_ha", 80.0),
-            "mo_tonne":      mo_tonne,
-        }
-        st.session_state["abo_params"] = params
+            params = {
+                "prix_vente_global": prix_global,
+                "prix_consigne": {
+                    "Pltx 228 PVC":p228pvc,"Pltx 228 POLY":p228poly,
+                    "Pltx 160 PVC":p160pvc,"Pltx 160 POLY":p160poly,
+                },
+                "caisses_par_usine": caisses_par_usine,
+                # Rétrocompat : valeurs globales = moyenne pondérée SICAM (usine principale)
+                "prix_caisse":   caisses_par_usine.get("SICAM",{}).get("prix", 3.0),
+                "nb_caisses_ha": caisses_par_usine.get("SICAM",{}).get("nb_ha", 80.0),
+                "mo_tonne":      mo_tonne,
+            }
+            st.session_state["abo_params"] = params
 
-        st.divider()
-        st.markdown("### 📥 Import fichiers")
-        st.markdown("""<div style='background:#161b22;border:1px solid #FFD700;
-border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.85rem'>
-⭐ <b style='color:#FFD700'>Colonnes OBLIGATOIRES dans tous les fichiers :</b>
-&nbsp;<code>centre</code> &nbsp;+&nbsp; <code>client</code>
-</div>""", unsafe_allow_html=True)
+            st.divider()
+            st.markdown("### 📥 Import fichiers")
+            st.markdown("""<div style='background:#161b22;border:1px solid #FFD700;
+    border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.85rem'>
+    ⭐ <b style='color:#FFD700'>Colonnes OBLIGATOIRES dans tous les fichiers :</b>
+    &nbsp;<code>centre</code> &nbsp;+&nbsp; <code>client</code>
+    </div>""", unsafe_allow_html=True)
 
-        fi1,fi2 = st.columns(2)
-        fi3,fi4 = st.columns(2)
+            fi1,fi2 = st.columns(2)
+            fi3,fi4 = st.columns(2)
 
-        def _upload_block(col, icon, name, color, desc, key, parse_fn, extra_args=()):
-            with col:
-                st.markdown(f"""<div style='background:#111;border:1px solid #{color};
-border-radius:8px;padding:10px 14px;margin-bottom:8px'>
-<b style='color:#{color}'>{icon} {name}</b><br>
-<span style='font-size:.78rem;color:#aaa'>{desc}</span></div>""",
-                    unsafe_allow_html=True)
-                f = st.file_uploader(name,type=["xlsx","xls"],
-                                     key=key,label_visibility="collapsed")
-                if f:
-                    try:
-                        result = parse_fn(f, *extra_args)
-                        if isinstance(result, tuple):
-                            if len(result) == 2:
-                                df_res, msg = result
+            def _upload_block(col, icon, name, color, desc, key, parse_fn, extra_args=()):
+                with col:
+                    st.markdown(f"""<div style='background:#111;border:1px solid #{color};
+    border-radius:8px;padding:10px 14px;margin-bottom:8px'>
+    <b style='color:#{color}'>{icon} {name}</b><br>
+    <span style='font-size:.78rem;color:#aaa'>{desc}</span></div>""",
+                        unsafe_allow_html=True)
+                    f = st.file_uploader(name,type=["xlsx","xls"],
+                                         key=key,label_visibility="collapsed")
+                    if f:
+                        try:
+                            result = parse_fn(f, *extra_args)
+                            if isinstance(result, tuple):
+                                if len(result) == 2:
+                                    df_res, msg = result
+                                else:
+                                    df_res, pivot, msg = result
                             else:
-                                df_res, pivot, msg = result
-                        else:
-                            df_res, msg = result, ""
-                        if msg:
-                            st.error(msg)
-                            return None
-                        return f, df_res, pivot if len(result)==3 else None
-                    except Exception as e:
-                        st.error(f"Erreur {name}: {e}")
-                return None
+                                df_res, msg = result, ""
+                            if msg:
+                                st.error(msg)
+                                return None
+                            return f, df_res, pivot if len(result)==3 else None
+                        except Exception as e:
+                            st.error(f"Erreur {name}: {e}")
+                    return None
 
-        # BOURAK
-        with fi1:
-            st.markdown(f"""<div style='background:#111;border:1px solid #FF9800;
-border-radius:8px;padding:10px 14px;margin-bottom:8px'>
-<b style='color:#FF9800'>🚛 BOURAK</b> — Financement<br>
-<span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client · centre</b><br>
-Attendu : responsable · ingenieur · region · hectares · avance · report</span></div>""",
-                unsafe_allow_html=True)
-            f_b = st.file_uploader("Bourak",type=["xlsx","xls"],
-                                    key="up_b",label_visibility="collapsed")
-            if f_b:
-                res = parse_bourak(f_b)
-                if isinstance(res, tuple): df_b, msg = res
-                else: df_b, msg = res, ""
-                if msg: st.error(msg)
-                else:
-                    st.session_state["abo_bourak"] = df_b
-                    _auto_save(sb, CURRENT_NAME)
-                    tot_av = df_b["avance"].sum() if "avance" in df_b.columns else 0
-                    st.success(f"✅ {len(df_b)} lignes · {tot_av:,.0f} DT avances")
+            # BOURAK
+            with fi1:
+                st.markdown(f"""<div style='background:#111;border:1px solid #FF9800;
+    border-radius:8px;padding:10px 14px;margin-bottom:8px'>
+    <b style='color:#FF9800'>🚛 BOURAK</b> — Financement<br>
+    <span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client · centre</b><br>
+    Attendu : responsable · ingenieur · region · hectares · avance · report</span></div>""",
+                    unsafe_allow_html=True)
+                f_b = st.file_uploader("Bourak",type=["xlsx","xls"],
+                                        key="up_b",label_visibility="collapsed")
+                if f_b:
+                    res = parse_bourak(f_b)
+                    if isinstance(res, tuple): df_b, msg = res
+                    else: df_b, msg = res, ""
+                    if msg: st.error(msg)
+                    else:
+                        st.session_state["abo_bourak"] = df_b
+                        _auto_save(sb, CURRENT_NAME)
+                        tot_av = df_b["avance"].sum() if "avance" in df_b.columns else 0
+                        st.success(f"✅ {len(df_b)} lignes · {tot_av:,.0f} DT avances")
 
-        # ROYAL
-        with fi2:
-            st.markdown(f"""<div style='background:#111;border:1px solid #9C27B0;
-border-radius:8px;padding:10px 14px;margin-bottom:8px'>
-<b style='color:#9C27B0'>🌱 ROYAL</b> — Plants<br>
-<span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client · centre</b><br>
-Attendu : zone · variete · qte_livree · valeur · <b>date_debut_livraison</b> · date_fin</span></div>""",
-                unsafe_allow_html=True)
-            f_r = st.file_uploader("Royal",type=["xlsx","xls"],
-                                    key="up_r",label_visibility="collapsed")
-            if f_r:
-                df_r, msg = parse_royal(f_r)
-                if msg: st.error(msg)
-                else:
-                    st.session_state["abo_royal"] = df_r
-                    _auto_save(sb, CURRENT_NAME)
-                    st.success(f"✅ {len(df_r)} lignes")
+            # ROYAL
+            with fi2:
+                st.markdown(f"""<div style='background:#111;border:1px solid #9C27B0;
+    border-radius:8px;padding:10px 14px;margin-bottom:8px'>
+    <b style='color:#9C27B0'>🌱 ROYAL</b> — Plants<br>
+    <span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client · centre</b><br>
+    Attendu : zone · variete · qte_livree · valeur · <b>date_debut_livraison</b> · date_fin</span></div>""",
+                    unsafe_allow_html=True)
+                f_r = st.file_uploader("Royal",type=["xlsx","xls"],
+                                        key="up_r",label_visibility="collapsed")
+                if f_r:
+                    df_r, msg = parse_royal(f_r)
+                    if msg: st.error(msg)
+                    else:
+                        st.session_state["abo_royal"] = df_r
+                        _auto_save(sb, CURRENT_NAME)
+                        st.success(f"✅ {len(df_r)} lignes")
 
-        # SOTUSFA
-        with fi3:
-            st.markdown(f"""<div style='background:#111;border:1px solid #4CAF50;
-border-radius:8px;padding:10px 14px;margin-bottom:8px'>
-<b style='color:#4CAF50'>🌿 SOTUSFA</b> — Intrants<br>
-<span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client · centre</b><br>
-Attendu : famille · article · qte · valeur (DAP / fumure / fumier / pest.)</span></div>""",
-                unsafe_allow_html=True)
-            f_s = st.file_uploader("Sotusfa",type=["xlsx","xls"],
-                                    key="up_s",label_visibility="collapsed")
-            if f_s:
-                df_s_raw, df_s_piv, msg = parse_sotusfa(f_s)
-                if msg: st.error(msg)
-                else:
-                    st.session_state["abo_sotusfa_raw"]   = df_s_raw
-                    st.session_state["abo_sotusfa_pivot"] = df_s_piv
-                    tot = df_s_raw["valeur"].sum() if "valeur" in df_s_raw.columns else 0
-                    st.success(f"✅ {len(df_s_raw)} lignes · {tot:,.0f} DT")
+            # SOTUSFA
+            with fi3:
+                st.markdown(f"""<div style='background:#111;border:1px solid #4CAF50;
+    border-radius:8px;padding:10px 14px;margin-bottom:8px'>
+    <b style='color:#4CAF50'>🌿 SOTUSFA</b> — Intrants<br>
+    <span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client · centre</b><br>
+    Attendu : famille · article · qte · valeur (DAP / fumure / fumier / pest.)</span></div>""",
+                    unsafe_allow_html=True)
+                f_s = st.file_uploader("Sotusfa",type=["xlsx","xls"],
+                                        key="up_s",label_visibility="collapsed")
+                if f_s:
+                    df_s_raw, df_s_piv, msg = parse_sotusfa(f_s)
+                    if msg: st.error(msg)
+                    else:
+                        st.session_state["abo_sotusfa_raw"]   = df_s_raw
+                        st.session_state["abo_sotusfa_pivot"] = df_s_piv
+                        tot = df_s_raw["valeur"].sum() if "valeur" in df_s_raw.columns else 0
+                        st.success(f"✅ {len(df_s_raw)} lignes · {tot:,.0f} DT")
 
-        # QUANTITÉ
-        with fi4:
-            st.markdown(f"""<div style='background:#111;border:1px solid #2196F3;
-border-radius:8px;padding:10px 14px;margin-bottom:8px'>
-<b style='color:#2196F3'>📊 QUANTITÉ</b> — Actif/Extra<br>
-<span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client · centre</b><br>
-Attendu : qte_livree · qte_actif · qte_extra · tonnage_livre · prix_vente</span></div>""",
-                unsafe_allow_html=True)
-            f_q = st.file_uploader("Quantité",type=["xlsx","xls"],
-                                    key="up_q",label_visibility="collapsed")
-            if f_q:
-                df_q, msg = parse_quantite(f_q)
-                if msg: st.error(msg)
-                else:
-                    st.session_state["abo_quantite"] = df_q
-                    _auto_save(sb, CURRENT_NAME)
-                    st.success(f"✅ {len(df_q)} agriculteurs")
+            # QUANTITÉ
+            with fi4:
+                st.markdown(f"""<div style='background:#111;border:1px solid #2196F3;
+    border-radius:8px;padding:10px 14px;margin-bottom:8px'>
+    <b style='color:#2196F3'>📊 QUANTITÉ</b> — Actif/Extra<br>
+    <span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client · centre</b><br>
+    Attendu : qte_livree · qte_actif · qte_extra · tonnage_livre · prix_vente</span></div>""",
+                    unsafe_allow_html=True)
+                f_q = st.file_uploader("Quantité",type=["xlsx","xls"],
+                                        key="up_q",label_visibility="collapsed")
+                if f_q:
+                    df_q, msg = parse_quantite(f_q)
+                    if msg: st.error(msg)
+                    else:
+                        st.session_state["abo_quantite"] = df_q
+                        _auto_save(sb, CURRENT_NAME)
+                        st.success(f"✅ {len(df_q)} agriculteurs")
 
-        # ── Prévisions ──────────────────────────────────────
-        st.divider()
-        st.markdown("### 📅 Prévisions tonnage")
-        pv1,pv2,pv3 = st.columns(3)
-        with pv1:
-            f_dec = st.file_uploader("📋 Prévision Décembre",
-                                      type=["xlsx","xls"],key="up_dec")
-            if f_dec:
-                df_d, msg = parse_prevision(f_dec, "prevision_dec")
-                if msg:
-                    st.warning(f"⚠️ Déc (non bloquant): {msg}")
-                    # Essayer quand même avec ce qu'on a
-                    if df_d is not None and not df_d.empty:
+            # ── Prévisions ──────────────────────────────────────
+            st.divider()
+            st.markdown("### 📅 Prévisions tonnage")
+            pv1,pv2,pv3 = st.columns(3)
+            with pv1:
+                f_dec = st.file_uploader("📋 Prévision Décembre",
+                                          type=["xlsx","xls"],key="up_dec")
+                if f_dec:
+                    df_d, msg = parse_prevision(f_dec, "prevision_dec")
+                    if msg:
+                        st.warning(f"⚠️ Déc (non bloquant): {msg}")
+                        # Essayer quand même avec ce qu'on a
+                        if df_d is not None and not df_d.empty:
+                            st.session_state["abo_prev_dec"] = df_d
+                            st.success(f"✅ Déc chargé malgré avertissement: {df_d['prevision_dec'].sum():,.0f} T")
+                    elif df_d is not None and not df_d.empty:
                         st.session_state["abo_prev_dec"] = df_d
-                        st.success(f"✅ Déc chargé malgré avertissement: {df_d['prevision_dec'].sum():,.0f} T")
-                elif df_d is not None and not df_d.empty:
-                    st.session_state["abo_prev_dec"] = df_d
-                    st.success(f"✅ Déc: {df_d['prevision_dec'].sum():,.0f} T")
-        with pv2:
-            f_mai = st.file_uploader("📋 Prévision Mai",
-                                      type=["xlsx","xls"],key="up_mai")
-            if f_mai:
-                df_m, msg = parse_prevision(f_mai, "prevision_mai")
-                if msg:
-                    st.warning(f"⚠️ Mai (non bloquant): {msg}")
-                    if df_m is not None and not df_m.empty:
+                        st.success(f"✅ Déc: {df_d['prevision_dec'].sum():,.0f} T")
+            with pv2:
+                f_mai = st.file_uploader("📋 Prévision Mai",
+                                          type=["xlsx","xls"],key="up_mai")
+                if f_mai:
+                    df_m, msg = parse_prevision(f_mai, "prevision_mai")
+                    if msg:
+                        st.warning(f"⚠️ Mai (non bloquant): {msg}")
+                        if df_m is not None and not df_m.empty:
+                            st.session_state["abo_prev_mai"] = df_m
+                            st.success(f"✅ Mai chargé malgré avertissement: {df_m['prevision_mai'].sum():,.0f} T")
+                    elif df_m is not None and not df_m.empty:
                         st.session_state["abo_prev_mai"] = df_m
-                        st.success(f"✅ Mai chargé malgré avertissement: {df_m['prevision_mai'].sum():,.0f} T")
-                elif df_m is not None and not df_m.empty:
-                    st.session_state["abo_prev_mai"] = df_m
-                    st.success(f"✅ Mai: {df_m['prevision_mai'].sum():,.0f} T")
-        with pv3:
-            st.markdown("**☁️ Juin — Supabase (fichier rectifié)**")
-            c1,c2 = st.columns(2)
-            with c1:
-                if st.button("🔄 Charger Juin", use_container_width=True):
-                    df_j = load_prevision_juin(sb)
-                    if not df_j.empty:
-                        st.session_state["abo_prev_juin"] = df_j
-                        st.success(f"✅ {df_j['prevision_juin'].sum():,.0f} T")
-                    else:
-                        st.warning("Aucune donnée Juin")
-            with c2:
-                if st.button("🔄 Dates récolte", use_container_width=True):
-                    df_dr = load_date_debut_recolte(sb)
-                    if not df_dr.empty:
-                        st.session_state["abo_dates_recolte"] = df_dr
-                        n1 = (df_dr["affectation_caisse"].str.startswith("1ère")).sum()
-                        st.success(f"✅ {n1} agriculteurs 1ère affectation")
-                    else:
-                        st.warning("Aucune date récolte")
+                        st.success(f"✅ Mai: {df_m['prevision_mai'].sum():,.0f} T")
+            with pv3:
+                st.markdown("**☁️ Juin — Supabase (fichier rectifié)**")
+                c1,c2 = st.columns(2)
+                with c1:
+                    if st.button("🔄 Charger Juin", use_container_width=True):
+                        df_j = load_prevision_juin(sb)
+                        if not df_j.empty:
+                            st.session_state["abo_prev_juin"] = df_j
+                            st.success(f"✅ {df_j['prevision_juin'].sum():,.0f} T")
+                        else:
+                            st.warning("Aucune donnée Juin")
+                with c2:
+                    if st.button("🔄 Dates récolte", use_container_width=True):
+                        df_dr = load_date_debut_recolte(sb)
+                        if not df_dr.empty:
+                            st.session_state["abo_dates_recolte"] = df_dr
+                            n1 = (df_dr["affectation_caisse"].str.startswith("1ère")).sum()
+                            st.success(f"✅ {n1} agriculteurs 1ère affectation")
+                        else:
+                            st.warning("Aucune date récolte")
 
-        # Statut caisses vides
-        dr = st.session_state.get("abo_dates_recolte")
-        if dr is not None and not dr.empty:
-            n1 = (dr["affectation_caisse"].str.startswith("1ère")).sum()
-            n2 = len(dr) - n1
-            st.info(f"📦 Caisses vides — **1ère affectation** (< 10 juil.) : {n1} agriculteurs · "
-                    f"**2ème** (≥ 10 juil.) : {n2} agriculteurs")
-        else:
-            st.warning("⚠️ Dates de récolte non chargées → tous les agriculteurs "
-                       "seront mis en 2ème affectation (sans caisses vides). "
-                       "Cliquez '🔄 Dates récolte' ci-dessus.")
-
-        # ── Fusionner ────────────────────────────────────────
-        st.divider()
-        if st.button("🔗 Fusionner et calculer",
-                     type="primary",use_container_width=True):
-            with st.spinner("Calcul en cours…"):
-                df_merged = merge_and_calculate(
-                    st.session_state.get("abo_bourak"),
-                    st.session_state.get("abo_royal"),
-                    st.session_state.get("abo_sotusfa_raw"),
-                    st.session_state.get("abo_sotusfa_pivot"),
-                    st.session_state.get("abo_quantite"),
-                    st.session_state.get("abo_prev_dec"),
-                    st.session_state.get("abo_prev_mai"),
-                    st.session_state.get("abo_prev_juin"),
-                    st.session_state.get("abo_dates_recolte"),
-                    st.session_state["abo_params"],
-                )
-            if df_merged.empty:
-                st.error("❌ Aucune donnée fusionnée — vérifiez les fichiers.")
+            # Statut caisses vides
+            dr = st.session_state.get("abo_dates_recolte")
+            if dr is not None and not dr.empty:
+                n1 = (dr["affectation_caisse"].str.startswith("1ère")).sum()
+                n2 = len(dr) - n1
+                st.info(f"📦 Caisses vides — **1ère affectation** (< 10 juil.) : {n1} agriculteurs · "
+                        f"**2ème** (≥ 10 juil.) : {n2} agriculteurs")
             else:
-                st.session_state["abo_merged"] = df_merged
-                n_r = (df_merged["alerte"].str.contains("🔴")).sum()
-                n_y = (df_merged["alerte"].str.contains("🟡")).sum()
-                n_g = (df_merged["alerte"].str.contains("🟢")).sum()
+                st.warning("⚠️ Dates de récolte non chargées → tous les agriculteurs "
+                           "seront mis en 2ème affectation (sans caisses vides). "
+                           "Cliquez '🔄 Dates récolte' ci-dessus.")
 
-                # ── AUTO-SAVE dans Supabase (session partagée) ──
-                _save_ok = False
-                if sb is not None:
-                    try:
-                        _save_ok, _save_err = save_session_to_supabase(
-                            sb, CURRENT_NAME or "directeur", {
-                                "merged":       df_merged,
-                                "bourak":       st.session_state.get("abo_bourak"),
-                                "royal":        st.session_state.get("abo_royal"),
-                                "sotusfa_raw":  st.session_state.get("abo_sotusfa_raw"),
-                                "sotusfa_pivot":st.session_state.get("abo_sotusfa_pivot"),
-                                "quantite":     st.session_state.get("abo_quantite"),
-                                "prev_mai":     st.session_state.get("abo_prev_mai"),
-                                "params":       st.session_state.get("abo_params", {}),
-                            })
-                    except Exception as _se:
-                        _save_ok = False; _save_err = str(_se)
-                _save_icon = "💾 sauvegardé auto" if _save_ok else "⚠️ non sauvegardé"
+            # ── Fusionner ────────────────────────────────────────
+            st.divider()
+            if st.button("🔗 Fusionner et calculer",
+                         type="primary",use_container_width=True):
+                with st.spinner("Calcul en cours…"):
+                    df_merged = merge_and_calculate(
+                        st.session_state.get("abo_bourak"),
+                        st.session_state.get("abo_royal"),
+                        st.session_state.get("abo_sotusfa_raw"),
+                        st.session_state.get("abo_sotusfa_pivot"),
+                        st.session_state.get("abo_quantite"),
+                        st.session_state.get("abo_prev_dec"),
+                        st.session_state.get("abo_prev_mai"),
+                        st.session_state.get("abo_prev_juin"),
+                        st.session_state.get("abo_dates_recolte"),
+                        st.session_state["abo_params"],
+                    )
+                if df_merged.empty:
+                    st.error("❌ Aucune donnée fusionnée — vérifiez les fichiers.")
+                else:
+                    st.session_state["abo_merged"] = df_merged
+                    n_r = (df_merged["alerte"].str.contains("🔴")).sum()
+                    n_y = (df_merged["alerte"].str.contains("🟡")).sum()
+                    n_g = (df_merged["alerte"].str.contains("🟢")).sum()
 
-                st.success(
-                    f"✅ {len(df_merged)} agriculteurs · "
-                    f"🔴 {n_r} critiques · 🟡 {n_y} attention · 🟢 {n_g} OK · {_save_icon}")
+                    # ── AUTO-SAVE dans Supabase (session partagée) ──
+                    _save_ok = False
+                    if sb is not None:
+                        try:
+                            _save_ok, _save_err = save_session_to_supabase(
+                                sb, CURRENT_NAME or "directeur", {
+                                    "merged":       df_merged,
+                                    "bourak":       st.session_state.get("abo_bourak"),
+                                    "royal":        st.session_state.get("abo_royal"),
+                                    "sotusfa_raw":  st.session_state.get("abo_sotusfa_raw"),
+                                    "sotusfa_pivot":st.session_state.get("abo_sotusfa_pivot"),
+                                    "quantite":     st.session_state.get("abo_quantite"),
+                                    "prev_mai":     st.session_state.get("abo_prev_mai"),
+                                    "params":       st.session_state.get("abo_params", {}),
+                                })
+                        except Exception as _se:
+                            _save_ok = False; _save_err = str(_se)
+                    _save_icon = "💾 sauvegardé auto" if _save_ok else "⚠️ non sauvegardé"
 
-                if not _save_ok and sb is not None:
-                    st.warning(f"⚠️ Sauvegarde échouée : **{_save_err}**")
+                    st.success(
+                        f"✅ {len(df_merged)} agriculteurs · "
+                        f"🔴 {n_r} critiques · 🟡 {n_y} attention · 🟢 {n_g} OK · {_save_icon}")
 
-                xl = export_excel(df_merged, st.session_state.get("abo_sotusfa_raw"))
-                st.download_button(
-                    "📥 Télécharger Excel complet (4 feuilles)",
-                    data=xl,
-                    file_name="dashboard_agroeco_2026.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True)
+                    if not _save_ok and sb is not None:
+                        st.warning(f"⚠️ Sauvegarde échouée : **{_save_err}**")
+
+                    xl = export_excel(df_merged, st.session_state.get("abo_sotusfa_raw"))
+                    st.download_button(
+                        "📥 Télécharger Excel complet (4 feuilles)",
+                        data=xl,
+                        file_name="dashboard_agroeco_2026.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True)
+
 
     # ── Données fusionnées ─────────────────────────────────
     # ── df filtré selon le rôle de l'utilisateur ────────────────
