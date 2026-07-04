@@ -1668,7 +1668,7 @@ def _auto_save(sb, user_name):
     # ══ TAB 8 — PLAN RÉCOLTE & TRANSPORT ═══════════════════
     with t8:
         st.markdown("## 🚛 Plan Récolte & Transport")
-        st.caption("Vue du planning de récolte par ingénieur et par camion de transport.")
+        st.info("**Ingénieur = Commercial** (même personne)  ·  **Transport = Accessibilité** (PL / PPL / SEMI)")
 
         # Récupérer les données prévision
         _df_prev = st.session_state.get("abo_prev_mai")
@@ -1683,50 +1683,42 @@ def _auto_save(sb, user_name):
         # Utiliser le df_merged si disponible, sinon prévisions
         _src = _df_merge.copy() if _df_merge is not None else pd.DataFrame()
 
-        # ── Section 1 : Par Ingénieur ──────────────────────
-        st.markdown("### 👤 Par Ingénieur")
-        if _src is not None and "ingenieur" in _src.columns:
-            _ing_df = _src[_src["ingenieur"].astype(str).str.strip().ne("")].copy() if "ingenieur" in _src.columns else _src.copy()
-            if len(_ing_df) == 0:
-                st.warning("⚠️ Colonne **Ingénieur** vide — remplissez-la dans le fichier Plan Récolte.")
+        # ── Section 1 : Par Commercial (= Ingénieur) ─────────
+        st.markdown("### 👤 Par Commercial / Ingénieur (même personne)")
+        if _src is not None and not _src.empty:
+            _comm_col = next((c for c in ["commercial","responsable","ingenieur"] if c in _src.columns), None)
+            if _comm_col:
+                _comm_list = sorted(_src[_comm_col].dropna().astype(str).unique().tolist())
+                sel_comm = st.selectbox("Filtrer par commercial / ingénieur",
+                                        ["Tous"] + _comm_list, key="plan_comm")
+                _ing_df = _src.copy()
+                if sel_comm != "Tous":
+                    _ing_df = _ing_df[_ing_df[_comm_col].astype(str) == sel_comm]
+
+                _show_cols = [c for c in [_comm_col,"client","centre","hectares",
+                              "rendement_ha_reel","tonnage_livre",
+                              "date_debut_recolte","date_fin_recolte",
+                              "usine","acces"] if c in _ing_df.columns]
+                if _show_cols:
+                    _disp = _ing_df[_show_cols].copy()
+                    _disp.columns = [{"commercial":"Commercial / Ingénieur",
+                        "responsable":"Commercial / Ingénieur","ingenieur":"Ingénieur",
+                        "client":"Client","centre":"Centre","hectares":"Ha",
+                        "rendement_ha_reel":"T/ha","tonnage_livre":"Tonnage(T)",
+                        "date_debut_recolte":"Déb. Récolte","date_fin_recolte":"Fin Récolte",
+                        "usine":"Usine","acces":"Transport / Accès"}.get(c,c) for c in _show_cols]
+                    st.dataframe(_disp, use_container_width=True, hide_index=True)
+
+                # Résumé par commercial
+                _rsum = _src.groupby(_comm_col).agg(
+                    Agriculteurs=("client","count"),
+                    Ha=("hectares","sum"),
+                    Tonnage=("tonnage_livre","sum"),
+                ).reset_index().round(1)
+                _rsum.columns = ["Commercial / Ingénieur","Agriculteurs","Ha","Tonnage(T)"]
+                st.dataframe(_rsum, use_container_width=True, hide_index=True)
             else:
-                ing_list = sorted(_ing_df["ingenieur"].dropna().unique().tolist())
-                sel_ing = st.selectbox("Filtrer par ingénieur", ["Tous"] + ing_list, key="plan_ing")
-                if sel_ing != "Tous":
-                    _ing_df = _ing_df[_ing_df["ingenieur"] == sel_ing]
-
-                # Tableau par ingénieur
-                _ing_cols = [c for c in ["ingenieur","client","centre","hectares",
-                             "rendement_ha_reel","tonnage_livre","date_debut_recolte",
-                             "date_fin_recolte","usine","acces"] if c in _ing_df.columns]
-                if _ing_cols:
-                    _display = _ing_df[_ing_cols].copy()
-                    _rename = {"ingenieur":"Ingénieur","client":"Client","centre":"Centre",
-                               "hectares":"Ha","rendement_ha_reel":"T/ha",
-                               "tonnage_livre":"Tonnage(T)","date_debut_recolte":"Déb. Récolte",
-                               "date_fin_recolte":"Fin Récolte","usine":"Usine","acces":"Accès"}
-                    _display.rename(columns=_rename, inplace=True)
-                    st.dataframe(_display, use_container_width=True, hide_index=True)
-
-                    # Résumé par ingénieur
-                    if "ingenieur" in _ing_df.columns:
-                        st.markdown("**Résumé par ingénieur :**")
-                        _sum_ing = _ing_df.groupby("ingenieur").agg(
-                            Agriculteurs=("client","count"),
-                            Ha_total=("hectares","sum"),
-                            Tonnage=("tonnage_livre","sum"),
-                        ).reset_index().round(1)
-                        _sum_ing.columns=["Ingénieur","Agriculteurs","Ha total","Tonnage(T)"]
-                        st.dataframe(_sum_ing, use_container_width=True, hide_index=True)
-        else:
-            st.info("ℹ️ La colonne **Ingénieur** n'est pas encore renseignée dans les données fusionnées.")
-            st.markdown("""
-**Pour afficher le planning par ingénieur :**
-1. Ouvrez le fichier **PLAN_Recolte_Centre_2026.xlsx**
-2. Feuille **Par Ingénieur** → remplissez la colonne **Ingénieur**
-3. Feuille **Plan_Recolte_2026** → la colonne **Ingénieur** se met à jour
-4. Ré-importez le fichier dans ⚙️ Paramètres & Import
-""")
+                st.info("Colonne commercial/ingénieur absente dans les données.")
 
         st.divider()
 
@@ -1751,21 +1743,40 @@ def _auto_save(sb, user_name):
 
         st.divider()
 
-        # ── Section 3 : Transport ────────────────────────────
-        st.markdown("### 🚛 Transport & Logistique")
-        if _df_merge is not None and "acces" in _df_merge.columns:
+        # ── Section 3 : Transport = Accessibilité ──────────
+        st.markdown("### 🚛 Transport = Accessibilité (PL / PPL / SEMI)")
+        st.caption("Le type de transport détermine le type de véhicule : PL = camion plateau libre · PPL = avec pente · SEMI = semi-remorque")
+        _acc_col = next((c for c in ["acces","accessibilite","accessibilité"] if c in _src.columns), None)
+        if _acc_col and not _src.empty:
+            _acc_list = sorted(_src[_acc_col].dropna().astype(str).unique().tolist())
+            sel_acc = st.selectbox("Filtrer par transport / accessibilité",
+                                   ["Tous"] + _acc_list, key="plan_acc")
             _trans_df = _src.copy()
-            # Grouper par accessibilité (PL / PPL / PL+SEMI...)
-            _acc_grp = _trans_df.groupby("acces").agg(
-                Nb=("client","count"),
+            if sel_acc != "Tous":
+                _trans_df = _trans_df[_trans_df[_acc_col].astype(str) == sel_acc]
+
+            # Tableau détail
+            _tcols = [c for c in [_acc_col,"client","hectares","tonnage_livre",
+                                   "date_debut_recolte","date_fin_recolte","usine","zone"]
+                      if c in _trans_df.columns]
+            if _tcols:
+                _td = _trans_df[_tcols].copy()
+                _td.columns = [{"acces":"Transport / Accès","accessibilite":"Transport / Accès",
+                    "client":"Client","hectares":"Ha","tonnage_livre":"Tonnage(T)",
+                    "date_debut_recolte":"Déb. Récolte","date_fin_recolte":"Fin Récolte",
+                    "usine":"Usine","zone":"Zone"}.get(c,c) for c in _tcols]
+                st.dataframe(_td, use_container_width=True, hide_index=True)
+
+            # Résumé par type transport
+            _rsum_t = _src.groupby(_acc_col).agg(
+                Agriculteurs=("client","count"),
                 Ha=("hectares","sum"),
                 Tonnage=("tonnage_livre","sum"),
             ).reset_index().round(1)
-            _acc_grp.columns = ["Accessibilité","Nb Agriculteurs","Ha","Tonnage(T)"]
-            st.dataframe(_acc_grp, use_container_width=True, hide_index=True)
-            st.caption("PL = camion plateau libre · PPL = plateau avec pente · SEMI = semi-remorque")
+            _rsum_t.columns = ["Transport / Accès","Agriculteurs","Ha","Tonnage(T)"]
+            st.dataframe(_rsum_t, use_container_width=True, hide_index=True)
         else:
-            st.info("ℹ️ Données transport non disponibles.")
+            st.info("ℹ️ Colonne Accessibilité / Transport absente.")
 
 
 
