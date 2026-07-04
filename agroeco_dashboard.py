@@ -1665,121 +1665,6 @@ def _auto_save(sb, user_name):
         })
     except Exception:
         pass  # Silencieux — ne pas bloquer l'UI
-    # ══ TAB 8 — PLAN RÉCOLTE & TRANSPORT ═══════════════════
-    with t8:
-        st.markdown("## 🚛 Plan Récolte & Transport")
-        st.info("**Ingénieur = Commercial** (même personne)  ·  **Transport = Accessibilité** (PL / PPL / SEMI)")
-
-        # Récupérer les données prévision
-        _df_prev = st.session_state.get("abo_prev_mai")
-        _df_merge = df if df is not None and not (hasattr(df,"empty") and df.empty) else None
-
-        if _df_merge is None and _df_prev is None:
-            st.info("📥 Importez le fichier **Plan Récolte** (Prévisions) dans ⚙️ Paramètres & Import")
-            st.markdown("**Format attendu :** `PLAN_Recolte_Centre_2026.xlsx` avec les colonnes :")
-            st.code("Client · Centre · Ha · Rendement_Ha · Usine · Date_Debut · Date_Fin · Ingénieur · Transport")
-            st.stop()
-
-        # Utiliser le df_merged si disponible, sinon prévisions
-        _src = _df_merge.copy() if _df_merge is not None else pd.DataFrame()
-
-        # ── Section 1 : Par Commercial (= Ingénieur) ─────────
-        st.markdown("### 👤 Par Commercial / Ingénieur (même personne)")
-        if _src is not None and not _src.empty:
-            _comm_col = next((c for c in ["commercial","responsable","ingenieur"] if c in _src.columns), None)
-            if _comm_col:
-                _comm_list = sorted(_src[_comm_col].dropna().astype(str).unique().tolist())
-                sel_comm = st.selectbox("Filtrer par commercial / ingénieur",
-                                        ["Tous"] + _comm_list, key="plan_comm")
-                _ing_df = _src.copy()
-                if sel_comm != "Tous":
-                    _ing_df = _ing_df[_ing_df[_comm_col].astype(str) == sel_comm]
-
-                _show_cols = [c for c in [_comm_col,"client","centre","hectares",
-                              "rendement_ha_reel","tonnage_livre",
-                              "date_debut_recolte","date_fin_recolte",
-                              "usine","acces"] if c in _ing_df.columns]
-                if _show_cols:
-                    _disp = _ing_df[_show_cols].copy()
-                    _disp.columns = [{"commercial":"Commercial / Ingénieur",
-                        "responsable":"Commercial / Ingénieur","ingenieur":"Ingénieur",
-                        "client":"Client","centre":"Centre","hectares":"Ha",
-                        "rendement_ha_reel":"T/ha","tonnage_livre":"Tonnage(T)",
-                        "date_debut_recolte":"Déb. Récolte","date_fin_recolte":"Fin Récolte",
-                        "usine":"Usine","acces":"Transport / Accès"}.get(c,c) for c in _show_cols]
-                    st.dataframe(_disp, use_container_width=True, hide_index=True)
-
-                # Résumé par commercial
-                _rsum = _src.groupby(_comm_col).agg(
-                    Agriculteurs=("client","count"),
-                    Ha=("hectares","sum"),
-                    Tonnage=("tonnage_livre","sum"),
-                ).reset_index().round(1)
-                _rsum.columns = ["Commercial / Ingénieur","Agriculteurs","Ha","Tonnage(T)"]
-                st.dataframe(_rsum, use_container_width=True, hide_index=True)
-            else:
-                st.info("Colonne commercial/ingénieur absente dans les données.")
-
-        st.divider()
-
-        # ── Section 2 : Planning par Usine/Date ─────────────
-        st.markdown("### 🏭 Calendrier récolte par usine")
-        if _df_merge is not None and not _df_merge.empty:
-            _usine_col = next((c for c in _src.columns if "usine" in c.lower()), None)
-            _date_col  = next((c for c in _src.columns if "date_debut" in c.lower() or "deb_recolt" in c.lower()), None)
-            if _usine_col and _date_col:
-                _cal = _src.dropna(subset=[_date_col]).copy()
-                _cal["_date"] = pd.to_datetime(_cal[_date_col], errors="coerce")
-                _cal = _cal.dropna(subset=["_date"]).sort_values("_date")
-                for usine, grp in _cal.groupby(_usine_col):
-                    n = len(grp)
-                    ha = pd.to_numeric(grp.get("hectares",0),errors="coerce").sum()
-                    ton = pd.to_numeric(grp.get("tonnage_livre",0),errors="coerce").sum()
-                    with st.expander(f"🏭 {usine} — {n} agriculteurs · {ha:.0f} ha · {ton:.0f} T"):
-                        show_cols = [c for c in ["client","hectares","tonnage_livre",_date_col,"acces"] if c in grp.columns]
-                        st.dataframe(grp[show_cols], use_container_width=True, hide_index=True)
-            else:
-                st.info("Colonnes Usine ou Date début récolte absentes.")
-
-        st.divider()
-
-        # ── Section 3 : Transport = Accessibilité ──────────
-        st.markdown("### 🚛 Transport = Accessibilité (PL / PPL / SEMI)")
-        st.caption("Le type de transport détermine le type de véhicule : PL = camion plateau libre · PPL = avec pente · SEMI = semi-remorque")
-        _acc_col = next((c for c in ["acces","accessibilite","accessibilité"] if c in _src.columns), None)
-        if _acc_col and not _src.empty:
-            _acc_list = sorted(_src[_acc_col].dropna().astype(str).unique().tolist())
-            sel_acc = st.selectbox("Filtrer par transport / accessibilité",
-                                   ["Tous"] + _acc_list, key="plan_acc")
-            _trans_df = _src.copy()
-            if sel_acc != "Tous":
-                _trans_df = _trans_df[_trans_df[_acc_col].astype(str) == sel_acc]
-
-            # Tableau détail
-            _tcols = [c for c in [_acc_col,"client","hectares","tonnage_livre",
-                                   "date_debut_recolte","date_fin_recolte","usine","zone"]
-                      if c in _trans_df.columns]
-            if _tcols:
-                _td = _trans_df[_tcols].copy()
-                _td.columns = [{"acces":"Transport / Accès","accessibilite":"Transport / Accès",
-                    "client":"Client","hectares":"Ha","tonnage_livre":"Tonnage(T)",
-                    "date_debut_recolte":"Déb. Récolte","date_fin_recolte":"Fin Récolte",
-                    "usine":"Usine","zone":"Zone"}.get(c,c) for c in _tcols]
-                st.dataframe(_td, use_container_width=True, hide_index=True)
-
-            # Résumé par type transport
-            _rsum_t = _src.groupby(_acc_col).agg(
-                Agriculteurs=("client","count"),
-                Ha=("hectares","sum"),
-                Tonnage=("tonnage_livre","sum"),
-            ).reset_index().round(1)
-            _rsum_t.columns = ["Transport / Accès","Agriculteurs","Ha","Tonnage(T)"]
-            st.dataframe(_rsum_t, use_container_width=True, hide_index=True)
-        else:
-            st.info("ℹ️ Colonne Accessibilité / Transport absente.")
-
-
-
 def render_agroeco_tab(sb=None, CURRENT_ROLE="directeur", CURRENT_NAME=""):
 
     st.markdown("""
@@ -3398,3 +3283,118 @@ Score d'efficacité · Benchmark commerciaux · Matrice ROI · Recommandations a
                 file_name="analyse_efficacite_2026.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True)
+
+
+
+    # ══ TAB 8 — PLAN RÉCOLTE & TRANSPORT ═══════════════════
+    with t8:
+        st.markdown("## 🚛 Plan Récolte & Transport")
+        st.info("**Ingénieur = Commercial** (même personne)  ·  **Transport = Accessibilité** (PL / PPL / SEMI)")
+
+        # Récupérer les données prévision
+        _df_prev = st.session_state.get("abo_prev_mai")
+        _df_merge = df if df is not None and not (hasattr(df,"empty") and df.empty) else None
+
+        if _df_merge is None and _df_prev is None:
+            st.info("📥 Importez le fichier **Plan Récolte** (Prévisions) dans ⚙️ Paramètres & Import")
+            st.markdown("**Format attendu :** `PLAN_Recolte_Centre_2026.xlsx` avec les colonnes :")
+            st.code("Client · Centre · Ha · Rendement_Ha · Usine · Date_Debut · Date_Fin · Ingénieur · Transport")
+            st.stop()
+
+        # Utiliser le df_merged si disponible, sinon prévisions
+        _src = _df_merge.copy() if _df_merge is not None else pd.DataFrame()
+
+        # ── Section 1 : Par Commercial (= Ingénieur) ─────────
+        st.markdown("### 👤 Par Commercial / Ingénieur (même personne)")
+        if _src is not None and not _src.empty:
+            _comm_col = next((c for c in ["commercial","responsable","ingenieur"] if c in _src.columns), None)
+            if _comm_col:
+                _comm_list = sorted(_src[_comm_col].dropna().astype(str).unique().tolist())
+                sel_comm = st.selectbox("Filtrer par commercial / ingénieur",
+                                        ["Tous"] + _comm_list, key="plan_comm")
+                _ing_df = _src.copy()
+                if sel_comm != "Tous":
+                    _ing_df = _ing_df[_ing_df[_comm_col].astype(str) == sel_comm]
+
+                _show_cols = [c for c in [_comm_col,"client","centre","hectares",
+                              "rendement_ha_reel","tonnage_livre",
+                              "date_debut_recolte","date_fin_recolte",
+                              "usine","acces"] if c in _ing_df.columns]
+                if _show_cols:
+                    _disp = _ing_df[_show_cols].copy()
+                    _disp.columns = [{"commercial":"Commercial / Ingénieur",
+                        "responsable":"Commercial / Ingénieur","ingenieur":"Ingénieur",
+                        "client":"Client","centre":"Centre","hectares":"Ha",
+                        "rendement_ha_reel":"T/ha","tonnage_livre":"Tonnage(T)",
+                        "date_debut_recolte":"Déb. Récolte","date_fin_recolte":"Fin Récolte",
+                        "usine":"Usine","acces":"Transport / Accès"}.get(c,c) for c in _show_cols]
+                    st.dataframe(_disp, use_container_width=True, hide_index=True)
+
+                # Résumé par commercial
+                _rsum = _src.groupby(_comm_col).agg(
+                    Agriculteurs=("client","count"),
+                    Ha=("hectares","sum"),
+                    Tonnage=("tonnage_livre","sum"),
+                ).reset_index().round(1)
+                _rsum.columns = ["Commercial / Ingénieur","Agriculteurs","Ha","Tonnage(T)"]
+                st.dataframe(_rsum, use_container_width=True, hide_index=True)
+            else:
+                st.info("Colonne commercial/ingénieur absente dans les données.")
+
+        st.divider()
+
+        # ── Section 2 : Planning par Usine/Date ─────────────
+        st.markdown("### 🏭 Calendrier récolte par usine")
+        if _df_merge is not None and not _df_merge.empty:
+            _usine_col = next((c for c in _src.columns if "usine" in c.lower()), None)
+            _date_col  = next((c for c in _src.columns if "date_debut" in c.lower() or "deb_recolt" in c.lower()), None)
+            if _usine_col and _date_col:
+                _cal = _src.dropna(subset=[_date_col]).copy()
+                _cal["_date"] = pd.to_datetime(_cal[_date_col], errors="coerce")
+                _cal = _cal.dropna(subset=["_date"]).sort_values("_date")
+                for usine, grp in _cal.groupby(_usine_col):
+                    n = len(grp)
+                    ha = pd.to_numeric(grp.get("hectares",0),errors="coerce").sum()
+                    ton = pd.to_numeric(grp.get("tonnage_livre",0),errors="coerce").sum()
+                    with st.expander(f"🏭 {usine} — {n} agriculteurs · {ha:.0f} ha · {ton:.0f} T"):
+                        show_cols = [c for c in ["client","hectares","tonnage_livre",_date_col,"acces"] if c in grp.columns]
+                        st.dataframe(grp[show_cols], use_container_width=True, hide_index=True)
+            else:
+                st.info("Colonnes Usine ou Date début récolte absentes.")
+
+        st.divider()
+
+        # ── Section 3 : Transport = Accessibilité ──────────
+        st.markdown("### 🚛 Transport = Accessibilité (PL / PPL / SEMI)")
+        st.caption("Le type de transport détermine le type de véhicule : PL = camion plateau libre · PPL = avec pente · SEMI = semi-remorque")
+        _acc_col = next((c for c in ["acces","accessibilite","accessibilité"] if c in _src.columns), None)
+        if _acc_col and not _src.empty:
+            _acc_list = sorted(_src[_acc_col].dropna().astype(str).unique().tolist())
+            sel_acc = st.selectbox("Filtrer par transport / accessibilité",
+                                   ["Tous"] + _acc_list, key="plan_acc")
+            _trans_df = _src.copy()
+            if sel_acc != "Tous":
+                _trans_df = _trans_df[_trans_df[_acc_col].astype(str) == sel_acc]
+
+            # Tableau détail
+            _tcols = [c for c in [_acc_col,"client","hectares","tonnage_livre",
+                                   "date_debut_recolte","date_fin_recolte","usine","zone"]
+                      if c in _trans_df.columns]
+            if _tcols:
+                _td = _trans_df[_tcols].copy()
+                _td.columns = [{"acces":"Transport / Accès","accessibilite":"Transport / Accès",
+                    "client":"Client","hectares":"Ha","tonnage_livre":"Tonnage(T)",
+                    "date_debut_recolte":"Déb. Récolte","date_fin_recolte":"Fin Récolte",
+                    "usine":"Usine","zone":"Zone"}.get(c,c) for c in _tcols]
+                st.dataframe(_td, use_container_width=True, hide_index=True)
+
+            # Résumé par type transport
+            _rsum_t = _src.groupby(_acc_col).agg(
+                Agriculteurs=("client","count"),
+                Ha=("hectares","sum"),
+                Tonnage=("tonnage_livre","sum"),
+            ).reset_index().round(1)
+            _rsum_t.columns = ["Transport / Accès","Agriculteurs","Ha","Tonnage(T)"]
+            st.dataframe(_rsum_t, use_container_width=True, hide_index=True)
+        else:
+            st.info("ℹ️ Colonne Accessibilité / Transport absente.")
