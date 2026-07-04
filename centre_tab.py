@@ -123,10 +123,13 @@ def _parse_agriculteurs(file_obj, centre, commercial):
     """
     errors = []
     try:
-        # Essayer header=0 puis header=3 (format référence interne)
+        # Essayer la feuille "Agriculteurs" d'abord, puis sheet_name=0
         for hdr in [0, 1, 2, 3]:
             try:
-                df = pd.read_excel(file_obj, sheet_name=0, header=hdr)
+                try:
+                    df = pd.read_excel(file_obj, sheet_name="Agriculteurs", header=hdr)
+                except Exception:
+                    df = pd.read_excel(file_obj, sheet_name=0, header=hdr)
                 df.columns = [str(c).strip() for c in df.columns]
                 df = df.dropna(how='all')
                 if len(df) > 0 and len(df.columns) >= 2:
@@ -216,7 +219,14 @@ def _parse_transport(file_obj, centre, commercial):
     Colonnes : USINE · TYPE_VEHICULE · NB_BENNES · CAP_TONNE · DISPO_DU · DISPO_AU · NOTE
     """
     try:
-        df = pd.read_excel(file_obj, sheet_name=0, header=0)
+        # Essayer la feuille "Transport" d'abord, puis sheet_name=1
+        try:
+            df = pd.read_excel(file_obj, sheet_name="Transport", header=0)
+        except Exception:
+            try:
+                df = pd.read_excel(file_obj, sheet_name=1, header=0)
+            except Exception:
+                df = pd.read_excel(file_obj, sheet_name=0, header=0)
         df.columns = [str(c).strip() for c in df.columns]
         df = df.dropna(how='all')
 
@@ -580,12 +590,12 @@ def render_centre_dashboard(sb, role_filter, centre_name):
             st.plotly_chart(fig3, use_container_width=True)
 
     # ════════════════════════════════════════════════════════
-    # TAB 2 — UPLOAD FICHIERS
+    # TAB 2 — UPLOAD FICHIERS (1 SEUL FICHIER avec 2 feuilles)
     # ════════════════════════════════════════════════════════
     with tab_upload:
-        st.markdown("### 📤 Upload de vos fichiers")
+        st.markdown("### 📤 Déposer votre fichier")
 
-        # Modèle à télécharger
+        # ── Modèle à télécharger ───────────────────────────────
         col_tpl, col_info = st.columns([2, 3])
         with col_tpl:
             tpl_bytes = _generate_template(centre)
@@ -600,90 +610,115 @@ def render_centre_dashboard(sb, role_filter, centre_name):
         with col_info:
             st.markdown(f"""
             <div style='background:#1a2332;border-radius:8px;padding:12px;font-size:.85rem;color:#ccc'>
-            📋 Le modèle contient 2 feuilles :<br>
-            &nbsp;• <b>Agriculteurs</b> : NOM · HECTARES · TONNAGE · VARIETE · REGION · USINE · ACCESSIBILITE · DATE_DEBUT · DATE_FIN<br>
-            &nbsp;• <b>Transport</b> : USINE · TYPE_VEHICULE · NB_BENNES · CAP_TONNE · DISPONIBLE_DU · DISPONIBLE_AU
+            📋 <b>1 seul fichier Excel</b> avec 2 feuilles :<br>
+            &nbsp;• <b style="color:#00E5A0">Agriculteurs</b> : NOM · HECTARES · TONNAGE · USINE · ACCESSIBILITE · DATE_DEBUT · DATE_FIN<br>
+            &nbsp;• <b style="color:#F5A623">Transport</b> : USINE · TYPE_VEHICULE · NB_BENNES · CAP_TONNE · DISPONIBLE_DU · DISPONIBLE_AU
             </div>""", unsafe_allow_html=True)
 
         st.markdown("---")
 
-        # ── Upload agriculteurs ────────────────────────────────────
-        st.markdown("#### 🌾 Ficher Agriculteurs")
-        up_agri = st.file_uploader(
-            "Choisir le fichier Excel agriculteurs",
-            type=["xlsx","xls"],
-            key="upload_agri_centre",
-            help="Colonnes requises : NOM et TONNAGE. Les autres sont optionnelles."
+        # ── UN SEUL uploader ───────────────────────────────────
+        up_file = st.file_uploader(
+            "📂 Choisir le fichier Excel (contient les feuilles Agriculteurs + Transport)",
+            type=["xlsx", "xls"],
+            key="upload_centre_single",
+            help="Le fichier doit avoir 2 feuilles : 'Agriculteurs' et 'Transport'"
         )
 
-        if up_agri:
-            df_parsed, errs = _parse_agriculteurs(up_agri, centre, commercial)
-            if errs:
-                for e in errs:
-                    st.error(e)
-            else:
-                st.success(f"✅ {len(df_parsed)} agriculteurs détectés")
-                st.dataframe(df_parsed, use_container_width=True, height=220, hide_index=True)
+        if up_file:
+            import io as _io
+            file_bytes = up_file.read()
 
-                col_save, col_cancel = st.columns(2)
-                with col_save:
-                    if st.button("💾 Sauvegarder dans Supabase",
-                                 type="primary", use_container_width=True,
-                                 key="save_agri"):
-                        try:
-                            # Supprimer anciens, insérer nouveaux
-                            sb.table("centre_agriculteurs").delete().eq("centre", centre).execute()
-                            records = df_parsed.where(pd.notnull(df_parsed), None).to_dict("records")
-                            sb.table("centre_agriculteurs").insert(records).execute()
-                            st.success(f"✅ {len(records)} agriculteurs sauvegardés !")
-                            st.session_state["centre_refresh"] += 1
-                            st.cache_data.clear()
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Erreur Supabase : {e}")
-                            st.info("💡 Exécutez le SQL dans l'onglet 🛠️ Config SQL si la table n'existe pas.")
-                with col_cancel:
-                    st.button("✖ Annuler", use_container_width=True)
+            # ── Lire les 2 feuilles ───────────────────────────
+            _agri_ok = False; _transp_ok = False
+            df_parsed = None; df_transp_p = None
+            errs_a = []; errs_t = []
 
-        st.markdown("---")
+            # Feuille Agriculteurs
+            try:
+                _io_a = _io.BytesIO(file_bytes)
+                df_parsed, errs_a = _parse_agriculteurs(_io_a, centre, commercial)
+                _agri_ok = df_parsed is not None and len(df_parsed) > 0
+            except Exception as _ea:
+                errs_a = [f"❌ Erreur feuille Agriculteurs : {_ea}"]
 
-        # ── Upload transport ───────────────────────────────────────
-        st.markdown("#### 🚛 Fichier Transport")
-        up_transp = st.file_uploader(
-            "Choisir le fichier Excel transport",
-            type=["xlsx","xls"],
-            key="upload_transp_centre",
-            help="Colonnes requises : TYPE_VEHICULE et NB_BENNES."
-        )
+            # Feuille Transport
+            try:
+                _io_t = _io.BytesIO(file_bytes)
+                df_transp_p, errs_t = _parse_transport(_io_t, centre, commercial)
+                _transp_ok = df_transp_p is not None and len(df_transp_p) > 0
+            except Exception as _et:
+                errs_t = [f"❌ Erreur feuille Transport : {_et}"]
 
-        if up_transp:
-            df_transp_p, errs_t = _parse_transport(up_transp, centre, commercial)
-            if errs_t:
-                for e in errs_t:
-                    st.error(e)
-            else:
-                st.success(f"✅ {len(df_transp_p)} lignes de transport détectées")
-                st.dataframe(df_transp_p, use_container_width=True, height=180, hide_index=True)
+            # ── Aperçu ────────────────────────────────────────
+            col_a, col_t = st.columns(2)
+            with col_a:
+                st.markdown("#### 🌾 Agriculteurs")
+                if errs_a:
+                    for e in errs_a: st.error(e)
+                elif _agri_ok:
+                    st.success(f"✅ {len(df_parsed)} agriculteurs")
+                    st.dataframe(df_parsed[["nom","tonnage","hectares","usine"]].head(8),
+                                 use_container_width=True, height=200, hide_index=True)
+                else:
+                    st.warning("⚠️ Feuille 'Agriculteurs' vide ou non trouvée")
 
-                if st.button("💾 Sauvegarder transport",
+            with col_t:
+                st.markdown("#### 🚛 Transport")
+                if errs_t:
+                    for e in errs_t: st.warning(e)
+                elif _transp_ok:
+                    st.success(f"✅ {len(df_transp_p)} lignes transport")
+                    show_t_cols = [c for c in ["type_vehicule","nb_bennes","cap_tonne","usine"] if c in df_transp_p.columns]
+                    st.dataframe(df_transp_p[show_t_cols],
+                                 use_container_width=True, height=200, hide_index=True)
+                else:
+                    st.info("ℹ️ Feuille 'Transport' vide (optionnelle)")
+
+            # ── Bouton unique Sauvegarder ──────────────────────
+            if _agri_ok:
+                st.markdown("---")
+                if st.button("💾 Sauvegarder dans Supabase",
                              type="primary", use_container_width=True,
-                             key="save_transport"):
+                             key="save_all_centre"):
+                    saved = []
+                    errors = []
+
+                    # Sauvegarder agriculteurs
                     try:
-                        sb.table("centre_transport").delete().eq("centre", centre).execute()
-                        records_t = df_transp_p.where(pd.notnull(df_transp_p), None).to_dict("records")
-                        sb.table("centre_transport").insert(records_t).execute()
-                        st.success(f"✅ {len(records_t)} lignes transport sauvegardées !")
+                        sb.table("centre_agriculteurs").delete().eq("centre", centre).execute()
+                        recs = df_parsed.where(pd.notnull(df_parsed), None).to_dict("records")
+                        sb.table("centre_agriculteurs").insert(recs).execute()
+                        saved.append(f"🌾 {len(recs)} agriculteurs")
+                    except Exception as e:
+                        errors.append(f"Agriculteurs : {e}")
+
+                    # Sauvegarder transport (si disponible)
+                    if _transp_ok:
+                        try:
+                            sb.table("centre_transport").delete().eq("centre", centre).execute()
+                            recs_t = df_transp_p.where(pd.notnull(df_transp_p), None).to_dict("records")
+                            sb.table("centre_transport").insert(recs_t).execute()
+                            saved.append(f"🚛 {len(recs_t)} lignes transport")
+                        except Exception as e:
+                            errors.append(f"Transport : {e}")
+
+                    if errors:
+                        for err in errors:
+                            st.error(f"❌ {err}")
+                        st.info("💡 Exécutez le SQL dans 🛠️ Config SQL si les tables n'existent pas.")
+                    if saved:
+                        st.success(f"✅ Sauvegardé : {' · '.join(saved)} !")
                         st.session_state["centre_refresh"] += 1
                         st.cache_data.clear()
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Erreur Supabase : {e}")
-                        st.info("💡 Vérifiez l'onglet 🛠️ Config SQL.")
+            else:
+                st.info("⬆️ Déposez votre fichier Excel ci-dessus pour commencer.")
 
-        # ── Effacer tout ──────────────────────────────────────────
+        # ── Effacer tout ──────────────────────────────────────
         st.markdown("---")
         with st.expander("🗑️ Effacer toutes mes données (reset)"):
-            st.warning("⚠️ Cette action supprime TOUS les agriculteurs et transport enregistrés pour votre centre.")
+            st.warning("⚠️ Cette action supprime TOUS les agriculteurs et transport enregistrés.")
             confirm = st.checkbox("Je confirme la suppression")
             if confirm and st.button("🗑️ Effacer", type="primary"):
                 try:
