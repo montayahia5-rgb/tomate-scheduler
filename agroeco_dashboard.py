@@ -1690,11 +1690,16 @@ padding:16px 20px;margin-bottom:18px'>
             st.session_state[k] = None
 
     # ── AUTO-RESTAURATION depuis Supabase ─────────────────────
-    if (st.session_state.get("abo_merged") is None and
-            not st.session_state.get("abo_session_loaded") and
-            sb is not None):
+    _is_admin_role = CURRENT_ROLE.lower() in ("directeur","admin")
+    # Non-admins : toujours essayer de charger depuis Supabase (pas de cache)
+    _should_restore = (
+        st.session_state.get("abo_merged") is None and
+        sb is not None and
+        (not st.session_state.get("abo_session_loaded") or not _is_admin_role)
+    )
+    if _should_restore:
         st.session_state["abo_session_loaded"] = True
-        with st.spinner("🔄 Restauration de la session..."):
+        with st.spinner("🔄 Chargement des données..."):
             _saved = load_session_from_supabase(sb)
         _has_any = bool(_saved and (
             _saved.get("merged") is not None or
@@ -1738,10 +1743,15 @@ padding:16px 20px;margin-bottom:18px'>
                 "usine":      "Usine",
             }.get(CURRENT_ROLE.lower(), CURRENT_ROLE)
 
-            if st.session_state.get("abo_merged") is not None:
-                st.success(f"✅ Données disponibles — Connecté en tant que **{_role_label} : {CURRENT_NAME}**")
+            _merged_ok = st.session_state.get("abo_merged") is not None
+            if _merged_ok:
+                _df_tmp = st.session_state["abo_merged"]
+                _n_tot  = len(_df_tmp) if _df_tmp is not None else 0
+                _ck_tmp = (_name_u.replace("CENTRE","").strip() or _name_u) if _role_l=="centre" else _name_u
+                _n_filt = len(_df_tmp[_df_tmp["centre"].astype(str).str.upper().str.contains(_ck_tmp,na=False,regex=False)]) if (_role_l=="centre" and "centre" in _df_tmp.columns) else _n_tot
+                st.success(f"✅ **{_role_label} : {CURRENT_NAME}** — {_n_filt} agriculteurs affichés (/{_n_tot} total)")
                 col_r1, col_r2 = st.columns([3,1])
-                col_r1.info("🔒 Upload réservé à l'administrateur. Vos données sont filtrées par votre profil.")
+                col_r1.info(f"🔒 Upload réservé à l'administrateur · Filtre : **{_ck_tmp if _role_l in ('centre','commercial') else 'aucun (tout visible)'}**")
                 if col_r2.button("🔄 Rafraîchir"):
                     if sb:
                         _sd = load_session_from_supabase(sb, "SHARED_2026")
@@ -2106,12 +2116,26 @@ padding:16px 20px;margin-bottom:18px'>
 
     def _no_data():
         if _df_all is None or (hasattr(_df_all,"empty") and _df_all.empty):
-            st.info("📥 Importez les fichiers dans l'onglet **⚙️ Paramètres & Import** "
-                    "puis cliquez **Fusionner**.")
+            if _is_admin_role:
+                st.info("📥 Importez les fichiers dans l'onglet **⚙️ Paramètres & Import** "
+                        "puis cliquez **Fusionner**.")
+            else:
+                st.warning(
+                    f"⏳ **Aucune donnée disponible** pour votre profil ({CURRENT_ROLE} : {CURRENT_NAME})\n\n"
+                    "Le directeur doit :\n"
+                    "1. Se connecter avec son compte directeur\n"
+                    "2. Déposer les fichiers dans ⚙️ Paramètres & Import\n"
+                    "3. Cliquer **Fusionner** → la session est sauvegardée automatiquement\n"
+                    "4. Revenir ici et cliquer 🔄 Rafraîchir"
+                )
         else:
             n_total = len(_df_all) if _df_all is not None else 0
-            st.info(f"📭 Aucun agriculteur pour ce centre/commercial. "
-                    f"({n_total} agriculteurs au total dans la base)")
+            _ck_debug = (_name_u.replace("CENTRE","").strip() or _name_u)
+            st.warning(
+                f"📭 **Aucun agriculteur** trouvé pour : {CURRENT_ROLE} = **{CURRENT_NAME}**\n\n"
+                f"Recherche dans colonne \'centre\' : **'{_ck_debug}'**\n"
+                f"({n_total} agriculteurs au total dans la base)"
+            )
 
     # ══ TAB 1 — PAR AGRICULTEUR ════════════════════════════
     with t1:
@@ -3332,14 +3356,21 @@ Score d'efficacité · Benchmark commerciaux · Matrice ROI · Recommandations a
                         "usine":"Usine","acces":"Transport / Accès"}.get(c,c) for c in _show_cols]
                     st.dataframe(_disp, use_container_width=True, hide_index=True)
 
-                # Résumé par commercial
-                _rsum = _src.groupby(_comm_col).agg(
-                    Agriculteurs=("client","count"),
-                    Ha=("hectares","sum"),
-                    Tonnage=("tonnage_livre","sum"),
-                ).reset_index().round(1)
-                _rsum.columns = ["Commercial / Ingénieur","Agriculteurs","Ha","Tonnage(T)"]
-                st.dataframe(_rsum, use_container_width=True, hide_index=True)
+                # Résumé par commercial — approche défensive
+                try:
+                    _ragg = {}
+                    _ac = next((c for c in ["client","agriculteur"] if c in _src.columns), None)
+                    if _ac: _ragg[_ac] = "count"
+                    if "hectares"     in _src.columns: _ragg["hectares"]     = "sum"
+                    if "tonnage_livre" in _src.columns: _ragg["tonnage_livre"] = "sum"
+                    if _ragg:
+                        _rsum_raw = _src.groupby(_comm_col).agg(_ragg).reset_index().round(1)
+                        _rn = {_comm_col:"Commercial / Ingénieur",
+                               _ac:"Agriculteurs","hectares":"Ha","tonnage_livre":"Tonnage(T)"}
+                        _rsum_raw.rename(columns={k:v for k,v in _rn.items() if k in _rsum_raw.columns}, inplace=True)
+                        st.dataframe(_rsum_raw, use_container_width=True, hide_index=True)
+                except Exception as _e8a:
+                    st.caption(f"Résumé indisponible : {_e8a}")
             else:
                 st.info("Colonne commercial/ingénieur absente dans les données.")
 
@@ -3356,11 +3387,14 @@ Score d'efficacité · Benchmark commerciaux · Matrice ROI · Recommandations a
                 _cal = _cal.dropna(subset=["_date"]).sort_values("_date")
                 for usine, grp in _cal.groupby(_usine_col):
                     n = len(grp)
-                    ha = pd.to_numeric(grp.get("hectares",0),errors="coerce").sum()
-                    ton = pd.to_numeric(grp.get("tonnage_livre",0),errors="coerce").sum()
+                    ha  = pd.to_numeric(grp["hectares"],     errors="coerce").sum() if "hectares"      in grp.columns else 0
+                    ton = pd.to_numeric(grp["tonnage_livre"],errors="coerce").sum() if "tonnage_livre" in grp.columns else 0
                     with st.expander(f"🏭 {usine} — {n} agriculteurs · {ha:.0f} ha · {ton:.0f} T"):
                         show_cols = [c for c in ["client","hectares","tonnage_livre",_date_col,"acces"] if c in grp.columns]
-                        st.dataframe(grp[show_cols], use_container_width=True, hide_index=True)
+                        if show_cols:
+                            st.dataframe(grp[show_cols], use_container_width=True, hide_index=True)
+                        else:
+                            st.dataframe(grp, use_container_width=True, hide_index=True)
             else:
                 st.info("Colonnes Usine ou Date début récolte absentes.")
 
@@ -3391,12 +3425,19 @@ Score d'efficacité · Benchmark commerciaux · Matrice ROI · Recommandations a
                 st.dataframe(_td, use_container_width=True, hide_index=True)
 
             # Résumé par type transport
-            _rsum_t = _src.groupby(_acc_col).agg(
-                Agriculteurs=("client","count"),
-                Ha=("hectares","sum"),
-                Tonnage=("tonnage_livre","sum"),
-            ).reset_index().round(1)
-            _rsum_t.columns = ["Transport / Accès","Agriculteurs","Ha","Tonnage(T)"]
-            st.dataframe(_rsum_t, use_container_width=True, hide_index=True)
+            try:
+                _tagg = {}
+                _tc = next((c for c in ["client","agriculteur"] if c in _src.columns), None)
+                if _tc: _tagg[_tc] = "count"
+                if "hectares"      in _src.columns: _tagg["hectares"]      = "sum"
+                if "tonnage_livre" in _src.columns: _tagg["tonnage_livre"] = "sum"
+                if _tagg:
+                    _rsum_t_raw = _src.groupby(_acc_col).agg(_tagg).reset_index().round(1)
+                    _rnt = {_acc_col:"Transport / Accès", _tc:"Agriculteurs",
+                            "hectares":"Ha","tonnage_livre":"Tonnage(T)"}
+                    _rsum_t_raw.rename(columns={k:v for k,v in _rnt.items() if k in _rsum_t_raw.columns}, inplace=True)
+                    st.dataframe(_rsum_t_raw, use_container_width=True, hide_index=True)
+            except Exception as _e8b:
+                st.caption(f"Résumé transport indisponible : {_e8b}")
         else:
             st.info("ℹ️ Colonne Accessibilité / Transport absente.")
