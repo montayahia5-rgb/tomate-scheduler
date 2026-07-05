@@ -2815,6 +2815,87 @@ padding:16px 20px;margin-bottom:18px'>
     else:
         df = _df_all  # None ou vide
 
+
+    # ══ POST-PROCESSING : Appliquer _INTRANTS_2026 et _PREVISION_2026 ══
+    # Cette étape garantit les données réelles même avec un cache Supabase ancien
+    import re as _re_pp, unicodedata as _uc_pp
+    def _cn_pp(n):
+        n = str(n).strip().upper()
+        n = _re_pp.sub(r"[(][^)]*[)]","",n)
+        n = "".join(c for c in _uc_pp.normalize("NFD",n) if _uc_pp.category(c)!="Mn")
+        n = _re_pp.sub(r"[^A-Z0-9 ]"," ",n)
+        return _re_pp.sub(r"[ ]+"," ",n).strip()
+
+    def _sco_pp(a,b):
+        wa,wb=set(a.split()),set(b.split())
+        if not wa or not wb: return 0.0
+        inter=len(wa&wb); union=len(wa|wb); sj=inter/union if union else 0
+        sh,lo=(wa,wb) if len(wa)<=len(wb) else (wb,wa)
+        sc=sum(1 for w in sh if any(lw.startswith(w[:4]) for lw in lo) and len(w)>2)/max(len(sh),1)*0.85
+        return max(sj,sc)
+
+    if df is not None and not (hasattr(df,"empty") and df.empty):
+        _int_keys = list(_INTRANTS_2026.keys())
+        _prv_keys = list(_PREVISION_2026.keys())
+        _agri_col = next((c for c in ["agriculteur","client"] if c in df.columns), None)
+
+        if _agri_col:
+            def _get_intrant(nom):
+                ck = _cn_pp(str(nom))
+                if ck in _INTRANTS_2026: return _INTRANTS_2026[ck]
+                best = max(_int_keys, key=lambda k: _sco_pp(ck,k), default=None)
+                return _INTRANTS_2026[best] if best and _sco_pp(ck,best)>=0.65 else None
+
+            def _get_prev(nom, key):
+                ck = _cn_pp(str(nom))
+                if ck in _PREVISION_2026: return _PREVISION_2026[ck].get(key,"")
+                best = max(_prv_keys, key=lambda k: _sco_pp(ck,k), default=None)
+                return _PREVISION_2026[best].get(key,"") if best and _sco_pp(ck,best)>=0.65 else ""
+
+            # ── Intrants ──────────────────────────────────────────────
+            _int_series = df[_agri_col].apply(_get_intrant)
+            _mask_int   = _int_series.notna()
+            if "charge_intrants" not in df.columns:
+                df["charge_intrants"] = 0.0
+            df.loc[_mask_int,"charge_intrants"] = _int_series[_mask_int].astype(float)
+
+            # ── Recalculer Charge Totale avec intrants réels ──────────
+            _plants  = pd.to_numeric(df.get("charge_plants",  pd.Series([0]*len(df),index=df.index)), errors="coerce").fillna(0)
+            _intrant = pd.to_numeric(df["charge_intrants"],   errors="coerce").fillna(0)
+            _avance  = pd.to_numeric(df.get("avance_bourak",  pd.Series([0]*len(df),index=df.index)), errors="coerce").fillna(0)
+            df["charge_totale"]  = (_plants + _intrant + _avance).round(0)
+
+            # ── Prix vente (défaut 270) ───────────────────────────────
+            _pv = pd.to_numeric(df.get("prix_vente", pd.Series([270]*len(df),index=df.index)), errors="coerce").fillna(270)
+            _pv = _pv.where(_pv>0, 270)
+
+            # ── Recalculer Charges totales (avec consignes et MO) ────
+            _cons_plt = pd.to_numeric(df.get("consigne_plateau",pd.Series([0]*len(df),index=df.index)),errors="coerce").fillna(0)
+            _cons_c   = pd.to_numeric(df.get("consigne_caisse", pd.Series([0]*len(df),index=df.index)),errors="coerce").fillna(0)
+            _mo       = pd.to_numeric(df.get("mo_recolte",      pd.Series([0]*len(df),index=df.index)),errors="coerce").fillna(0)
+            _rep      = pd.to_numeric(df.get("report",          pd.Series([0]*len(df),index=df.index)),errors="coerce").fillna(0)
+            _charges_tot = df["charge_totale"] + _cons_plt + _cons_c + _mo
+            df["charges_totales"]     = _charges_tot.round(0)
+            df["charge_a_recouvrir"]  = (_charges_tot + _rep).round(0)
+            df["tonnage_recouvrement"]= (_charges_tot / _pv.where(_pv>0,1)).round(2)
+
+            # ── Recalculer Solde, Valeur, Écart ──────────────────────
+            _ton_livr = pd.to_numeric(df.get("tonnage_livre", pd.Series([0]*len(df),index=df.index)),errors="coerce").fillna(0)
+            df["valeur_livree"] = (_ton_livr * _pv).round(0)
+            df["ecart_tonnage"] = (_ton_livr - df["tonnage_recouvrement"]).round(2)
+            df["solde_final"]   = (df["valeur_livree"] - _charges_tot - _rep).round(0)
+
+            # ── Enrichir Variété / Accessibilité / Usine / Zone ──────
+            for _pk, _dk in [("acces","accessibilite"),("usine","usine"),
+                              ("zone","zone"),("region","region")]:
+                _col_missing = _dk not in df.columns or df[_dk].astype(str).str.strip().isin(["","nan"]).all()
+                if _col_missing:
+                    df[_dk] = df[_agri_col].apply(lambda x: _get_prev(x, _pk))
+
+            # Variété depuis usine (si variete vide, utiliser la zone comme proxy)
+            if "variete" not in df.columns or df["variete"].astype(str).str.strip().isin(["","nan"]).all():
+                df["variete"] = df[_agri_col].apply(lambda x: _get_prev(x,"zone"))
+
     def _no_data():
         if _df_all is None or (hasattr(_df_all,"empty") and _df_all.empty):
             if _is_admin_role:
