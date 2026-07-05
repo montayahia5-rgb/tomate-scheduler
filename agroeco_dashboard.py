@@ -2460,6 +2460,18 @@ padding:16px 20px;margin-bottom:18px'>
             # ← PAS de return : on continue pour afficher les tabs filtrés
 
         if _is_admin:
+            # ── Bouton recalcul forcé si données obsolètes ──────────
+            _sv = st.session_state.get("abo_data_version","")
+            if _sv != "v2026_07_05" and st.session_state.get("abo_merged") is not None:
+                st.warning(f"⚠️ Données version `{_sv}` — version actuelle `v2026_07_05`")
+                if st.button("🔄 **Recalculer maintenant** (mises à jour disponibles)",
+                             type="primary", key="btn_force_recalc"):
+                    # Effacer le cache et forcer la re-fusion
+                    for _k in ["abo_merged","abo_session_loaded","abo_data_version"]:
+                        st.session_state.pop(_k, None)
+                    st.cache_data.clear()
+                    st.rerun()
+
             # ── Paramètres (admin seulement) ─────────────────────
             st.markdown("### ⚙️ Paramètres de calcul")
             pc1,pc2,pc3 = st.columns(3)
