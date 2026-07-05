@@ -1118,6 +1118,17 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             src = df_pivot
 
         if src is None:
+            # Pas de Sotusfa uploadé → utiliser uniquement _INTRANTS_2026
+            base_df["total_intrants"] = base_df["client"].apply(
+                lambda x: _INTRANTS_2026.get(_cn(str(x).strip()), 0.0))
+            # Fuzzy fallback pour les non-trouvés
+            _int2_keys = list(_INTRANTS_2026.keys())
+            def _fuzz_int(x):
+                ck = _cn(str(x).strip())
+                if ck in _INTRANTS_2026: return _INTRANTS_2026[ck]
+                best = max(_int2_keys, key=lambda k: _sco(ck,k), default=None)
+                return _INTRANTS_2026[best] if best and _sco(ck,best)>=0.65 else 0.0
+            base_df["total_intrants"] = base_df["client"].apply(_fuzz_int)
             return base_df
 
         _cli = next((c for c in src.columns if c in ["client","agriculteur","nom"]), None)
@@ -1345,11 +1356,18 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     df["detail_caisse"] = df.apply(_detail_caisse, axis=1)
 
     df["consigne_plateau"] = g("consigne_plateau")
+    # Si Consigne Plateau = 0 → calculer depuis plt_livres × prix_plateau
+    _prix_plt = params.get("prix_plateau", 3.5)  # DT par plateau par défaut
+    _plt_livr = df["plt_livres"].fillna(0)
+    _cons_pl_calc = (_plt_livr * _prix_plt).round(0)
+    df["consigne_plateau"] = df["consigne_plateau"].where(
+        df["consigne_plateau"].fillna(0) > 0, _cons_pl_calc)
     # Consigne caisse : 1ère affectation = ha × nb_caisses/ha × prix_caisse
     # Plants (calcul complet dans la section ci-dessous)
     # ── Plants et Ha (en premier car tout dépend de Ha) ──────────
     df["hectares"]    = g("hectares")      # Ha réels depuis Bourak
-    # Enrichir Ha depuis _PREVISION_2026 si absent ou 0
+    # Enrichir Ha + variete + accessibilite + usine + zone depuis _PREVISION_2026
+    # si absent ou 0 dans le fichier Bourak
     if "_ha_from_prev_done" not in dir():
         _base_ck = base["client"].astype(str).apply(
             lambda x: str(x).strip().upper()
@@ -1376,6 +1394,14 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
                         if len(wck&wbp)/max(len(wck|wbp),1) >= 0.60:
                             _ha_prev.loc[idx] = _PREVISION_2026[best_p].get("ha",0)
         df["hectares"] = _ha_prev
+    # Enrichir variete, accessibilite, usine, zone depuis _PREVISION_2026
+    for _col_prev, _key_prev in [("variete","variete_prev"),("acces","accessibilite"),
+                                   ("usine","usine"),("zone","zone"),("region","region")]:
+        _col_df = {"variete":"variete","acces":"acces","usine":"usine_prev",
+                   "zone":"zone","region":"region"}.get(_col_prev, _col_prev)
+        if _col_df not in df.columns or df[_col_df].astype(str).str.strip().isin(["","nan"]).all():
+            df[_col_df] = df["client"].apply(
+                lambda x: _PREVISION_2026.get(_cn_local(str(x)),{}).get(_col_prev,""))
     df["qte_livree"]  = g("qte_livree")    # Plants livrés
     df["qte_actif"]   = g("qte_actif")     # Plants actifs (pris racine)
     df["qte_extra"]   = g("qte_extra")     # Plants perdus
@@ -1515,7 +1541,10 @@ def export_excel(df, df_sotusfa_raw=None):
         "Ingénieur"           : ["Ingénieur","ingenieur"],
         "Centre"              : ["Centre","centre"],
         "Région"              : ["Région","region"],
-        "Variété"             : ["Variété","variete"],
+        "Variété"             : ["Variété","variete","variete_prev"],
+        "Accessibilité"       : ["Accessibilité","acces","accessibilite"],
+        "Usine"               : ["Usine","usine","usine_prev"],
+        "Zone"                : ["Zone","zone"],
         "Ha"                  : ["Ha","hectares"],
         "Plants Livrés"       : ["Plants Livrés","qte_royal"],
         "Plants Actifs"       : ["Plants Actifs","qte_actif"],
