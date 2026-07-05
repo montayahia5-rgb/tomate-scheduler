@@ -2365,9 +2365,12 @@ padding:16px 20px;margin-bottom:18px'>
     # ── AUTO-RESTAURATION depuis Supabase ─────────────────────
     _is_admin_role = CURRENT_ROLE.lower() in ("directeur","admin")
     # Non-admins : toujours essayer de charger depuis Supabase (pas de cache)
+    # Sauf si un recalcul forcé est en cours (_skip_supabase_restore=True)
+    _skip_restore = st.session_state.get("_skip_supabase_restore", False)
     _should_restore = (
         st.session_state.get("abo_merged") is None and
         sb is not None and
+        not _skip_restore and
         (not st.session_state.get("abo_session_loaded") or not _is_admin_role)
     )
     if _should_restore:
@@ -2466,10 +2469,23 @@ padding:16px 20px;margin-bottom:18px'>
                 st.warning(f"⚠️ Données version `{_sv}` — version actuelle `v2026_07_05`")
                 if st.button("🔄 **Recalculer maintenant** (mises à jour disponibles)",
                              type="primary", key="btn_force_recalc"):
-                    # Effacer le cache et forcer la re-fusion
-                    for _k in ["abo_merged","abo_session_loaded","abo_data_version"]:
+                    # 1. Supprimer la session sauvegardée dans Supabase
+                    if sb:
+                        try:
+                            sb.table("shared_sessions").delete().eq(
+                                "user_name","SHARED_2026").execute()
+                        except Exception:
+                            pass
+                    # 2. Effacer tout le cache local
+                    for _k in ["abo_merged","abo_session_loaded","abo_data_version",
+                               "abo_bourak","abo_royal","abo_sotusfa_raw",
+                               "abo_sotusfa_pivot","abo_quantite","abo_prev_mai",
+                               "abo_params"]:
                         st.session_state.pop(_k, None)
+                    # 3. Poser le flag anti-restore pour éviter rechargement Supabase
+                    st.session_state["_skip_supabase_restore"] = True
                     st.cache_data.clear()
+                    st.info("✅ Cache effacé. Déposez vos fichiers et cliquez **Fusionner**.")
                     st.rerun()
 
             # ── Paramètres (admin seulement) ─────────────────────
