@@ -2885,19 +2885,6 @@ padding:16px 20px;margin-bottom:18px'>
             df["ecart_tonnage"] = (_ton_livr - df["tonnage_recouvrement"]).round(2)
             df["solde_final"]   = (df["valeur_livree"] - _charges_tot - _rep).round(0)
 
-            # ── Recalculer les ratios /ha et /plant ───────────────────
-            _ha_pp    = pd.to_numeric(df.get("hectares", df.get("ha", pd.Series([0]*len(df), index=df.index))),
-                                     errors="coerce").fillna(0)
-            _ha_nz    = _ha_pp.where(_ha_pp > 0, float("nan"))
-            _pl_pp    = pd.to_numeric(df.get("qte_livree", df.get("plants_livres",
-                        pd.Series([0]*len(df), index=df.index))), errors="coerce").fillna(0)
-            _pl_nz    = _pl_pp.where(_pl_pp > 0, float("nan"))
-            df["cout_ha"]            = (df["charge_totale"] / _ha_nz).fillna(0).round(0)
-            df["cout_plant"]         = (df["charge_totale"] / _pl_nz).fillna(0).round(4)
-            df["densite_ha"]         = (_pl_pp / _ha_nz).fillna(0).round(0)
-            df["rendement_ha_reel"]  = (_ton_livr / _ha_nz).fillna(0).round(1)
-            df["recouvrement_ha"]    = (df["tonnage_recouvrement"] / _ha_nz).fillna(0).round(2)
-
             # ── Enrichir Variété / Accessibilité / Usine / Zone ──────
             for _pk, _dk in [("acces","accessibilite"),("usine","usine"),
                               ("zone","zone"),("region","region")]:
@@ -2905,18 +2892,9 @@ padding:16px 20px;margin-bottom:18px'>
                 if _col_missing:
                     df[_dk] = df[_agri_col].apply(lambda x: _get_prev(x, _pk))
 
-            # Variété : les fichiers organisés n'ont pas de colonne variété
-            # → laisser vide (NaN) plutôt que d'afficher des noms de zones
-            # Les variétés (TIGER, HEINZ, etc.) seront ajoutées quand disponibles
-            if "variete" in df.columns:
-                _var_vals = df["variete"].astype(str).str.strip()
-                # Nettoyer les noms de zones incorrectement utilisés comme variétés
-                # (zones = mots courts sans chiffres, ≠ variétés tomate qui contiennent des numéros)
-                _zone_mask = ~_var_vals.isin(["","nan","NaN"])
-                # Garder uniquement les vraies variétés (ex: "TIGER F1", "HEINZ 9780", "H2274")
-                # Les zones sont des noms géographiques sans code variétal
-                _is_real_var = _var_vals.str.contains('[0-9]', regex=True)  # vraie variété a un chiffre
-                df.loc[_zone_mask & ~_is_real_var, "variete"] = ""
+            # Variété depuis usine (si variete vide, utiliser la zone comme proxy)
+            if "variete" not in df.columns or df["variete"].astype(str).str.strip().isin(["","nan"]).all():
+                df["variete"] = df[_agri_col].apply(lambda x: _get_prev(x,"zone"))
 
     def _no_data():
         if _df_all is None or (hasattr(_df_all,"empty") and _df_all.empty):
