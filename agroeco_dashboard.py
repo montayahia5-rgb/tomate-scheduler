@@ -2928,11 +2928,17 @@ padding:16px 20px;margin-bottom:18px'>
                 "Recouv./ha":             "recouvrement_ha",
                 "Valeur Livrée":          "valeur_livree",
                 "Solde Final":            "solde_final",
+                "Écart (T)":             "ecart_tonnage",
                 "Coût/ha":                "cout_ha",
                 "Coût/plant":             "cout_plant",
                 "Densité/ha":             "densite_ha",
                 "T/ha réalisé":           "rendement_ha_reel",
+                "Plants Livrés":          "_plants_display",
+                "Variété":                "variete",
+                "Déb. Récolte":           "date_debut_recolte",
             }
+            # Mettre à jour Plants Livrés affiché depuis plt_livres réels
+            df["_plants_display"] = _pl_from_plt.round(0)
             for _disp, _calc in _col_sync.items():
                 if _disp in df.columns and _calc in df.columns:
                     df[_disp] = df[_calc]
@@ -2952,16 +2958,22 @@ padding:16px 20px;margin-bottom:18px'>
 
             df["cout_ha"]            = (df["charge_totale"] / _ha_nz).fillna(0).round(0)
             df["cout_plant"]         = (df["charge_totale"] / _pl_nz).fillna(0).round(4)
-            # Densité/ha = Plants Livrés réels / Ha
-            # Plants Livrés = Plt Livrés × 228 plants/plateau (ou valeur directe)
-            _plt_col = next((c for c in df.columns
-                            if c.strip().lower() in ["plt livrés","plt_livres","plt livres"]), None)
-            _plt_val = pd.to_numeric(df[_plt_col], errors="coerce").fillna(0) if _plt_col else pd.Series([0]*len(df), index=df.index, dtype=float)
-            # Plants = max(Plants Livrés déclaré, Plt Livrés × 228)
-            _pl_from_plt = _plt_val * 228
-            _pl_real = _pl_pp.where(_pl_pp > 0, _pl_from_plt)
-            _pl_real_nz = _pl_real.where(_pl_real > 0, float("nan"))
-            df["densite_ha"] = (_pl_real / _ha_nz).fillna(0).round(0)
+            # Densité/ha — priorité : nb_plateaux Royal > Plt Livrés Bourak > estimation
+            _nb_plt_col = next((c for c in df.columns
+                               if c.strip().lower() in ["nb_plateaux","nb plateaux","nb plts"]), None)
+            _plt_col    = next((c for c in df.columns
+                               if c.strip().lower() in ["plt livrés","plt_livres","plt livres"]), None)
+            _nb_plt_v   = pd.to_numeric(df[_nb_plt_col], errors="coerce").fillna(0) if _nb_plt_col else pd.Series([0]*len(df), index=df.index, dtype=float)
+            _plt_bourak = pd.to_numeric(df[_plt_col], errors="coerce").fillna(0) if _plt_col else pd.Series([0]*len(df), index=df.index, dtype=float)
+            # Choisir la meilleure source : Royal nb_plateaux > Bourak plt_livres
+            _plt_final  = _nb_plt_v.where(_nb_plt_v > 0, _plt_bourak)
+            _pl_from_plt = _plt_final * 228
+            _pl_nz_plt   = _pl_from_plt.where(_pl_from_plt > 0, float("nan"))
+            _dens_raw    = (_pl_from_plt / _ha_nz).fillna(0)
+            # Valider la densité (15000-40000 plants/ha réaliste pour tomate)
+            _dens_ok     = _dens_raw.where((_dens_raw >= 15000) & (_dens_raw <= 40000), 25000)
+            df["densite_ha"] = _dens_ok.round(0)
+            _pl_nz = _pl_nz_plt
             df["rendement_ha_reel"]  = (_ton_livr / _ha_nz).fillna(0).round(1)
             df["recouvrement_ha"]    = (df["tonnage_recouvrement"] / _ha_nz).fillna(0).round(2)
 
@@ -2988,11 +3000,14 @@ padding:16px 20px;margin-bottom:18px'>
                     if _is_empty:
                         df[_found_col] = df[_agri_col].apply(lambda x: _get_prev(x, _pk))
 
-            # Variété : non disponible dans les fichiers actuels
-            # → toujours vide jusqu'à réception d'un fichier client/variété
+            # Variété : conserver TOUTES les valeurs du fichier Royal
+            # (Savera, Heinz 7709, Dorra, Ercole = toutes vraies variétés)
+            # Ne rien effacer — si la colonne est remplie par l'utilisateur, garder
             _var_col = next((c for c in df.columns if c.strip().lower() in ["variété","variete"]), None)
             if _var_col:
-                df[_var_col] = ""  # Vide — données non fournies
+                # Nettoyer uniquement les valeurs techniques (nan, NaN, None)
+                df[_var_col] = df[_var_col].astype(str).str.strip().replace(
+                    {"nan":"","NaN":"","None":"","NaT":""})
 
     def _no_data():
         if _df_all is None or (hasattr(_df_all,"empty") and _df_all.empty):
