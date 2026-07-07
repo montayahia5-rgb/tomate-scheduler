@@ -2934,7 +2934,6 @@ padding:16px 20px;margin-bottom:18px'>
                 "Densité/ha":             "densite_ha",
                 "T/ha réalisé":           "rendement_ha_reel",
                 "Plants Livrés":          "_plants_display",
-                "Variété":                "variete",
                 "Déb. Récolte":           "date_debut_recolte",
             }
             # Mettre à jour Plants Livrés affiché depuis plt_livres réels
@@ -2945,6 +2944,30 @@ padding:16px 20px;margin-bottom:18px'>
             for _disp, _calc in _col_sync.items():
                 if _disp in df.columns and _calc in df.columns:
                     df[_disp] = df[_calc]
+
+            # ── Variété : logique séparée pour éviter d'écraser avec cache ─
+            # Priorité 1 : colonne "Variété" (export) si elle a de vraies valeurs
+            # Priorité 2 : colonne "variete" (merge depuis Royal) si meilleure
+            _var_disp = next((c for c in df.columns if c.strip() in ["Variété","Variete"]), None)
+            _var_calc = next((c for c in df.columns if c.strip().lower() == "variete"
+                             and c.strip() not in ["Variété","Variete"]), None)
+            if _var_disp and _var_calc:
+                _vd = df[_var_disp].astype(str).str.strip().replace({"nan":"","NaN":"","None":""})
+                _vc = df[_var_calc].astype(str).str.strip().replace({"nan":"","NaN":"","None":""})
+                # Utiliser calc seulement si disp est vide ET calc a de vraies données
+                _use_calc = _vd.isin(["","nan"]) & _vc.ne("")
+                # Ne pas utiliser calc si les valeurs ressemblent à des zones géo
+                # (test: une vraie variété tomate ≠ un nom de zone de 2-3 mots)
+                _is_zone_like = _vc.str.lower().isin([
+                    "dar allouch","amaymia","sidi aich","tefeloun","diar hojjej",
+                    "majel belabess","oued chiba","feriana","garat sassi","ouled omran",
+                    "batten","menzel tamim","el bourak","cap bon 1","cap bon 2",
+                    "gafsa / kassrine","kairouan","cap bon","nabeul"])
+                df.loc[_use_calc & ~_is_zone_like, _var_disp] = _vc[_use_calc & ~_is_zone_like]
+            elif _var_disp:
+                # Nettoyer nan/None
+                df[_var_disp] = df[_var_disp].astype(str).str.strip().replace(
+                    {"nan":"","NaN":"","None":"","NaT":""})
 
             # ── Recalculer les ratios /ha et /plant ───────────────────
             # Recherche insensible à la casse (Ha / ha / hectares / Hectares)
