@@ -1459,16 +1459,9 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
 
     # ── Prévision Mai ─────────────────────────────────────────────
     df["prevision_mai"]     = g("prevision_mai")
-    # Prév. Mai = données réelles uniquement (pas = tonnage total)
-    # Si prevision_mai vient d'un fichier mensuel réel → garder
-    # Sinon → 0 (pas d'estimation sans données mensuelles)
-    _pm_from_file = df["prevision_mai"].fillna(0)
-    # Si Prév. Mai = Tonnage total (= faux positif du calcul) → remettre à 0
-    _ton_from_prev = df.get("tonnage_livre", pd.Series([0]*len(df), index=df.index))
-    _ton_num = pd.to_numeric(_ton_from_prev, errors="coerce").fillna(0)
-    # Ne garder Prév. Mai que si différent du tonnage total ou si vrai fichier mensuel
-    _is_copy_of_total = (_pm_from_file == _ton_num) & (_ton_num > 0)
-    df.loc[_is_copy_of_total, "prevision_mai"] = 0
+    # Prév. Mai FORCÉE À 0 tant que fichier mensuel de mai pas fourni
+    # (les données actuelles sont des totaux annuels, pas mensuels)
+    df["prevision_mai"] = 0.0
     df["prevision_dec"]     = g("prevision_dec")
     df["prevision_juin"]    = g("prevision_juin")
 
@@ -2472,11 +2465,12 @@ padding:16px 20px;margin-bottom:18px'>
 
         if _is_admin:
             # ── Bouton recalcul forcé si données obsolètes ──────────
-            _sv = st.session_state.get("abo_data_version","")
-            if _sv != "v2026_07_05" and st.session_state.get("abo_merged") is not None:
-                st.warning(f"⚠️ Données version `{_sv}` — version actuelle `v2026_07_05`")
-                if st.button("🔄 **Recalculer maintenant** (mises à jour disponibles)",
-                             type="primary", key="btn_force_recalc"):
+            # Bouton NUCLEAIRE : efface tout et repart de zéro
+            _c1, _c2 = st.columns([1,2])
+            with _c1:
+                if st.button("🗑️ **RESET TOTAL**",
+                             type="secondary", key="btn_reset_total",
+                             help="Efface toutes les données Supabase + cache local + force recalcul"):
                     # 1. Supprimer la session sauvegardée dans Supabase
                     if sb:
                         try:
@@ -2941,33 +2935,40 @@ padding:16px 20px;margin-bottom:18px'>
                 df["_plants_display"] = _pl_from_plt.round(0)
             else:
                 df["_plants_display"] = pd.Series([0]*len(df), index=df.index, dtype=float)
+            # Prév. Mai = 0 (données mensuelles non disponibles)
+            _pm_col = next((c for c in df.columns
+                           if c.strip().lower() in ["prév. mai (t)","prev mai","prevision_mai"]), None)
+            if _pm_col:
+                df[_pm_col] = 0.0
+
             for _disp, _calc in _col_sync.items():
                 if _disp in df.columns and _calc in df.columns:
                     df[_disp] = df[_calc]
 
-            # ── Variété : logique séparée pour éviter d'écraser avec cache ─
-            # Priorité 1 : colonne "Variété" (export) si elle a de vraies valeurs
-            # Priorité 2 : colonne "variete" (merge depuis Royal) si meilleure
-            _var_disp = next((c for c in df.columns if c.strip() in ["Variété","Variete"]), None)
-            _var_calc = next((c for c in df.columns if c.strip().lower() == "variete"
-                             and c.strip() not in ["Variété","Variete"]), None)
-            if _var_disp and _var_calc:
-                _vd = df[_var_disp].astype(str).str.strip().replace({"nan":"","NaN":"","None":""})
-                _vc = df[_var_calc].astype(str).str.strip().replace({"nan":"","NaN":"","None":""})
-                # Utiliser calc seulement si disp est vide ET calc a de vraies données
-                _use_calc = _vd.isin(["","nan"]) & _vc.ne("")
-                # Ne pas utiliser calc si les valeurs ressemblent à des zones géo
-                # (test: une vraie variété tomate ≠ un nom de zone de 2-3 mots)
-                _is_zone_like = _vc.str.lower().isin([
-                    "dar allouch","amaymia","sidi aich","tefeloun","diar hojjej",
-                    "majel belabess","oued chiba","feriana","garat sassi","ouled omran",
-                    "batten","menzel tamim","el bourak","cap bon 1","cap bon 2",
-                    "gafsa / kassrine","kairouan","cap bon","nabeul"])
-                df.loc[_use_calc & ~_is_zone_like, _var_disp] = _vc[_use_calc & ~_is_zone_like]
-            elif _var_disp:
-                # Nettoyer nan/None
-                df[_var_disp] = df[_var_disp].astype(str).str.strip().replace(
-                    {"nan":"","NaN":"","None":"","NaT":""})
+            # ── Variété : effacer TOUS les faux noms (zones géographiques)
+            # Vraies variétés tomate : Heinz, Savera, Tiger, Cobra, H2274, etc.
+            # Fausses : dar allouch, amaymia, cap bon, gafsa, kairouan (=zones)
+            _ZONES_KNOWN = {
+                "dar allouch","amaymia","sidi aich","tefeloun","diar hojjej",
+                "majel belabess","oued chiba","feriana","garat sassi","ouled omran",
+                "batten","menzel tamim","el bourak","cap bon 1","cap bon 2",
+                "gafsa / kassrine","gafsa","kairouan","cap bon","nabeul","kassrine",
+                "sidi bouzid","bouficha","hafedh mosbeh","karim garmalah","mourad mansouri",
+                "sebti jabali","souhail bouzana","bilel gha"
+            }
+            _VRAI_VAR_KEYWORDS = ["heinz","savera","tiger","cobra","perfect","dorra",
+                                  "ercole","h1015","h2274","f1","momotaro","lyterno"]
+            for _col in df.columns:
+                if _col.strip().lower() in ["variété","variete"]:
+                    _v = df[_col].astype(str).str.strip()
+                    _v = _v.replace({"nan":"","NaN":"","None":"","NaT":""})
+                    _is_zone = _v.str.lower().isin(_ZONES_KNOWN)
+                    _has_var = _v.str.lower().str.contains(
+                        "|".join(_VRAI_VAR_KEYWORDS), regex=True, na=False)
+                    _has_num = _v.str.contains(r'[0-9]', regex=True, na=False)
+                    # Garder seulement si c'est une vraie variété
+                    _is_real = _has_var | (_has_num & ~_is_zone)
+                    df.loc[~_is_real, _col] = ""
 
             # ── Recalculer les ratios /ha et /plant ───────────────────
             # Recherche insensible à la casse (Ha / ha / hectares / Hectares)
