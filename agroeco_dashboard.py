@@ -2938,7 +2938,10 @@ padding:16px 20px;margin-bottom:18px'>
                 "Déb. Récolte":           "date_debut_recolte",
             }
             # Mettre à jour Plants Livrés affiché depuis plt_livres réels
-            df["_plants_display"] = _pl_from_plt.round(0)
+            if "_pl_from_plt" in dir():
+                df["_plants_display"] = _pl_from_plt.round(0)
+            else:
+                df["_plants_display"] = pd.Series([0]*len(df), index=df.index, dtype=float)
             for _disp, _calc in _col_sync.items():
                 if _disp in df.columns and _calc in df.columns:
                     df[_disp] = df[_calc]
@@ -2973,7 +2976,7 @@ padding:16px 20px;margin-bottom:18px'>
             # Valider la densité (15000-40000 plants/ha réaliste pour tomate)
             _dens_ok     = _dens_raw.where((_dens_raw >= 15000) & (_dens_raw <= 40000), 25000)
             df["densite_ha"] = _dens_ok.round(0)
-            _pl_nz = _pl_nz_plt
+            _pl_nz = _pl_nz_plt if "_pl_nz_plt" in dir() else pd.Series([float("nan")]*len(df), index=df.index)
             df["rendement_ha_reel"]  = (_ton_livr / _ha_nz).fillna(0).round(1)
             df["recouvrement_ha"]    = (df["tonnage_recouvrement"] / _ha_nz).fillna(0).round(2)
 
