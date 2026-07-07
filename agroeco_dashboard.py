@@ -2860,21 +2860,30 @@ padding:16px 20px;margin-bottom:18px'>
                 best = max(_prv_keys, key=lambda k: _sco_pp(ck,k), default=None)
                 return _PREVISION_2026[best].get(key,"") if best and _sco_pp(ck,best)>=0.65 else ""
 
-            # ── Intrants ──────────────────────────────────────────────
+            # ── Intrants : calcul depuis _INTRANTS_2026 ──────────────
             _int_series = df[_agri_col].apply(_get_intrant)
             _mask_int   = _int_series.notna()
+            # Mettre à jour TOUTES les colonnes intrants (interne + affichage)
             if "charge_intrants" not in df.columns:
                 df["charge_intrants"] = 0.0
-            df.loc[_mask_int,"charge_intrants"] = _int_series[_mask_int].astype(float)
+            df.loc[_mask_int, "charge_intrants"] = _int_series[_mask_int].astype(float)
+            # Mettre à jour la colonne affichée "Intrants (DT)" directement
+            _int_display_col = next((c for c in df.columns
+                                    if c.strip().lower() in ["intrants (dt)","intrants(dt)"]), None)
+            if _int_display_col:
+                df.loc[_mask_int, _int_display_col] = _int_series[_mask_int].astype(float)
 
             # ── Recalculer Charge Totale avec intrants réels ──────────
             _cp_col  = next((c for c in df.columns if c.strip().lower() in ["plants (dt)","charge_plants","plants(dt)"]), None)
             _plants  = pd.to_numeric(df[_cp_col], errors="coerce").fillna(0) if _cp_col else pd.Series([0]*len(df), index=df.index, dtype=float)
-            _ci_col  = next((c for c in df.columns if c.strip().lower() in ["intrants (dt)","charge_intrants","intrants(dt)"]), None)
-            _intrant = pd.to_numeric(df[_ci_col], errors="coerce").fillna(0) if _ci_col else df["charge_intrants"].fillna(0) if "charge_intrants" in df.columns else pd.Series([0]*len(df), index=df.index, dtype=float)
+            # Lire les intrants depuis charge_intrants (DÉJÀ mis à jour par _INTRANTS_2026)
+            _intrant = pd.to_numeric(df["charge_intrants"], errors="coerce").fillna(0)
             _av_col  = next((c for c in df.columns if c.strip().lower() in ["avance bourak (dt)","avance_bourak","avance bourak"]), None)
             _avance  = pd.to_numeric(df[_av_col], errors="coerce").fillna(0) if _av_col else pd.Series([0]*len(df), index=df.index, dtype=float)
             df["charge_totale"]  = (_plants + _intrant + _avance).round(0)
+            # Mettre à jour la colonne affichée
+            _ct_col = next((c for c in df.columns if c.strip().lower() in ["charge totale (dt)","charge_totale"]), None)
+            if _ct_col: df[_ct_col] = df["charge_totale"]
 
             # ── Prix vente (défaut 270) ───────────────────────────────
             _pv_col = next((c for c in df.columns if c.strip().lower() in ["prix vente","prix_vente"]), None)
@@ -2910,6 +2919,23 @@ padding:16px 20px;margin-bottom:18px'>
             df["valeur_livree"] = (_ton_livr * _pv).round(0)
             df["ecart_tonnage"] = (_ton_livr - df["tonnage_recouvrement"]).round(2)
             df["solde_final"]   = (df["valeur_livree"] - _charges_tot - _rep).round(0)
+            # Synchroniser toutes les colonnes affichées avec les valeurs calculées
+            _col_sync = {
+                "Charge Totale (DT)":     "charge_totale",
+                "Intrants (DT)":          "charge_intrants",
+                "Charges à recouvrir":    "charge_a_recouvrir",
+                "RECOUVREMENT (T)":       "tonnage_recouvrement",
+                "Recouv./ha":             "recouvrement_ha",
+                "Valeur Livrée":          "valeur_livree",
+                "Solde Final":            "solde_final",
+                "Coût/ha":                "cout_ha",
+                "Coût/plant":             "cout_plant",
+                "Densité/ha":             "densite_ha",
+                "T/ha réalisé":           "rendement_ha_reel",
+            }
+            for _disp, _calc in _col_sync.items():
+                if _disp in df.columns and _calc in df.columns:
+                    df[_disp] = df[_calc]
 
             # ── Recalculer les ratios /ha et /plant ───────────────────
             # Recherche insensible à la casse (Ha / ha / hectares / Hectares)
