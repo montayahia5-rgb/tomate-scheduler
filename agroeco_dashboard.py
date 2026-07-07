@@ -1459,6 +1459,16 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
 
     # ── Prévision Mai ─────────────────────────────────────────────
     df["prevision_mai"]     = g("prevision_mai")
+    # Prév. Mai = données réelles uniquement (pas = tonnage total)
+    # Si prevision_mai vient d'un fichier mensuel réel → garder
+    # Sinon → 0 (pas d'estimation sans données mensuelles)
+    _pm_from_file = df["prevision_mai"].fillna(0)
+    # Si Prév. Mai = Tonnage total (= faux positif du calcul) → remettre à 0
+    _ton_from_prev = df.get("tonnage_livre", pd.Series([0]*len(df), index=df.index))
+    _ton_num = pd.to_numeric(_ton_from_prev, errors="coerce").fillna(0)
+    # Ne garder Prév. Mai que si différent du tonnage total ou si vrai fichier mensuel
+    _is_copy_of_total = (_pm_from_file == _ton_num) & (_ton_num > 0)
+    df.loc[_is_copy_of_total, "prevision_mai"] = 0
     df["prevision_dec"]     = g("prevision_dec")
     df["prevision_juin"]    = g("prevision_juin")
 
@@ -2916,7 +2926,16 @@ padding:16px 20px;margin-bottom:18px'>
 
             df["cout_ha"]            = (df["charge_totale"] / _ha_nz).fillna(0).round(0)
             df["cout_plant"]         = (df["charge_totale"] / _pl_nz).fillna(0).round(4)
-            df["densite_ha"]         = (_pl_pp / _ha_nz).fillna(0).round(0)
+            # Densité/ha = Plants Livrés réels / Ha
+            # Plants Livrés = Plt Livrés × 228 plants/plateau (ou valeur directe)
+            _plt_col = next((c for c in df.columns
+                            if c.strip().lower() in ["plt livrés","plt_livres","plt livres"]), None)
+            _plt_val = pd.to_numeric(df[_plt_col], errors="coerce").fillna(0) if _plt_col else pd.Series([0]*len(df), index=df.index, dtype=float)
+            # Plants = max(Plants Livrés déclaré, Plt Livrés × 228)
+            _pl_from_plt = _plt_val * 228
+            _pl_real = _pl_pp.where(_pl_pp > 0, _pl_from_plt)
+            _pl_real_nz = _pl_real.where(_pl_real > 0, float("nan"))
+            df["densite_ha"] = (_pl_real / _ha_nz).fillna(0).round(0)
             df["rendement_ha_reel"]  = (_ton_livr / _ha_nz).fillna(0).round(1)
             df["recouvrement_ha"]    = (df["tonnage_recouvrement"] / _ha_nz).fillna(0).round(2)
 
@@ -2926,25 +2945,28 @@ padding:16px 20px;margin-bottom:18px'>
                 if _src in df.columns and _dst in df.columns:
                     df[_dst] = df[_src]
 
-            # ── Enrichir Variété / Accessibilité / Usine / Zone ──────
-            for _pk, _dk in [("acces","accessibilite"),("usine","usine"),
-                              ("zone","zone"),("region","region")]:
-                _col_missing = _dk not in df.columns or df[_dk].astype(str).str.strip().isin(["","nan"]).all()
-                if _col_missing:
-                    df[_dk] = df[_agri_col].apply(lambda x: _get_prev(x, _pk))
+            # ── Enrichir Accessibilité / Usine / Zone / Dates depuis _PREVISION_2026
+            for _pk, _col_candidates in [
+                ("acces",      ["Accessibilité","accessibilite"]),
+                ("usine",      ["Usine","usine"]),
+                ("zone",       ["Zone","zone"]),
+                ("region",     ["Région","region"]),
+                ("date_debut", ["Déb. Récolte","date_debut_recolte","deb_recolte","date_debut"]),
+                ("date_fin",   ["Fin Récolte","date_fin_recolte","date_fin"]),
+            ]:
+                # Trouver la colonne correspondante dans df (insensible à la casse)
+                _found_col = next((c for c in df.columns
+                                  if c.strip().lower() in [x.lower() for x in _col_candidates]), None)
+                if _found_col:
+                    _is_empty = df[_found_col].astype(str).str.strip().isin(["","nan","NaN","NaT"]).all()
+                    if _is_empty:
+                        df[_found_col] = df[_agri_col].apply(lambda x: _get_prev(x, _pk))
 
-            # Variété : les fichiers organisés n'ont pas de colonne variété
-            # → laisser vide (NaN) plutôt que d'afficher des noms de zones
-            # Les variétés (TIGER, HEINZ, etc.) seront ajoutées quand disponibles
-            if "variete" in df.columns:
-                _var_vals = df["variete"].astype(str).str.strip()
-                # Nettoyer les noms de zones incorrectement utilisés comme variétés
-                # (zones = mots courts sans chiffres, ≠ variétés tomate qui contiennent des numéros)
-                _zone_mask = ~_var_vals.isin(["","nan","NaN"])
-                # Garder uniquement les vraies variétés (ex: "TIGER F1", "HEINZ 9780", "H2274")
-                # Les zones sont des noms géographiques sans code variétal
-                _is_real_var = _var_vals.str.contains('[0-9]', regex=True)  # vraie variété a un chiffre
-                df.loc[_zone_mask & ~_is_real_var, "variete"] = ""
+            # Variété : non disponible dans les fichiers actuels
+            # → toujours vide jusqu'à réception d'un fichier client/variété
+            _var_col = next((c for c in df.columns if c.strip().lower() in ["variété","variete"]), None)
+            if _var_col:
+                df[_var_col] = ""  # Vide — données non fournies
 
     def _no_data():
         if _df_all is None or (hasattr(_df_all,"empty") and _df_all.empty):
