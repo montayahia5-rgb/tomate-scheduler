@@ -1282,11 +1282,12 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     df["charge_plants"]   = g("valeur_plants")
     df["charge_intrants"] = g("total_intrants")
     df["avance_bourak"]   = g("avance")
-    # Charge totale = plants + intrants Sotusfa + avance + report
+    # Charge totale = plants (Royal) + intrants (Sotusfa) + avance (Bourak)
+    # RÈGLE : ne comptabiliser QUE les données réellement fournies
     df["charge_totale"] = (
-        df["charge_plants"].fillna(0)
-        + df["charge_intrants"].fillna(0)   # ← intrants engrais/pesticides Sotusfa
-        + df["avance_bourak"].fillna(0)
+        df["charge_plants"].fillna(0)       # Plants depuis Royal (0 si non fourni)
+        + df["charge_intrants"].fillna(0)   # Intrants depuis Sotusfa (réel ou estimé confirmé)
+        + df["avance_bourak"].fillna(0)     # Avance depuis RECAP (0 si non fourni)
     )
     # Assurer charge_intrants visible en DT dans l'export
     df["intrants_dt"] = df["charge_intrants"].fillna(0)
@@ -1356,12 +1357,9 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     df["detail_caisse"] = df.apply(_detail_caisse, axis=1)
 
     df["consigne_plateau"] = g("consigne_plateau")
-    # Si Consigne Plateau = 0 → calculer depuis plt_livres × prix_plateau
-    _prix_plt = params.get("prix_plateau", 3.5)  # DT par plateau par défaut
-    _plt_livr = df["plt_livres"].fillna(0)
-    _cons_pl_calc = (_plt_livr * _prix_plt).round(0)
-    df["consigne_plateau"] = df["consigne_plateau"].where(
-        df["consigne_plateau"].fillna(0) > 0, _cons_pl_calc)
+    # Consigne Plateau = 0 jusqu'à saisie des retours réels
+    # (= décalage entre plateaux pris et retournés — donnée non encore disponible)
+    df["consigne_plateau"] = df["consigne_plateau"].fillna(0)
     # Consigne caisse : 1ère affectation = ha × nb_caisses/ha × prix_caisse
     # Plants (calcul complet dans la section ci-dessous)
     # ── Plants et Ha (en premier car tout dépend de Ha) ──────────
@@ -2860,30 +2858,73 @@ padding:16px 20px;margin-bottom:18px'>
             df.loc[_mask_int,"charge_intrants"] = _int_series[_mask_int].astype(float)
 
             # ── Recalculer Charge Totale avec intrants réels ──────────
-            _plants  = pd.to_numeric(df.get("charge_plants",  pd.Series([0]*len(df),index=df.index)), errors="coerce").fillna(0)
-            _intrant = pd.to_numeric(df["charge_intrants"],   errors="coerce").fillna(0)
-            _avance  = pd.to_numeric(df.get("avance_bourak",  pd.Series([0]*len(df),index=df.index)), errors="coerce").fillna(0)
+            _cp_col  = next((c for c in df.columns if c.strip().lower() in ["plants (dt)","charge_plants","plants(dt)"]), None)
+            _plants  = pd.to_numeric(df[_cp_col], errors="coerce").fillna(0) if _cp_col else pd.Series([0]*len(df), index=df.index, dtype=float)
+            _ci_col  = next((c for c in df.columns if c.strip().lower() in ["intrants (dt)","charge_intrants","intrants(dt)"]), None)
+            _intrant = pd.to_numeric(df[_ci_col], errors="coerce").fillna(0) if _ci_col else df["charge_intrants"].fillna(0) if "charge_intrants" in df.columns else pd.Series([0]*len(df), index=df.index, dtype=float)
+            _av_col  = next((c for c in df.columns if c.strip().lower() in ["avance bourak (dt)","avance_bourak","avance bourak"]), None)
+            _avance  = pd.to_numeric(df[_av_col], errors="coerce").fillna(0) if _av_col else pd.Series([0]*len(df), index=df.index, dtype=float)
             df["charge_totale"]  = (_plants + _intrant + _avance).round(0)
 
             # ── Prix vente (défaut 270) ───────────────────────────────
-            _pv = pd.to_numeric(df.get("prix_vente", pd.Series([270]*len(df),index=df.index)), errors="coerce").fillna(270)
+            _pv_col = next((c for c in df.columns if c.strip().lower() in ["prix vente","prix_vente"]), None)
+            _pv = pd.to_numeric(df[_pv_col], errors="coerce").fillna(270) if _pv_col else pd.Series([270.0]*len(df), index=df.index, dtype=float)
             _pv = _pv.where(_pv>0, 270)
 
             # ── Recalculer Charges totales (avec consignes et MO) ────
-            _cons_plt = pd.to_numeric(df.get("consigne_plateau",pd.Series([0]*len(df),index=df.index)),errors="coerce").fillna(0)
-            _cons_c   = pd.to_numeric(df.get("consigne_caisse", pd.Series([0]*len(df),index=df.index)),errors="coerce").fillna(0)
-            _mo       = pd.to_numeric(df.get("mo_recolte",      pd.Series([0]*len(df),index=df.index)),errors="coerce").fillna(0)
-            _rep      = pd.to_numeric(df.get("report",          pd.Series([0]*len(df),index=df.index)),errors="coerce").fillna(0)
-            _charges_tot = df["charge_totale"] + _cons_plt + _cons_c + _mo
+            # Consigne Plateau = 0 (données non encore saisies — décalage plateaux pris/retournés)
+            _cons_plt = pd.Series([0]*len(df), index=df.index, dtype=float)
+            if "consigne_plateau" in df.columns:
+                _cons_plt_raw = pd.to_numeric(df["consigne_plateau"], errors="coerce").fillna(0)
+                # Ne garder que si la valeur vient d'une vraie saisie (pas calculée)
+                # Pour l'instant = 0 jusqu'à réception des données
+                _cons_plt = pd.Series([0]*len(df), index=df.index, dtype=float)
+            _cc_col  = next((c for c in df.columns if c.strip().lower() in ["consigne caisse","consigne_caisse"]), None)
+            _mo_col  = next((c for c in df.columns if c.strip().lower() in ["mo récolte (dt)","mo recolte (dt)","mo_recolte"]), None)
+            _rp_col  = next((c for c in df.columns if c.strip().lower() in ["report (dt)","report_dt","report"]), None)
+            _cons_c  = pd.to_numeric(df[_cc_col], errors="coerce").fillna(0) if _cc_col else pd.Series([0]*len(df), index=df.index, dtype=float)
+            _mo      = pd.to_numeric(df[_mo_col], errors="coerce").fillna(0) if _mo_col else pd.Series([0]*len(df), index=df.index, dtype=float)
+            _rep     = pd.to_numeric(df[_rp_col], errors="coerce").fillna(0) if _rp_col else pd.Series([0]*len(df), index=df.index, dtype=float)
+            # Charges totales RÉELLES = charge_totale + consigne_caisse + MO
+            # NOTE: consigne_plateau = 0 (données non fournies)
+            _charges_tot = df["charge_totale"] + _cons_c + _mo
             df["charges_totales"]     = _charges_tot.round(0)
             df["charge_a_recouvrir"]  = (_charges_tot + _rep).round(0)
             df["tonnage_recouvrement"]= (_charges_tot / _pv.where(_pv>0,1)).round(2)
 
             # ── Recalculer Solde, Valeur, Écart ──────────────────────
-            _ton_livr = pd.to_numeric(df.get("tonnage_livre", pd.Series([0]*len(df),index=df.index)),errors="coerce").fillna(0)
+            _ton_col = next((c for c in df.columns
+                            if c.strip().lower() in ["livré (t)","livre_t","tonnage_livre",
+                                                      "livré t","livret","livré(t)"]), None)
+            _ton_livr = pd.to_numeric(df[_ton_col], errors="coerce").fillna(0) if _ton_col else pd.Series([0]*len(df), index=df.index, dtype=float)
             df["valeur_livree"] = (_ton_livr * _pv).round(0)
             df["ecart_tonnage"] = (_ton_livr - df["tonnage_recouvrement"]).round(2)
             df["solde_final"]   = (df["valeur_livree"] - _charges_tot - _rep).round(0)
+
+            # ── Recalculer les ratios /ha et /plant ───────────────────
+            # Recherche insensible à la casse (Ha / ha / hectares / Hectares)
+            _ha_col = next((c for c in df.columns
+                           if c.strip().lower() in ["ha","hectares","superficie","nbre_ha"]), None)
+            _pl_col = next((c for c in df.columns
+                           if c.strip().lower() in ["plants livrés","plants_livres",
+                                                     "qte_livree","qte livree","plants livres"]), None)
+
+            _ha_pp = pd.to_numeric(df[_ha_col], errors="coerce").fillna(0) if _ha_col else pd.Series([0]*len(df), index=df.index, dtype=float)
+            _ha_nz = _ha_pp.where(_ha_pp > 0, float("nan"))
+            _pl_pp = pd.to_numeric(df[_pl_col], errors="coerce").fillna(0) if _pl_col else pd.Series([0]*len(df), index=df.index, dtype=float)
+            _pl_nz = _pl_pp.where(_pl_pp > 0, float("nan"))
+
+            df["cout_ha"]            = (df["charge_totale"] / _ha_nz).fillna(0).round(0)
+            df["cout_plant"]         = (df["charge_totale"] / _pl_nz).fillna(0).round(4)
+            df["densite_ha"]         = (_pl_pp / _ha_nz).fillna(0).round(0)
+            df["rendement_ha_reel"]  = (_ton_livr / _ha_nz).fillna(0).round(1)
+            df["recouvrement_ha"]    = (df["tonnage_recouvrement"] / _ha_nz).fillna(0).round(2)
+
+            # Aussi mettre à jour les colonnes export (noms avec majuscule)
+            for _src, _dst in [("cout_ha","Coût/ha"), ("cout_plant","Coût/plant"),
+                                ("densite_ha","Densité/ha"), ("rendement_ha_reel","T/ha réalisé")]:
+                if _src in df.columns and _dst in df.columns:
+                    df[_dst] = df[_src]
 
             # ── Enrichir Variété / Accessibilité / Usine / Zone ──────
             for _pk, _dk in [("acces","accessibilite"),("usine","usine"),
@@ -2892,9 +2933,18 @@ padding:16px 20px;margin-bottom:18px'>
                 if _col_missing:
                     df[_dk] = df[_agri_col].apply(lambda x: _get_prev(x, _pk))
 
-            # Variété depuis usine (si variete vide, utiliser la zone comme proxy)
-            if "variete" not in df.columns or df["variete"].astype(str).str.strip().isin(["","nan"]).all():
-                df["variete"] = df[_agri_col].apply(lambda x: _get_prev(x,"zone"))
+            # Variété : les fichiers organisés n'ont pas de colonne variété
+            # → laisser vide (NaN) plutôt que d'afficher des noms de zones
+            # Les variétés (TIGER, HEINZ, etc.) seront ajoutées quand disponibles
+            if "variete" in df.columns:
+                _var_vals = df["variete"].astype(str).str.strip()
+                # Nettoyer les noms de zones incorrectement utilisés comme variétés
+                # (zones = mots courts sans chiffres, ≠ variétés tomate qui contiennent des numéros)
+                _zone_mask = ~_var_vals.isin(["","nan","NaN"])
+                # Garder uniquement les vraies variétés (ex: "TIGER F1", "HEINZ 9780", "H2274")
+                # Les zones sont des noms géographiques sans code variétal
+                _is_real_var = _var_vals.str.contains('[0-9]', regex=True)  # vraie variété a un chiffre
+                df.loc[_zone_mask & ~_is_real_var, "variete"] = ""
 
     def _no_data():
         if _df_all is None or (hasattr(_df_all,"empty") and _df_all.empty):
