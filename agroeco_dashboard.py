@@ -951,10 +951,11 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         return pd.DataFrame()
 
     def _upper(df, cols):
-        for c in cols:
-            if c in df.columns:
-                df[c] = df[c].astype(str).str.strip().str.upper()
-        return df
+    for c in cols:
+        if c in df.columns:
+            df[c] = df[c].fillna("").astype(str).str.strip().str.upper()
+            df[c] = df[c].replace({"NAN": "", "NONE": "", "NAT": ""})
+    return df
 
     base = _upper(base, ["client","centre"])
     KEY = ["client","centre"]
