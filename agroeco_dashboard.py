@@ -20,224 +20,161 @@ import streamlit as st
 # STE 428 = 0 (Sotusfa non disponible)
 # ══════════════════════════════════════════════════════════════════
 _INTRANTS_2026 = {
+    # Valeurs réelles — 5 DETAIL_VENTE + distribution ACHREF
+    # Total : 153 entrées | 3,455,068 DT
+    # Clients absents → intrants = 0 (pas d'estimation)
     'ABDELFATEH BEN SLIMEN': 3295.119,
-    'ABDELHAKIM MEJRI': 2417.35,
+    'ABDELHAKIM MEJRI': 2417.350,
     'ABDELKADER KALBOUSI': 2912.624,
-    'ABDELKADER MANNA': 2450.104,
-    'ABDELKADER OMRANI': 14195.706,
-    'ABDELKADER YEDES': 44790.997,
-    'ABDELKARIM SAAD': 9463.804,
     'ABDELKARIM TRABELSSI': 17203.843,
     'ABDELMALAK NAJJAR': 6362.049,
-    'ABDELRAOUF BOUALEGUE': 10410.185,
-    'ABDESLEM BEN SOUISSI': 3295.119,
-    'ABEDLAZIZ LAYARI': 4479.1,
-    'ABEDLAZIZ LAYARI RAMZI': 10749.839,
-    'ABEDRAZEK BEY': 12541.479,
-    'ABEDSATTAR HATBI': 2687.46,
-    'ABEDSATTAR MATHLOUTHI': 3583.28,
-    'ABELSAMII MANSOURI': 4731.902,
+    'ABEDLAZIZ LAYARI': 19611.604,
+    'ABEDRAZEK BEY': 14235.349,
+    'ABEDSATTAR HATBI': 6078.333,
+    'ABEDSATTAR MATHLOUTHI': 12485.405,
+    'ABELSAMII MANSOURI': 9054.022,
     'ACHREF BEN SASSI': 9937.408,
     'ACHREF HATBI': 2302.163,
-    'ADEL JAZI': 2687.46,
-    'AHMED ATTIA': 3675.155,
-    'AHMED BALLAGUI': 4195.727,
-    'AHMED BEN ALAYA': 30550.68,
+    'ADEL JAZI': 6389.126,
+    'AHMED BALLAGUI': 15377.383,
+    'AHMED BEN ALAYA': 30550.680,
     'AHMED BEN CHIKH': 5723.274,
-    'AHMED BRAYKIA': 14195.706,
     'AHMED HMIDEN': 6094.325,
-    'AHMED IDRISSI': 4900.207,
-    'AHMED MANSOURI': 4731.902,
+    'AHMED IDRISSI': 26651.463,
+    'AHMED MANSOURI': 9054.022,
     'AHMED SASSI': 53528.566,
-    'AKAREM HEMMEDI': 25472.197,
-    'ALAEDINE KILENI': 2687.46,
+    'AKAREM HEMMEDI': 25452.185,
+    'ALAEDINE KILENI': 6634.099,
     'ALI KOTLI': 14806.682,
-    'ALI LTIFI': 4731.902,
-    'AMAR GARMALAH': 18927.609,
-    'AMOR KHECHIN': 101888.788,
-    'ANAS ZAYENI': 10410.185,
-    'ANIS DHAWADI': 2450.104,
-    'ANIS RAYES': 6270.74,
-    'ARBI JABALI': 9463.804,
-    'AYMEN BEN OTHMEN': 4567.67,
-    'AYMEN CHABEN': 4479.1,
-    'AYMEN HATTAB': 24956.221,
-    'AYMEN SAIDI': 12969.999,
-    'AZAIZ BEN ISSA': 17345.143,
+    'AMAR GARMALAH': 65276.027,
+    'ANIS DHAWADI': 4818.502,
+    'ANIS RAYES': 10555.796,
+    'ARBI JABALI': 5403.997,
+    'AYMEN BEN OTHMEN': 4567.670,
+    'AYMEN CHABEN': 7547.209,
+    'AYMEN HATTAB': 25190.721,
+    'AYMEN SAIDI': 13552.400,
     'AZOUZ BEN MASSOUD': 7230.849,
-    'BADIA SAAFI': 23779.789,
-    'BASSEM ZIDI': 11829.755,
-    'BECHA REDHWENI': 4731.902,
-    'BILEL GHA 1': 72566.088,
-    'BILEL GHA 2': 72566.088,
-    'BILEL GHA 3': 72566.088,
-    'BILEL GHA 4': 72566.088,
-    'BILEL KEHIL': 4731.902,
-    'BORNI BOUALEGUE': 7097.853,
-    'BOUBAKER FILALI': 16981.465,
-    'CHIHEB OMRANI': 14195.706,
-    'CHOKRI MANSOURI': 4731.902,
-    'DIVERS CLIENT': 14700.621,
-    'DIVERS CLIENTS': 106134.154,
-    'ELIFA MANSOURI': 4731.902,
-    'EZZEDINE GUESMI': 169814.647,
+    'BADIA SAAFI': 24172.289,
+    'BILEL GHA 1': 14322.017,
+    'BILEL GHA 2': 17187.021,
+    'BILEL GHA 3': 17187.021,
+    'BILEL GHA 4': 15277.019,
+    'BILEL KEHIL': 8593.010,
+    'BOUBAKER FILALI': 20692.349,
+    'CHOKRI MANSOURI': 9054.022,
+    'DIVERS CLIENTS': 655.000,
+    'ELIFA MANSOURI': 9054.022,
+    'EZZEDINE GUESMI': 224984.289,
     'FAOUZI ANTRI': 335.949,
-    'FAYSEL GHOBTAN': 11356.565,
-    'FEDI AMAYMIA': 4731.902,
-    'FETHI LEHBIBI': 22051.717,
+    'FETHI LEHBIBI': 22591.717,
     'FETHI SDIRI': 26405.535,
-    'HABIB BELWEAR': 79219.017,
-    'HABIB MAKHLOUF': 1791.64,
-    'HAFEDH MOSBEH': 59148.777,
-    'HAMED BEN YOUNIS': 13542.026,
-    'HAMED HAMAMMI': 2450.104,
-    'HAMMADI BENZRIBIA': 2450.104,
+    'HABIB BELWEAR': 79780.617,
+    'HABIB MAKHLOUF': 825.700,
+    'HAFEDH MOSBEH': 153812.239,
+    'HAMED BEN YOUNIS': 13643.726,
+    'HAMMADI BENZRIBIA': 3547.951,
     'HAMMADI TRABISI': 3816.583,
-    'HAMZA AMAYMIA': 9463.804,
-    'HANI BEN KILANI': 6398.099,
-    'HASSAN BEN HAJD FRAJ': 19245.535,
+    'HANI BEN KILANI': 4000.976,
+    'HASSAN BEN HAJD FRAJ': 7787.928,
     'HASSEN BEN ALIA': 19245.535,
-    'HAYTHEM AMAYMIA': 9463.804,
-    'HEDI SLAMA': 59435.126,
-    'HICHEM SAAFI': 4551.7,
-    'HICHEM TRABELSI': 3675.155,
-    'HOUSSEM BRAYEK': 2450.104,
-    'HSAN GARMALAH': 9463.804,
+    'HEDI SLAMA': 80555.684,
+    'HICHEM SAAFI': 4551.700,
+    'HSAN GARMALAH': 32638.013,
     'HSSIN HATBI': 2580.577,
     'HSSINE BRINI': 7745.632,
     'IBRAHIM BEN BOUBAKER': 11639.821,
-    'IBRAHIM KILENI': 3583.28,
-    'IBRHIM GWEDRIA': 28391.413,
-    'ILYES MANSOUR': 7097.853,
-    'IMED AMDOUNI': 6992.879,
-    'IMED TRABILSI': 10831.75,
-    'ISAMAIL ZIDI': 14195.706,
-    'ISKANDER BEN SALAH': 4463.875,
-    'ISSAM KOUKI': 10489.318,
+    'IBRAHIM KILENI': 6463.247,
+    'IMED TRABILSI': 10831.750,
+    'ISKANDER BEN SALAH': 11172.867,
     'JABER BEN DHIA': 10761.623,
-    'JALEL RHIM': 3583.28,
-    'JAMEL GARMALAH': 4731.902,
-    'JAMIL ALAYA': 13187.267,
-    'KAIS DHAOUI': 42453.662,
-    'KAIS ELBAKOUCHE': 8483.44,
-    'KAIS MHATLI': 5374.92,
+    'JAMEL GARMALAH': 16319.007,
+    'JAMIL ALAYA': 15333.467,
+    'KAIS DHAOUI': 49777.537,
+    'KAIS ELBAKOUCHE': 8483.440,
     'KAMEL CHOUCHEN': 4231.974,
-    'KAMEL TRABELSSI': 2450.104,
-    'KARIM AMAR': 4731.902,
-    'KARIM GARMALAH 1': 18927.609,
-    'KARIM GARMALAH 2': 18927.609,
+    'KAMEL TRABELSSI': 3529.787,
+    'KARIM GARMALAH 1': 65277.027,
+    'KARIM GARMALAH 2': 65277.027,
     'KHALED BELHAJ': 14690.013,
-    'KHALED CHATER': 17916.399,
-    'KHAMES JABALI': 14195.706,
-    'LAMINE MANSOURI': 7097.853,
+    'KHAMES JABALI': 8645.995,
+    'LAMINE MANSOURI': 12073.029,
     'LASSED NEILI': 10582.837,
-    'LAZHER HAJ MOULDI': 2450.104,
-    'LESWED TLILI': 23659.511,
-    'LOAY GHOBTAN': 9463.804,
-    'LOTFI TRABELSI': 30069.379,
-    'LOTFY HAJIJ': 5374.92,
-    'MAHER BELHAJ FRAJ': 3144.45,
-    'MAHER BELHAJ SALAH': 33935.685,
-    'MAHER BOUALEGUE': 9463.804,
-    'MAHMOUD MESSADI': 7166.56,
+    'LAZHER HAJ MOULDI': 3442.652,
+    'LOTFY HAJIJ': 4117.899,
+    'MAHER BELHAJ FRAJ': 9983.297,
+    'MAHER BELHAJ SALAH': 33975.685,
     'MAKRAM HAFFAR': 26458.648,
-    'MAKREM MBARKI': 4731.902,
-    'MED ALI GARMALAH': 9999.998,
+    'MAKREM MBARKI': 9054.022,
+    'MED ALI GARMALAH': 65277.027,
     'MED MARWENE MAJDOUB': 32099.873,
-    'MED TAHER': 6125.259,
-    'MOEZ BEN ABDALLAH': 3006.564,
-    'MOHAMED ALI GHZELA': 8074.149,
+    'MOHAMED ALI GHZELA': 7692.721,
     'MOHAMED ALI MBAREK': 8074.149,
     'MOHAMED ALI SELMI': 9999.998,
-    'MOHAMED AMAYMIA': 9463.804,
-    'MOHAMED AOUINI': 2687.46,
+    'MOHAMED AOUINI': 5554.825,
     'MOHAMED BEDIA NEJI': 5627.279,
-    'MOHAMED BEL MADHI': 8958.199,
-    'MOHAMED BEN HEDI MEHEMDI': 9677.937,
+    'MOHAMED BEL MADHI': 6306.897,
     'MOHAMED BEN HSSAN': 3313.895,
-    'MOHAMED BEN MOUAOUIA': 88088.235,
-    'MOHAMED BEN SAID': 13850.553,
-    'MOHAMED GARMALAH': 4731.902,
-    'MOHAMED GHARBI': 5374.92,
+    'MOHAMED BEN MOUAOUIA': 88516.635,
+    'MOHAMED BEN SAID': 14228.353,
+    'MOHAMED GARMALAH': 16319.007,
+    'MOHAMED GHARBI': 10466.098,
     'MOHAMED ILYES BEN OTHMEN': 4005.451,
-    'MOHAMED LEHKIMI': 6447.252,
-    'MOHAMED MANNOUBI': 3583.28,
-    'MOHAMED RHIM': 2317.5,
-    'MOHAMED SLIMEN': 9463.804,
+    'MOHAMED MANNOUBI': 1042.650,
+    'MOHAMED RHIM': 2317.500,
     'MOHAMED THAMER BEN ALAYA': 7939.499,
     'MOHAMED ZIADI': 2612.971,
-    'MOHSEN CHEWECH': 10410.185,
-    'MOHSEN OMRANI': 9463.804,
     'MONCEF ELMAJDOUB': 10635.486,
-    'MOUAOUIA MOKTAR': 7439.326,
-    'MOUEZ BEN ISSA': 17345.143,
+    'MOUAOUIA MOKTAR': 7677.326,
+    'MOUEZ BEN ISSA': 1408.000,
     'MOUEZ ESSAAFI': 18569.597,
-    'MOUHAMED AOUINET': 2450.104,
-    'MOUHAMED MESSII': 8575.362,
-    'MOUHAMED TRABELSI': 4900.207,
     'MOUNIR BEY': 35161.198,
-    'MOURAD BELGACEM': 9463.804,
-    'MOURAD HEMMEDI': 36085.612,
-    'MOURAD MANSOURI': 120726.291,
+    'MOURAD HEMMEDI': 35274.241,
+    'MOURAD MANSOURI': 45273.109,
     'NABIL BEN HSSAN': 6838.799,
     'NADER BEN AICHA': 31896.916,
-    'NADER OMRANI': 14195.706,
-    'NAJIB BACCOUCH': 2450.104,
+    'NAJIB BACCOUCH': 5230.390,
     'NAJMEDDINE BEN SALAH': 11928.803,
-    'NASREDIN ZIDI': 23659.511,
-    'NEGI ZAAFOURI': 120992.936,
-    'NEJIB MECHRGUI': 2797.152,
+    'NEGI ZAAFOURI': 119150.897,
     'NIZAR BOUOUD': 2211.749,
     'NIZAR MANAA': 25567.943,
     'NOOMEN ECHAGRAOUI': 143132.481,
-    'NOUREDIN MANSOURI': 9463.804,
-    'OMAR HAMEMI': 26874.598,
-    'OTHMEN DHIBI': 95170.59,
-    'RADHWEN AMAYMIA': 4731.902,
-    'RADHWEN BOUALEGUE': 9463.804,
-    'RAMDHAN MHEDHBI': 106134.154,
+    'NOUREDIN MANSOURI': 18109.044,
+    'OTHMEN DHIBI': 95170.590,
+    'RAMDHAN MHEDHBI': 185047.213,
     'RAMZI HAMDOUN': 7481.149,
     'RAMZI MATHLOUTHI': 7943.208,
-    'RASLEN BEN SALAH': 6397.428,
-    'REBAH SMOUD': 4731.902,
     'RIADH BEN SAID': 12705.045,
-    'RIADH BEN ZBIR': 13037.827,
-    'RIADH KOUKI': 11538.25,
-    'RIDHA AMAYMIA': 9463.804,
+    'RIADH BEN ZBIR': 13647.227,
     'ROMDHAN SAAFI': 7022.986,
-    'SABER KHARBESH': 14333.119,
-    'SALEH BEN HAMOUDA': 12450.0,
-    'SALEM EL MEJRI': 97643.422,
+    'SABER KHARBESH': 15052.009,
+    'SALEH BEN HAMOUDA': 12450.000,
+    'SALEM EL MEJRI': 78995.336,
     'SALEM LEGRERI': 1309.975,
-    'SAMEH BACCOUCH': 4479.1,
+    'SAMEH BACCOUCH': 12730.330,
     'SAMI DAKHLAOUI': 13193.628,
-    'SAMI FERGENI': 23349.514,
-    'SAMI KAAB': 28442.364,
-    'SAMI LASMAR': 5846.75,
+    'SAMI FERGENI': 38404.338,
+    'SAMI KAAB': 28641.164,
+    'SAMI LASMAR': 5846.750,
     'SAMIR ATTIYA': 101107.132,
     'SASSI MANSOUR': 2674.646,
-    'SEBTI JABALI': 86462.945,
-    'SLAH BANI': 3583.28,
-    'SLAH BEN ABDALLAH': 624.251,
+    'SEBTI JABALI': 69169.956,
+    'SLAH BANI': 7602.972,
+    'SLAH BEN ABDALLAH': 1590.164,
     'SLAH HATBI': 5534.132,
-    'SLAH SAAD': 10410.185,
-    'SLIM MARZOUGUI': 4895.015,
-    'SOFIENNE GHZELA': 3583.28,
+    'SLIM MARZOUGUI': 37586.258,
+    'SOFIENNE GHZELA': 2783.129,
     'SOUHAIL BOUZANA': 27241.181,
-    'STE AGROBEST': 30457.878,
     'STE BACCARA': 30260.485,
     'STE KERKOUANE S A': 56340.518,
     'STE SEMAG': 938.196,
-    'TAHER MANSOURI': 4731.902,
+    'TAHER MANSOURI': 9054.022,
     'TAHER MATHLOUTHI': 13023.147,
-    'TALEB JABLAH': 4731.902,
-    'TAREK BEN ABDALAH': 3006.564,
-    'TAREK BEN NJI': 3006.564,
-    'TAREK EL BAHRI': 2450.104,
-    'WISSEM AMAYMIA': 18927.609,
-    'YASIN MNASRI': 82808.288,
-    'YASIN TLILI': 4731.902,
-    'ZOUHAIR BAICH': 22395.499,
+    'TALEB JABLAH': 3241.998,
+    'TAREK BEN ABDALAH': 3338.703,
+    'TAREK BEN NJI': 2504.900,
+    'TAREK EL BAHRI': 5690.425,
+    'ZOUHAIR BAICH': 22268.364,
     'ZOUHAIR BEN ECHIK': 20549.127,
 }
 
@@ -1046,6 +983,7 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
 
         def _cn(n):
             n = str(n).strip().upper()
+            n = _re.sub(r"\s*\([^)]*(?:SICAM|TUCAL|COMOCAP|ABIDA|ELFALLEH|SNVDA)[^)]*\)\s*$", "", n).strip()
             n = _re.sub(r"[(][^)]*[)]","",n)
             n = "".join(c for c in _uc.normalize("NFD",n) if _uc.category(c) != "Mn")
             n = _re.sub(r"[^A-Z0-9 ]"," ",n)
@@ -1158,23 +1096,18 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             client_raw = str(row.get("client","")).strip()
             ck = _cn(client_raw)
 
-            # 0. PRIORITÉ ABSOLUE : données réelles/estimées confirmées 2026
-            if ck in _INTRANTS_2026:
-                result[client_raw] = _INTRANTS_2026[ck]
-                continue
-
-            # 1. Fuzzy sur _INTRANTS_2026 (seuil élevé = confiance)
-            best_pre = max(_INTRANTS_2026.keys(), key=lambda k: _sco(ck,k), default=None)
-            if best_pre and _sco(ck, best_pre) >= 0.70:
-                result[client_raw] = _INTRANTS_2026[best_pre]
-                continue
-
-            # 2. Exact match Sotusfa uploadé
+            # PRIORITÉ 1 : Fichier Sotusfa uploadé (données réelles campagne)
             if ck in sot_clean:
                 result[client_raw] = sot_clean[ck]
                 continue
 
-            # 2. ACHREF : appartient à un groupe → distribution proportionnelle
+            # PRIORITÉ 2 : Fuzzy match sur fichier uploadé (seuil 0.65)
+            best_k = max(sot_keys, key=lambda k: _sco(ck, k), default=None)
+            if best_k and _sco(ck, best_k) >= 0.65:
+                result[client_raw] = sot_clean[best_k]
+                continue
+
+            # PRIORITÉ 3 : ACHREF → distribution proportionnelle
             assigned = False
             for grp_k, membres in ACHREF_GROUPES.items():
                 membres_cn = [_cn(m) for m in membres]
@@ -1196,14 +1129,18 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             if assigned:
                 continue
 
-            # 3. Fuzzy match (seuil 0.55)
-            best_k = max(sot_keys, key=lambda k: _sco(ck, k), default=None)
-            if best_k and _sco(ck, best_k) >= 0.65:
-                # Vérification supplémentaire : les noms sont vraiment proches
-                result[client_raw] = sot_clean[best_k]
+            # PRIORITÉ 4 : _INTRANTS_2026 (valeurs réelles confirmées)
+            if ck in _INTRANTS_2026:
+                result[client_raw] = _INTRANTS_2026[ck]
                 continue
 
-            # 4. Pas trouvé → 0
+            # PRIORITÉ 5 : Fuzzy sur _INTRANTS_2026
+            best_pre = max(_INTRANTS_2026.keys(), key=lambda k: _sco(ck,k), default=None)
+            if best_pre and _sco(ck, best_pre) >= 0.70:
+                result[client_raw] = _INTRANTS_2026[best_pre]
+                continue
+
+            # Pas trouvé → 0 (pas d'estimation inventée)
             result[client_raw] = 0.0
 
         # ── Validation : DT/ha > 500 = données incohérentes → 0 ─────
@@ -2824,6 +2761,7 @@ padding:16px 20px;margin-bottom:18px'>
     import re as _re_pp, unicodedata as _uc_pp
     def _cn_pp(n):
         n = str(n).strip().upper()
+        n = _re_pp.sub(r"\s*\([^)]*(?:SICAM|TUCAL|COMOCAP|ABIDA|ELFALLEH|SNVDA)[^)]*\)\s*$", "", n).strip()
         n = _re_pp.sub(r"[(][^)]*[)]","",n)
         n = "".join(c for c in _uc_pp.normalize("NFD",n) if _uc_pp.category(c)!="Mn")
         n = _re_pp.sub(r"[^A-Z0-9 ]"," ",n)
