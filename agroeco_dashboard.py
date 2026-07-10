@@ -2838,6 +2838,12 @@ padding:16px 20px;margin-bottom:18px'>
         return max(sj,sc)
 
     if df is not None and not (hasattr(df,"empty") and df.empty):
+        try:
+          _int_keys_test = list(_INTRANTS_2026.keys())
+        except Exception as e:
+          st.error(f"ERREUR POST-PROCESSING: {e}")
+          import traceback; st.code(traceback.format_exc())
+          st.stop()
         _int_keys = list(_INTRANTS_2026.keys())
         _prv_keys = list(_PREVISION_2026.keys())
         _agri_col = next((c for c in ["agriculteur","client"] if c in df.columns), None)
