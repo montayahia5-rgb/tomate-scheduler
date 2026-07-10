@@ -951,11 +951,11 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         return pd.DataFrame()
 
     def _upper(df, cols):
-        for c in cols:
-            if c in df.columns:
-                df[c] = df[c].fillna("").astype(str).str.strip().str.upper()
-                df[c] = df[c].replace({"NAN": "", "NONE": "", "NAT": ""})
-        return df
+    for c in cols:
+        if c in df.columns:
+            df[c] = df[c].fillna("").astype(str).str.strip().str.upper()
+            df[c] = df[c].replace({"NAN": "", "NONE": "", "NAT": ""})
+    return df
 
     base = _upper(base, ["client","centre"])
     KEY = ["client","centre"]
@@ -1046,7 +1046,6 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
 
         def _cn(n):
             n = str(n).strip().upper()
-            n = _re.sub(r"[^A-Z0-9 (]", " ", n).strip()
             n = _re.sub(r"[(][^)]*[)]","",n)
             n = "".join(c for c in _uc.normalize("NFD",n) if _uc.category(c) != "Mn")
             n = _re.sub(r"[^A-Z0-9 ]"," ",n)
@@ -1159,18 +1158,22 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             client_raw = str(row.get("client","")).strip()
             ck = _cn(client_raw)
 
-            # PRIORITÉ 1 : Fichier Sotusfa uploadé (données réelles)
+            # 0. PRIORITÉ ABSOLUE : données réelles/estimées confirmées 2026
+            if ck in _INTRANTS_2026:
+                result[client_raw] = _INTRANTS_2026[ck]
+                continue
+
+            # 1. Fuzzy sur _INTRANTS_2026 (seuil élevé = confiance)
+            best_pre = max(_INTRANTS_2026.keys(), key=lambda k: _sco(ck,k), default=None)
+            if best_pre and _sco(ck, best_pre) >= 0.70:
+                result[client_raw] = _INTRANTS_2026[best_pre]
+                continue
+
+            # 2. Exact match Sotusfa uploadé
             if ck in sot_clean:
                 result[client_raw] = sot_clean[ck]
                 continue
 
-            # PRIORITÉ 2 : Fuzzy match fichier uploadé (seuil 0.65)
-            best_k = max(sot_keys, key=lambda k: _sco(ck, k), default=None)
-            if best_k and _sco(ck, best_k) >= 0.65:
-                result[client_raw] = sot_clean[best_k]
-                continue
-
-            # PRIORITÉ 3 : ACHREF → distribution
             # 2. ACHREF : appartient à un groupe → distribution proportionnelle
             assigned = False
             for grp_k, membres in ACHREF_GROUPES.items():
@@ -1193,19 +1196,16 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             if assigned:
                 continue
 
-            # PRIORITÉ 4 : _INTRANTS_2026 (valeurs réelles confirmées)
-            if ck in _INTRANTS_2026:
-                result[client_raw] = _INTRANTS_2026[ck]
+            # 3. Fuzzy match (seuil 0.55)
+            best_k = max(sot_keys, key=lambda k: _sco(ck, k), default=None)
+            if best_k and _sco(ck, best_k) >= 0.65:
+                # Vérification supplémentaire : les noms sont vraiment proches
+                result[client_raw] = sot_clean[best_k]
                 continue
 
-            # PRIORITÉ 5 : Fuzzy sur _INTRANTS_2026
-            best_pre = max(_INTRANTS_2026.keys(), key=lambda k: _sco(ck,k), default=None)
-            if best_pre and _sco(ck, best_pre) >= 0.70:
-                result[client_raw] = _INTRANTS_2026[best_pre]
-                continue
-
-            # Pas trouvé → 0
+            # 4. Pas trouvé → 0
             result[client_raw] = 0.0
+
         # ── Validation : DT/ha > 500 = données incohérentes → 0 ─────
         # Max réaliste pour intrants tomate = ~300 DT/ha
         # Si plus → les intrants du GROUPE ont été assignés à UN SEUL membre
@@ -2838,12 +2838,6 @@ padding:16px 20px;margin-bottom:18px'>
         return max(sj,sc)
 
     if df is not None and not (hasattr(df,"empty") and df.empty):
-        try:
-          _int_keys_test = list(_INTRANTS_2026.keys())
-        except Exception as e:
-          st.error(f"ERREUR POST-PROCESSING: {e}")
-          import traceback; st.code(traceback.format_exc())
-          st.stop()
         _int_keys = list(_INTRANTS_2026.keys())
         _prv_keys = list(_PREVISION_2026.keys())
         _agri_col = next((c for c in ["agriculteur","client"] if c in df.columns), None)
