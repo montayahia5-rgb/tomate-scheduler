@@ -951,11 +951,11 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         return pd.DataFrame()
 
     def _upper(df, cols):
-    for c in cols:
-        if c in df.columns:
-            df[c] = df[c].fillna("").astype(str).str.strip().str.upper()
-            df[c] = df[c].replace({"NAN": "", "NONE": "", "NAT": ""})
-    return df
+        for c in cols:
+            if c in df.columns:
+                df[c] = df[c].fillna("").astype(str).str.strip().str.upper()
+                df[c] = df[c].replace({"NAN": "", "NONE": "", "NAT": ""})
+        return df
 
     base = _upper(base, ["client","centre"])
     KEY = ["client","centre"]
@@ -1046,7 +1046,7 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
 
         def _cn(n):
             n = str(n).strip().upper()
-            n = _re, unicodedata as _uc.sub(r'\s*\([^)]*(?:SICAM|TUCAL|COMOCAP|ABIDA|ELFALLEH|SNVDA)[^)]*\)\s*$', "", n).strip()
+            n = _re.sub(r"[^A-Z0-9 (]", " ", n).strip()
             n = _re.sub(r"[(][^)]*[)]","",n)
             n = "".join(c for c in _uc.normalize("NFD",n) if _uc.category(c) != "Mn")
             n = _re.sub(r"[^A-Z0-9 ]"," ",n)
