@@ -914,58 +914,76 @@ def load_users() -> dict:
     # CHANGE CES MOTS DE PASSE avant de mettre en production !
     return {
         "directeur": {
-            "password": hash_password("admin2026"),
+            "password": "6051fc84a7a0d74c225fb18a496b09952da5642e60723ecae543298edd7d82d6",
             "role":     "directeur",
-            "name":     "Directeur Général",
+            "name":     "Directeur General",
             "filter":   "",
         },
         "fedi": {
-            "password": hash_password("fedi2026"),
+            "password": "4c9806477c34233bde7f927e4c32e71f61f18a03d8f1dbbea7eed62b52f68e80",
             "role":     "commercial",
             "name":     "FEDI",
             "filter":   "FEDI",
         },
         "makki": {
-            "password": hash_password("makki2026"),
+            "password": "dea689708af4c45ef9c7bd4a84a7be0c0cfaf86ea61a25946c91e6372d0b9bd5",
             "role":     "commercial",
             "name":     "MAKKI BEN SALAH",
             "filter":   "MAKKI BEN SALAH",
         },
         "khalil": {
-            "password": hash_password("khalil2026"),
+            "password": "8673b5cfef6d807071848ed5087de701a011ee30cfd8c319a5441ab6c529767b",
             "role":     "commercial",
             "name":     "KHALIL",
             "filter":   "KHALIL",
         },
         "achref": {
-            "password": hash_password("achref2026"),
+            "password": "9963e33a2017503ba137009a825b2967177532f5ad1454f199cbcae49a6df156",
             "role":     "commercial",
             "name":     "ACHREF AJLANI",
             "filter":   "ACHREF AJLANI",
         },
         "jilani": {
-            "password": hash_password("jilani2026"),
+            "password": "2bcc02eb315a8e31e9c00380096925bd4dd0fbb23c463380bfcdf748040e41b8",
             "role":     "commercial",
             "name":     "JILANI OBAY",
             "filter":   "JILANI OBAY",
         },
         "comocap": {
-            "password": hash_password("comocap2026"),
+            "password": "3f276a837113a5f2d1d39351ec763e37f4b254d9148b5c4cec7f1121183d276f",
             "role":     "usine",
             "name":     "COMOCAP",
             "filter":   "COMOCAP",
         },
         "sicam": {
-            "password": hash_password("sicam2026"),
+            "password": "f6e1df72ff9f1c25236226624b47c6417ee18031eb35f7179aaf12a73bdf24ab",
             "role":     "usine",
             "name":     "SICAM",
             "filter":   "SICAM",
         },
         "tucal": {
-            "password": hash_password("tucal2026"),
+            "password": "9fd85359508dd65535e69b45d7ca357b1b3ae0d36ed3d8438dbf677f5ca83abd",
             "role":     "usine",
             "name":     "TUCAL",
             "filter":   "TUCAL",
+        },
+        "baccara": {
+            "password": "a3997ef8b11c2d90fb5a05c4d807f6d530d1a3c0940fd7f61ed2a2b4cb0a5800",
+            "role":     "centre",
+            "name":     "STE BACCARA",
+            "filter":   "STE BACCARA",
+        },
+        "kerkouane": {
+            "password": "94776c6081efbbd6b24e28789add1912fc3e930f06bb58e4aeb6c41b24c12c46",
+            "role":     "centre",
+            "name":     "STE KERKOUANE S.A",
+            "filter":   "STE KERKOUANE S.A",
+        },
+        "centre428": {
+            "password": "e7e32a9ea2a259655a98ee0992de2c1f5585fe6bb81afe3c2117a4ba6273ac0b",
+            "role":     "centre",
+            "name":     "STE 428 SERVICES AGRICOLES",
+            "filter":   "STE 428 SERVICES AGRICOLES",
         },
     }
 
