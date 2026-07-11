@@ -953,8 +953,7 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     def _upper(df, cols):
         for c in cols:
             if c in df.columns:
-                df[c] = df[c].fillna("").astype(str).str.strip().str.upper()
-                df[c] = df[c].replace({"NAN": "", "NONE": "", "NAT": ""})
+                df[c] = df[c].astype(str).str.strip().str.upper()
         return df
 
     base = _upper(base, ["client","centre"])
@@ -1158,29 +1157,23 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             client_raw = str(row.get("client","")).strip()
             ck = _cn(client_raw)
 
-            # PRIORITÉ 1 : Fichier Sotusfa uploadé (données réelles)
-            if ck in sot_clean:
-                result[client_raw] = sot_clean[ck]
-                continue
-
-            # PRIORITÉ 2 : Fuzzy match fichier uploadé (seuil 0.65)
-            best_k = max(sot_keys, key=lambda k: _sco(ck, k), default=None)
-            if best_k and _sco(ck, best_k) >= 0.65:
-                result[client_raw] = sot_clean[best_k]
-                continue
-
-            # PRIORITÉ 3 : _INTRANTS_2026 (valeurs réelles)
+            # 0. PRIORITÉ ABSOLUE : données réelles/estimées confirmées 2026
             if ck in _INTRANTS_2026:
                 result[client_raw] = _INTRANTS_2026[ck]
                 continue
 
-            # PRIORITÉ 4 : Fuzzy sur _INTRANTS_2026
+            # 1. Fuzzy sur _INTRANTS_2026 (seuil élevé = confiance)
             best_pre = max(_INTRANTS_2026.keys(), key=lambda k: _sco(ck,k), default=None)
             if best_pre and _sco(ck, best_pre) >= 0.70:
                 result[client_raw] = _INTRANTS_2026[best_pre]
                 continue
 
-            # ACHREF : appartient à un groupe → distribution proportionnelle
+            # 2. Exact match Sotusfa uploadé
+            if ck in sot_clean:
+                result[client_raw] = sot_clean[ck]
+                continue
+
+            # 2. ACHREF : appartient à un groupe → distribution proportionnelle
             assigned = False
             for grp_k, membres in ACHREF_GROUPES.items():
                 membres_cn = [_cn(m) for m in membres]
@@ -1468,7 +1461,7 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     df["prevision_mai"]     = g("prevision_mai")
     # Prév. Mai FORCÉE À 0 tant que fichier mensuel de mai pas fourni
     # (les données actuelles sont des totaux annuels, pas mensuels)
-    df["prevision_mai"] = 0.0
+    # df["prevision_mai"] = 0.0  # SUPPRIMÉ : le fichier Mai est disponible
     df["prevision_dec"]     = g("prevision_dec")
     df["prevision_juin"]    = g("prevision_juin")
 
@@ -3912,7 +3905,7 @@ Score d'efficacité · Benchmark commerciaux · Matrice ROI · Recommandations a
                 _df7["rendement_ha"] = _df7.apply(
                     lambda r: round(r["tonnage_livre"]/r["hectares"],1) if r.get("hectares",0)>0 else 0, axis=1)
             _df7["cout_intrant_tonne"] = _df7.apply(
-                lambda r: round(r["total_intrants"]/r["tonnage_livre"],1) if r["tonnage_livre"]>0 else 0, axis=1)
+                lambda r: round(r["total_intrants"] / max(r["tonnage_livre"], r.get("prevision_mai",0) or r.get("prevision_juin",0) or 1), 1) if r.get("total_intrants",0) > 0 else 0, axis=1)
             _df7["cout_intrant_ha"] = _df7.apply(
                 lambda r: round(r["total_intrants"]/r["hectares"],1) if r["hectares"]>0 else 0, axis=1)
             _df7["roi_pct"] = _df7.apply(
