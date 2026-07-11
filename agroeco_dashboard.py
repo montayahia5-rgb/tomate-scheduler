@@ -1230,21 +1230,9 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             # 4. Pas trouvé → 0
             result[client_raw] = 0.0
 
-        # ── Validation : DT/ha > 500 = données incohérentes → 0 ─────
-        # Max réaliste pour intrants tomate = ~300 DT/ha
-        # Si plus → les intrants du GROUPE ont été assignés à UN SEUL membre
-        base_df["total_intrants"] = base_df["client"].apply(lambda x: result.get(str(x).strip(), 0.0))
-
-        if "hectares" in base_df.columns:
-            _ha_v = pd.to_numeric(base_df["hectares"], errors="coerce").fillna(0)
-            _int_v = pd.to_numeric(base_df["total_intrants"], errors="coerce").fillna(0)
-            _dt_ha = _int_v / _ha_v.where(_ha_v > 0, float("nan"))
-            # Si DT/ha > 500 : intrants incohérents → mettre NaN (données manquantes)
-            _mask_bad = _dt_ha > 500
-            if _mask_bad.any():
-                base_df.loc[_mask_bad, "total_intrants"] = float("nan")
-                _n_bad = _mask_bad.sum()
-                # Log silencieux (visible dans les alertes du dashboard)
+        # ── Assigner les intrants ──────────────────────────────────────
+        base_df["total_intrants"] = base_df["client"].apply(
+            lambda x: result.get(str(x).strip(), 0.0))
 
         return base_df
 
