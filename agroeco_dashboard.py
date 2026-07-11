@@ -953,7 +953,8 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     def _upper(df, cols):
         for c in cols:
             if c in df.columns:
-                df[c] = df[c].astype(str).str.strip().str.upper()
+                df[c] = df[c].fillna("").astype(str).str.strip().str.upper()
+                df[c] = df[c].replace({"NAN": "", "NONE": "", "NAT": ""})
         return df
 
     base = _upper(base, ["client","centre"])
@@ -1461,7 +1462,11 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     df["prevision_mai"]     = g("prevision_mai")
     # Prév. Mai FORCÉE À 0 tant que fichier mensuel de mai pas fourni
     # (les données actuelles sont des totaux annuels, pas mensuels)
-    # df["prevision_mai"] = 0.0  # SUPPRIMÉ : le fichier Mai est disponible
+    # Prév. Mai depuis _PREVISION_2026 (tonnages planifiés)
+    _prev_tons_dict = {str(k).strip().upper(): float(v.get("ton", 0)) for k, v in _PREVISION_2026.items()}
+    df["prevision_mai"] = df["client"].apply(
+        lambda x: _prev_tons_dict.get(str(x).strip().upper(), 0)
+    ).astype(float)
     df["prevision_dec"]     = g("prevision_dec")
     df["prevision_juin"]    = g("prevision_juin")
 
@@ -3905,7 +3910,11 @@ Score d'efficacité · Benchmark commerciaux · Matrice ROI · Recommandations a
                 _df7["rendement_ha"] = _df7.apply(
                     lambda r: round(r["tonnage_livre"]/r["hectares"],1) if r.get("hectares",0)>0 else 0, axis=1)
             _df7["cout_intrant_tonne"] = _df7.apply(
-                lambda r: round(r["total_intrants"] / max(r["tonnage_livre"], r.get("prevision_mai",0) or r.get("prevision_juin",0) or 1), 1) if r.get("total_intrants",0) > 0 else 0, axis=1)
+                lambda r: round(r["total_intrants"] / max(
+                    r.get("tonnage_livre") or 0,
+                    r.get("prevision_mai") or 0,
+                    r.get("prevision_juin") or 0, 1), 1
+                ) if r.get("total_intrants", 0) > 0 else 0, axis=1)
             _df7["cout_intrant_ha"] = _df7.apply(
                 lambda r: round(r["total_intrants"]/r["hectares"],1) if r["hectares"]>0 else 0, axis=1)
             _df7["roi_pct"] = _df7.apply(
