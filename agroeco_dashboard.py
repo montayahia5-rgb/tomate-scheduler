@@ -98,6 +98,71 @@ _INTRANTS_2026 = {
     'TAREK BEN ABDALAH': 3338.703, 'TAREK BEN NJI': 2504.900,
     'TAREK EL BAHRI': 5690.425, 'ZOUHAIR BAICH': 22268.364,
     'ZOUHAIR BEN ECHIK': 20549.127,
+
+    # ── Ajouts ACHREF (distribution Ha) + FEDI manquants ──
+    'ABDELKADER OMRANI': 14704.061,
+    'ABDELKARIM SAAD': 9802.707,
+    'ABDELRAOUF BOUALEGUE': 10782.978,
+    'ABELSAMII MANSOURI': 8325.951,
+    'AHMED BRAYKIA': 14704.061,
+    'AHMED MANSOURI': 8325.951,
+    'ALI LTIFI': 6135.021,
+    'AMAR GARMALAH': 24540.085,
+    'ANAS ZAYENI': 13497.047,
+    'ARBI JABALI': 6404.663,
+    'BASSEM ZIDI': 12253.384,
+    'BECHA REDHWENI': 4901.354,
+    'BILEL GHA 1': 13193.834,
+    'BILEL GHA 2': 13193.834,
+    'BILEL GHA 3': 32984.585,
+    'BILEL GHA 4': 13193.834,
+    'BILEL KEHIL': 4901.354,
+    'BORNI BOUALEGUE': 7352.030,
+    'CHIHEB OMRANI': 14704.061,
+    'CHOKRI MANSOURI': 8325.951,
+    'ELIFA MANSOURI': 8325.951,
+    'FAYSEL GHOBTAN': 11763.248,
+    'FEDI AMAYMIA': 6135.021,
+    'HAFEDH MOSBEH': 61266.919,
+    'HAMZA AMAYMIA': 12270.043,
+    'HAYTHEM AMAYMIA': 12270.043,
+    'HSAN GARMALAH': 12270.043,
+    'IBRHIM GWEDRIA': 36810.128,
+    'ILYES MANSOUR': 7352.030,
+    'ISAMAIL ZIDI': 14704.061,
+    'JAMEL GARMALAH': 6135.021,
+    'KARIM AMAR': 4901.354,
+    'KARIM GARMALAH 1': 24540.085,
+    'KARIM GARMALAH 2': 24540.085,
+    'KHAMES JABALI': 9606.994,
+    'LAMINE MANSOURI': 12488.927,
+    'LESWED TLILI': 30675.107,
+    'LOAY GHOBTAN': 9802.707,
+    'MAHER BOUALEGUE': 9802.707,
+    'MAKREM MBARKI': 8325.951,
+    'MED ALI GARMALAH': 24540.085,
+    'MOHAMED GARMALAH': 6135.021,
+    'MOHAMED LEHKIMI': 6447.252,
+    'MOHAMED SLIMEN': 12270.043,
+    'MOHSEN CHEWECH': 10782.978,
+    'MOHSEN OMRANI': 9802.707,
+    'MOURAD BELGACEM': 9802.707,
+    'MOURAD MANSOURI': 41629.756,
+    'NADER OMRANI': 14704.061,
+    'NASREDIN ZIDI': 24506.768,
+    'NOUREDIN MANSOURI': 16651.902,
+    'RADHWEN AMAYMIA': 6135.021,
+    'RADHWEN BOUALEGUE': 9802.707,
+    'RASLEN BEN SALAH': 6397.428,
+    'REBAH SMOUD': 6135.021,
+    'RIDHA AMAYMIA': 12270.043,
+    'SEBTI JABALI': 70451.289,
+    'SLAH SAAD': 10782.978,
+    'TAHER MANSOURI': 8325.951,
+    'TALEB JABLAH': 6135.021,
+    'WISSEM AMAYMIA': 24540.085,
+    'YASIN MNASRI': 85773.687,
+    'YASIN TLILI': 6135.021,
 }
 
 # ══════════════════════════════════════════════════════════════════
@@ -1431,19 +1496,14 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
 
     # ── Prévision Mai ─────────────────────────────────────────────
     df["prevision_mai"]     = g("prevision_mai")
-    # Prév. Mai FORCÉE À 0 tant que fichier mensuel de mai pas fourni
-    # (les données actuelles sont des totaux annuels, pas mensuels)
-    # Prév. Mai depuis _PREVISION_2026 (tonnages planifiés)
-    try:
-        import unicodedata as _uc_pm, re as _re_pm
-        def _nrm_pm(s):
-            s = str(s).strip().upper()
-            s = "".join(c for c in _uc_pm.normalize("NFD",s) if _uc_pm.category(c)!="Mn")
-            return _re_pm.sub(r"\s+", " ", _re_pm.sub(r"[^A-Z0-9 ]"," ",s)).strip()
-        _pm_dict = {_nrm_pm(k): float(v.get("ton",0) or 0) for k,v in _PREVISION_2026.items()}
-        df["prevision_mai"] = df["client"].apply(lambda x: _pm_dict.get(_nrm_pm(x), 0)).astype(float)
-    except Exception:
-        df["prevision_mai"] = 0.0
+    # Fallback Prév. Mai: si valeur uploadée = 0, utiliser _PREVISION_2026["ton"]
+    _pm_fb = {str(k).strip().upper(): float((v or {}).get("ton", 0) or 0)
+              for k, v in _PREVISION_2026.items()}
+    _mask_zero = df["prevision_mai"].fillna(0) == 0
+    if _mask_zero.any():
+        _fb = df.loc[_mask_zero, "client"].apply(
+            lambda x: _pm_fb.get(str(x).strip().upper(), 0))
+        df.loc[_mask_zero, "prevision_mai"] = _fb.values
     df["prevision_dec"]     = g("prevision_dec")
     df["prevision_juin"]    = g("prevision_juin")
 
