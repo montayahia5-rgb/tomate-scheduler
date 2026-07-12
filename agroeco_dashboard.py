@@ -1404,7 +1404,8 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             if u_key.upper() in usine or usine in u_key.upper():
                 nb = cfg["nb_ha"]; px = cfg["prix"]
                 total = round(ha * nb * px, 0)
-                return f"1ère — {int(ha*nb)} caisses × {px} DT = {total:,.0f} DT"
+                nb_caisses = int(ha*nb) if (ha==ha and nb==nb and ha is not None and nb is not None) else 0
+            return f"1ère — {nb_caisses} caisses x {px} DT = {total:,.0f} DT"
         nb = _nb_global; px = _px_global
         return f"1ère — {int(ha*nb)} caisses × {px} DT = {round(ha*nb*px):,.0f} DT"
 
