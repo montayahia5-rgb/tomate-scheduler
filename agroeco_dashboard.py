@@ -1036,7 +1036,7 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         # Colonnes mode (variete, zone) séparément
         for _mc in ["variete","zone"]:
             if _mc in r.columns:
-                _mv = r.groupby(KEY)[_mc].agg(lambda x: x.mode()[0] if len(x)>0 else "").reset_index()
+                _mv = r.groupby(KEY)[_mc].agg(lambda x: x.mode().iloc[0] if len(x.mode())>0 else "").reset_index()
                 r_grp_base = r_grp_base.merge(_mv, on=KEY, how="left")
         # Renommer pour compatibilité
         _rename_r = {"qte_livree":"qte_royal","date_debut_livraison":"date_debut_liv",
