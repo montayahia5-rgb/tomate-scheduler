@@ -592,6 +592,7 @@ padding:12px 16px;border-top:3px solid {color}'>
 # ══════════════════════════════════════════════════════════════
 # SUPABASE — Date début récolte par agriculteur
 # ══════════════════════════════════════════════════════════════
+@st.cache_data(ttl=300, show_spinner=False)
 def load_date_debut_recolte(sb):
     """
     Charge depuis Supabase (plan_rectifie_detail) la date MIN de livraison
@@ -2325,6 +2326,7 @@ def save_session_to_supabase(sb, user_name, session_data):
         return False, f"{type(e).__name__}: {e}"
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def load_session_from_supabase(sb, user_name="SHARED_2026"):
     """Charge la session partagée depuis Supabase."""
     if sb is None: return None
@@ -2522,21 +2524,23 @@ padding:16px 20px;margin-bottom:18px'>
 
             # ── Paramètres (admin seulement) ─────────────────────
             st.markdown("### ⚙️ Paramètres de calcul")
-            pc1,pc2,pc3 = st.columns(3)
-            with pc1:
-                st.markdown("**💰 Prix vente global (DT/tonne)**")
-                st.caption("Utilisé si absent du tableau quantité")
-                prix_global = st.number_input("Prix vente DT/T",0.0,1000.0,240.0,10.0,key="px_g")
-            with pc2:
-                st.markdown("**🔲 Consigne plateaux (DT/plateau)**")
-                p228pvc  = st.number_input("Pltx 228 PVC", 0.0,50.0,2.5,0.1,key="p1")
-                p228poly = st.number_input("Pltx 228 POLY",0.0,50.0,2.0,0.1,key="p2")
-                p160pvc  = st.number_input("Pltx 160 PVC", 0.0,50.0,2.0,0.1,key="p3")
-                p160poly = st.number_input("Pltx 160 POLY",0.0,50.0,1.8,0.1,key="p4")
-            with pc3:
-                st.markdown("**📦 Caisses vides — MO récolte**")
-                mo_tonne = st.number_input("MO récolte (DT/T)",0.0,200.0,50.0,5.0,key="mo")
-                st.caption("Condition caisses : date début RÉCOLTE < 10 juil. → 1ère affectation")
+            with st.form("params_form"):
+                pc1,pc2,pc3 = st.columns(3)
+                with pc1:
+                    st.markdown("**💰 Prix vente global (DT/tonne)**")
+                    st.caption("Utilisé si absent du tableau quantité")
+                    prix_global = st.number_input("Prix vente DT/T",0.0,1000.0,240.0,10.0,key="px_g")
+                with pc2:
+                    st.markdown("**🔲 Consigne plateaux (DT/plateau)**")
+                    p228pvc  = st.number_input("Pltx 228 PVC", 0.0,50.0,2.5,0.1,key="p1")
+                    p228poly = st.number_input("Pltx 228 POLY",0.0,50.0,2.0,0.1,key="p2")
+                    p160pvc  = st.number_input("Pltx 160 PVC", 0.0,50.0,2.0,0.1,key="p3")
+                    p160poly = st.number_input("Pltx 160 POLY",0.0,50.0,1.8,0.1,key="p4")
+                with pc3:
+                    st.markdown("**📦 Caisses vides — MO récolte**")
+                    mo_tonne = st.number_input("MO récolte (DT/T)",0.0,200.0,50.0,5.0,key="mo")
+                    st.caption("Condition caisses : date début RÉCOLTE < 10 juil. → 1ère affectation")
+                st.form_submit_button("✅ Appliquer les paramètres", use_container_width=True)
 
             # ── Caisses vides PAR USINE ───────────────────────────
             st.markdown("---")
@@ -2642,7 +2646,6 @@ padding:16px 20px;margin-bottom:18px'>
                     if msg: st.error(msg)
                     else:
                         st.session_state["abo_bourak"] = df_b
-                        _auto_save(sb, CURRENT_NAME)
                         tot_av = df_b["avance"].sum() if "avance" in df_b.columns else 0
                         st.success(f"✅ {len(df_b)} lignes · {tot_av:,.0f} DT avances")
 
@@ -2661,7 +2664,6 @@ padding:16px 20px;margin-bottom:18px'>
                     if msg: st.error(msg)
                     else:
                         st.session_state["abo_royal"] = df_r
-                        _auto_save(sb, CURRENT_NAME)
                         st.success(f"✅ {len(df_r)} lignes")
 
             # SOTUSFA
@@ -2698,7 +2700,6 @@ padding:16px 20px;margin-bottom:18px'>
                     if msg: st.error(msg)
                     else:
                         st.session_state["abo_quantite"] = df_q
-                        _auto_save(sb, CURRENT_NAME)
                         st.success(f"✅ {len(df_q)} agriculteurs")
 
             # ── Prévisions ──────────────────────────────────────
