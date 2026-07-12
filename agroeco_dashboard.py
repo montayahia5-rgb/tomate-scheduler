@@ -593,7 +593,7 @@ padding:12px 16px;border-top:3px solid {color}'>
 # SUPABASE — Date début récolte par agriculteur
 # ══════════════════════════════════════════════════════════════
 @st.cache_data(ttl=300, show_spinner=False)
-def load_date_debut_recolte(sb):
+def load_date_debut_recolte(_sb):
     """
     Charge depuis Supabase (plan_rectifie_detail) la date MIN de livraison
     par agriculteur = date début récolte.
@@ -2327,7 +2327,7 @@ def save_session_to_supabase(sb, user_name, session_data):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def load_session_from_supabase(sb, user_name="SHARED_2026"):
+def load_session_from_supabase(_sb, user_name="SHARED_2026"):
     """Charge la session partagée depuis Supabase."""
     if sb is None: return None
     try:
