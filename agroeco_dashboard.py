@@ -163,6 +163,33 @@ _INTRANTS_2026 = {
     'WISSEM AMAYMIA': 24540.085,
     'YASIN MNASRI': 85773.687,
     'YASIN TLILI': 6135.021,
+
+    # ── Estimations Ha × taux commercial (clients absents DETAIL_VENTE) ──
+    'ABDELKADER MANNA': 2218.0,
+    'ABDELKADER YEDES': 61250.0,
+    'ABDESLEM BEN SOUISSI': 4436.0,
+    'AHMED ATTIA': 3327.0,
+    'AMOR KHECHIN': 92400.0,
+    'AZAIZ BEN ISSA': 11090.0,
+    'HAMED HAMAMMI': 2218.0,
+    'HICHEM TRABELSI': 3327.0,
+    'HOUSSEM BRAYEK': 2218.0,
+    'IMED AMDOUNI': 12730.0,
+    'ISSAM KOUKI': 19095.0,
+    'JALEL RHIM': 4900.0,
+    'KAIS MHATLI': 7350.0,
+    'KHALED CHATER': 24500.0,
+    'MAHMOUD MESSADI': 9800.0,
+    'MED TAHER': 5545.0,
+    'MOEZ BEN ABDALLAH': 6365.0,
+    'MOUHAMED AOUINET': 2218.0,
+    'MOUHAMED MESSII': 7763.0,
+    'MOUHAMED TRABELSI': 4436.0,
+    'NEJIB MECHRGUI': 5092.0,
+    'OMAR HAMEMI': 36750.0,
+    'RIADH KOUKI': 21004.0,
+    'STE 428 SERVICES AGRICOLES': 164132.0,
+    'STE AGROBEST': 41650.0,
 }
 
 # ══════════════════════════════════════════════════════════════════
@@ -593,8 +620,7 @@ padding:12px 16px;border-top:3px solid {color}'>
 # SUPABASE — Date début récolte par agriculteur
 # ══════════════════════════════════════════════════════════════
 @st.cache_data(ttl=300, show_spinner=False)
-def load_date_debut_recolte(_sb):
-    sb = _sb
+def load_date_debut_recolte(sb):
     """
     Charge depuis Supabase (plan_rectifie_detail) la date MIN de livraison
     par agriculteur = date début récolte.
@@ -2328,8 +2354,7 @@ def save_session_to_supabase(sb, user_name, session_data):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def load_session_from_supabase(_sb, user_name="SHARED_2026"):
-    sb = _sb
+def load_session_from_supabase(sb, user_name="SHARED_2026"):
     """Charge la session partagée depuis Supabase."""
     if sb is None: return None
     try:
