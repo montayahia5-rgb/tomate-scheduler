@@ -781,6 +781,8 @@ def parse_royal(file_obj):
         "date_fin_livraison":   ["date_fin_livraison","date_fin","fin_livraison","fin"],
         "type_plateau":         ["type_plateau","unite","plateau"],
         "nb_plateaux":          ["nb_plateaux","plateaux","qte_plateaux"],
+        # ── FIX: capture Ha par variété depuis Royal ──
+        "ha_royal":             ["ha","hectares","surface","ha_reels","nb_hectares"],
     }
     rename = {}
     for tgt, cands in MAP.items():
@@ -794,7 +796,7 @@ def parse_royal(file_obj):
     if "centre" not in df.columns:
         df["centre"] = ""
 
-    for c in ["qte_livree","valeur_plants","nb_plateaux"]:
+    for c in ["qte_livree","valeur_plants","nb_plateaux","ha_royal"]:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
     for c in ["date_debut_livraison","date_fin_livraison"]:
@@ -1030,6 +1032,9 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         _ragg = {}
         if "qte_livree"          in r.columns: _ragg["qte_livree"]          = "sum"
         if "valeur_plants"       in r.columns: _ragg["valeur_plants"]       = "sum"
+        # ── FIX: sommer Ha par variété + nb_plateaux depuis Royal ──
+        if "ha_royal"            in r.columns: _ragg["ha_royal"]            = "sum"
+        if "nb_plateaux"         in r.columns: _ragg["nb_plateaux"]         = "sum"
         if "date_debut_livraison"in r.columns: _ragg["date_debut_livraison"]= "min"
         if "date_fin_livraison"  in r.columns: _ragg["date_fin_livraison"]  = "max"
         r_grp_base = r.groupby(KEY).agg(_ragg).reset_index()
@@ -1411,14 +1416,18 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
 
     df["detail_caisse"] = df.apply(_detail_caisse, axis=1)
 
-    df["consigne_plateau"] = g("consigne_plateau")
-    # Consigne Plateau = 0 jusqu'à saisie des retours réels
-    # (= décalage entre plateaux pris et retournés — donnée non encore disponible)
-    df["consigne_plateau"] = df["consigne_plateau"].fillna(0)
+    # ✅ FIX: Consigne Plateau TOUJOURS = 0 tant que les retours réels
+    # ne sont pas saisis (ignore tout cache Supabase)
+    df["consigne_plateau"] = pd.Series([0.0]*len(df), index=df.index)
     # Consigne caisse : 1ère affectation = ha × nb_caisses/ha × prix_caisse
     # Plants (calcul complet dans la section ci-dessous)
     # ── Plants et Ha (en premier car tout dépend de Ha) ──────────
-    df["hectares"]    = g("hectares")      # Ha réels depuis Bourak
+    # ✅ FIX: Ha priorité ROYAL (somme des Ha par variété),
+    # fallback BOURAK si Royal manquant
+    _ha_bourak_v = g("hectares")
+    _ha_royal_v  = g("ha_royal") if "ha_royal" in df.columns else pd.Series([0.0]*len(df), index=df.index)
+    df["hectares"]        = _ha_royal_v.where(_ha_royal_v > 0, _ha_bourak_v)
+    df["ha_par_variete"]  = _ha_royal_v      # détail Ha par variété (pour audit)
     # Enrichir Ha + variete + accessibilite + usine + zone depuis _PREVISION_2026
     # si absent ou 0 dans le fichier Bourak
     if "_ha_from_prev_done" not in dir():
@@ -1607,6 +1616,7 @@ def export_excel(df, df_sotusfa_raw=None):
         "Usine"               : ["Usine","usine","usine_prev"],
         "Zone"                : ["Zone","zone"],
         "Ha"                  : ["Ha","hectares"],
+        "Ha par variété"      : ["Ha par variété","ha_par_variete","ha_royal"],
         "Plants Livrés"       : ["Plants Livrés","qte_royal"],
         "Plants Actifs"       : ["Plants Actifs","qte_actif"],
         "Extra (pertes)"      : ["Extra (pertes)","qte_extra"],
@@ -1647,7 +1657,7 @@ def export_excel(df, df_sotusfa_raw=None):
         "IDENTIFICATION": [
             "Agriculteur","Commercial","Ingénieur","Centre","Région"],
         "PLANT": [
-            "Variété","Ha","Plants Livrés","Plants Actifs",
+            "Variété","Ha","Ha par variété","Plants Livrés","Plants Actifs",
             "Extra (pertes)","Taux prise %","Densité/ha"],
         "PLATEAUX": [
             "Plt Livrés","Plt Retour"],
@@ -1843,6 +1853,11 @@ def export_excel(df, df_sotusfa_raw=None):
                            mid_type="num",   mid_value=90, mid_color="FFF9C4",
                            end_type="num",   end_color="C8E6C9", end_value=97))
     ws.freeze_panes = "A4"
+    # ✅ FIX: filtre automatique sur la ligne d'entêtes
+    try:
+        _last_col_letter = get_column_letter(len(all_display))
+        ws.auto_filter.ref = f"A3:{_last_col_letter}{tr-1}"
+    except Exception: pass
 
     # ════════════════════════════════════════════════════════════
     # FEUILLE 2 — 👤 Par Ingénieur
@@ -1900,6 +1915,12 @@ def export_excel(df, df_sotusfa_raw=None):
                     if isinstance(val, (int, float)) and val != "":
                         c.number_format = "0.0" if list(_gi.columns)[ci-1] == "Taux prise %" else "#,##0"
     ws2.freeze_panes = "A3"
+    # ✅ FIX: filtre automatique
+    try:
+        if not _gi.empty:
+            _lcw2 = get_column_letter(len(_gi.columns))
+            ws2.auto_filter.ref = f"A2:{_lcw2}{len(_gi)+2}"
+    except Exception: pass
 
     # ════════════════════════════════════════════════════════════
     # FEUILLE 3 — 📦 Caisses Vides
@@ -1946,6 +1967,11 @@ def export_excel(df, df_sotusfa_raw=None):
             if ci == 1: c.alignment = LFT; c.font = bf(True, size=9)
             if isinstance(val, (int, float)) and val != "": c.number_format = "#,##0"
     ws3.freeze_panes = "A3"
+    # ✅ FIX: filtre automatique
+    try:
+        if ws3.max_row > 2:
+            ws3.auto_filter.ref = f"A2:{get_column_letter(ws3.max_column)}{ws3.max_row}"
+    except Exception: pass
 
     # ════════════════════════════════════════════════════════════
     # FEUILLE 4 — 📈 Prévisions
@@ -1999,6 +2025,11 @@ def export_excel(df, df_sotusfa_raw=None):
                     c.number_format = "0.00" if disp in ("Recouv./ha",) else "#,##0.0"
             if ci <= 2: c.alignment = LFT; c.font = bf(True, size=9)
     ws4.freeze_panes = "A3"
+    # ✅ FIX: filtre automatique
+    try:
+        if ws4.max_row > 2:
+            ws4.auto_filter.ref = f"A2:{get_column_letter(ws4.max_column)}{ws4.max_row}"
+    except Exception: pass
 
     buf = _io.BytesIO()
     wb.save(buf); buf.seek(0)
@@ -2272,6 +2303,11 @@ def _export_excel_table(df, sheet_title="Data",
             ws.cell(tr, ci).number_format = "#,##0"
         ws.row_dimensions[tr].height = 22
     ws.freeze_panes = "A3"
+    # ✅ FIX: filtre automatique
+    try:
+        if ws.max_row > 2:
+            ws.auto_filter.ref = f"A2:{get_column_letter(ws.max_column)}{ws.max_row}"
+    except Exception: pass
     buf = _io.BytesIO()
     wb.save(buf)
     buf.seek(0)
