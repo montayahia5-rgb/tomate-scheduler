@@ -2165,9 +2165,9 @@ else:
         "🏭 Par Usine",
         "🚛 Transport & Alertes",
         "⚙️ Décalage & Conflits",
-        "📈 Historique 2025 vs 2026",
+        "📈 Comparaison par années",
         "🗺️ Tonnage par Région",
-        "📊 Prévisions Déc→Mai→Juin",
+        "📊 Comparaison par prévision",
         "🌾 Gestion Agriculteurs",
         "📤 Upload Planning",
         "📊 Comparaison Plans",
@@ -3915,11 +3915,178 @@ with tab5:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-# ── TAB 6: HISTORIQUE 2025 vs 2026 ───────────────────────────
+# ── TAB 6: COMPARAISON PAR ANNÉES ────────────────────────────
 with tab6:
     import plotly.graph_objects as go
+    import pandas as _pd
+    from collections import defaultdict as _dd
 
-    # Historical data embedded — NaN-free, validated
+    st.subheader("📈 Comparaison par années — Tomate industrielle")
+
+    # ══════════════════════════════════════════════════════════════════
+    #  MODULE IMPORT MULTI-ANNÉES (via session_state)
+    # ══════════════════════════════════════════════════════════════════
+    if "annees_data" not in st.session_state:
+        st.session_state.annees_data = {}   # {annee: DataFrame [Date, Tonnes, Usine?]}
+    if "annees_apply" not in st.session_state:
+        st.session_state.annees_apply = False
+
+    with st.expander("📤 Importer / Gérer les années", expanded=False):
+        st.caption(
+            "Format attendu pour chaque fichier : colonne **Date** (JJ-MM ou AAAA-MM-JJ) "
+            "et colonne **Tonnes** (tonnage journalier total). "
+            "Colonnes optionnelles : `Usine` (SICAM / TUCAL / COMOCAP / …) pour la vue par usine, "
+            "`Type` (Réel / Prévision Mai / Prévision Juin) pour la comparaison prévisions."
+        )
+        c_up1, c_up2, c_up3 = st.columns(3)
+        with c_up1:
+            _annee_new = st.number_input("Année", min_value=2020, max_value=2035, value=2024, step=1,
+                                          key="annee_new_input")
+        with c_up2:
+            _annee_couleur = st.color_picker("Couleur", value="#8b5cf6", key="annee_new_color")
+        with c_up3:
+            _annee_style   = st.selectbox("Style", ["Solide","Pointillé"], key="annee_new_style")
+
+        _file_annee = st.file_uploader(
+            f"Charger fichier Excel/CSV pour {_annee_new}",
+            type=["xlsx","xls","csv"], key=f"annee_up_{_annee_new}"
+        )
+        if _file_annee is not None:
+            try:
+                _df_up = _pd.read_excel(_file_annee) if _file_annee.name.lower().endswith(("xlsx","xls")) \
+                         else _pd.read_csv(_file_annee)
+                # normaliser colonnes
+                _df_up.columns = [str(c).strip() for c in _df_up.columns]
+                _mp = {}
+                for c in _df_up.columns:
+                    lc = c.lower()
+                    if lc in ("date","jour","day"):        _mp[c] = "Date"
+                    elif lc in ("tonnes","tonnage","t/jour","tonnes/jour"): _mp[c] = "Tonnes"
+                    elif lc in ("usine","factory","site"): _mp[c] = "Usine"
+                    elif lc in ("type","prevision","categorie"): _mp[c] = "Type"
+                _df_up = _df_up.rename(columns=_mp)
+                if "Date" in _df_up.columns and "Tonnes" in _df_up.columns:
+                    _df_up["Tonnes"] = _pd.to_numeric(_df_up["Tonnes"], errors="coerce").fillna(0)
+                    _df_up["_couleur"] = _annee_couleur
+                    _df_up["_style"] = _annee_style
+                    _df_up["_annee"] = int(_annee_new)
+                    st.session_state.annees_data[int(_annee_new)] = _df_up
+                    st.success(f"✅ Année {_annee_new} chargée : {len(_df_up)} lignes")
+                else:
+                    st.error("❌ Le fichier doit contenir au minimum les colonnes **Date** et **Tonnes**")
+            except Exception as _e:
+                st.error(f"❌ Erreur lecture : {_e}")
+
+        # Liste des années chargées
+        if st.session_state.annees_data:
+            st.markdown("**Années chargées :**")
+            _cols_del = st.columns(min(len(st.session_state.annees_data)+1, 6))
+            for _i, _an in enumerate(sorted(st.session_state.annees_data.keys())):
+                with _cols_del[_i % len(_cols_del)]:
+                    _dfa = st.session_state.annees_data[_an]
+                    st.markdown(f"**{_an}** — {len(_dfa)} lignes, {_dfa['Tonnes'].sum():,.0f} t")
+                    if st.button(f"🗑️ Retirer {_an}", key=f"del_annee_{_an}"):
+                        del st.session_state.annees_data[_an]
+                        st.rerun()
+
+        # Bouton Apply
+        st.markdown("---")
+        c_ap1, c_ap2 = st.columns([1,3])
+        with c_ap1:
+            if st.button("✅ Appliquer", type="primary", use_container_width=True,
+                         disabled=not st.session_state.annees_data):
+                st.session_state.annees_apply = True
+                st.success("Tableaux et graphiques mis à jour")
+        with c_ap2:
+            if st.button("🔄 Réinitialiser aux données par défaut", use_container_width=True):
+                st.session_state.annees_data = {}
+                st.session_state.annees_apply = False
+                st.rerun()
+
+    st.markdown("---")
+
+    # ══════════════════════════════════════════════════════════════════
+    #  GRAPHIQUE PRINCIPAL — style "Plan Rectifié" (référence photo)
+    # ══════════════════════════════════════════════════════════════════
+
+    def _to_daily(df):
+        """Convertit un DataFrame en séries journalières (dict date_str → tonnes)."""
+        out = {}
+        for _, r in df.iterrows():
+            _d = str(r["Date"]).strip()
+            if len(_d) >= 10:  # AAAA-MM-JJ
+                _key = _d[5:10]  # MM-JJ
+            else:
+                _key = _d
+            out[_key] = out.get(_key, 0) + float(r["Tonnes"])
+        return sorted(out.items())
+
+    st.subheader("📊 Courbes journalières comparées")
+
+    if st.session_state.annees_apply and st.session_state.annees_data:
+        # ── Utiliser les années importées ──
+        fig_multi = go.Figure()
+        _all_tots = []
+        _all_maxs = []
+        annees_tri = sorted(st.session_state.annees_data.keys(), reverse=True)
+        for _idx, _an in enumerate(annees_tri):
+            _df = st.session_state.annees_data[_an]
+            _serie = _to_daily(_df)
+            _dates = [f"{_an}-{d}" for d,_ in _serie]
+            _tons  = [t for _,t in _serie]
+            _all_tots.append((_an, sum(_tons)))
+            _all_maxs.append((_an, max(_tons) if _tons else 0))
+            _col   = _df["_couleur"].iloc[0] if "_couleur" in _df.columns else "#3b82f6"
+            _sty   = _df["_style"].iloc[0]   if "_style"   in _df.columns else "Solide"
+            _dash  = "dot" if _sty == "Pointillé" else None
+            fig_multi.add_trace(go.Scatter(
+                x=_dates, y=_tons, name=f"{_an}",
+                line=dict(color=_col, width=(3 if _idx==0 else 2), dash=_dash),
+                mode="lines", hovertemplate=f"{_an} — %{{x}}<br>%{{y:,.0f}} t/jour<extra></extra>",
+            ))
+
+        # Ligne de capacité (max sur toutes les années)
+        _cap = max(m for _,m in _all_maxs) if _all_maxs else 0
+        if _cap > 0:
+            fig_multi.add_hline(
+                y=_cap, line_dash="dash", line_color="#e8543a", line_width=1.5,
+                annotation_text=f"Cap: {_cap:,.0f} t/j",
+                annotation_position="top right",
+                annotation_font_color="#e8543a",
+            )
+
+        fig_multi.update_layout(
+            template="plotly_dark", plot_bgcolor="#0d1117", paper_bgcolor="#161b22",
+            height=460, hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            yaxis=dict(title="Tonnes/jour", gridcolor="#21262d"),
+            xaxis=dict(title="Date"),
+            margin=dict(l=60, r=30, t=40, b=60),
+        )
+        st.plotly_chart(fig_multi, use_container_width=True)
+
+        # ── Statistiques comparatives ──
+        st.markdown("### 📊 Statistiques par année")
+        _stats_cols = st.columns(len(annees_tri))
+        _ref = _all_tots[-1][1] if len(_all_tots) > 1 else 0  # année la + ancienne = référence
+        for _i, _an in enumerate(annees_tri):
+            _tot = dict(_all_tots)[_an]
+            _mx  = dict(_all_maxs)[_an]
+            _df  = st.session_state.annees_data[_an]
+            _col = _df["_couleur"].iloc[0] if "_couleur" in _df.columns else "#3b82f6"
+            with _stats_cols[_i]:
+                st.markdown(f"<div style='background:{_col}22; border-left:4px solid {_col}; "
+                            f"padding:8px; border-radius:4px;'><b style='color:{_col};'>{_an}</b></div>",
+                            unsafe_allow_html=True)
+                st.metric("Total saison", f"{_tot:,.0f} t",
+                          delta=f"{_tot-_ref:+,.0f} t vs {annees_tri[-1]}" if _i < len(annees_tri)-1 and _ref else None)
+                st.metric("Pic max/jour", f"{_mx:,.0f} t")
+
+    else:
+        # ── FALLBACK: anciennes données hardcodées ──
+        st.info("💡 Importez des fichiers dans la section ci-dessus, ou consultez les données par défaut ci-dessous.")
+
+    # Historical data embedded — NaN-free, validated (FALLBACK)
     HIST = {"global_2025": [["06-15", 67.1], ["06-16", 146.3], ["06-17", 156.2], ["06-18", 415.4], ["06-19", 607.1], ["06-20", 816.5], ["06-21", 947.3], ["06-22", 1122.9], ["06-23", 1416.7], ["06-24", 1800.8], ["06-25", 1963.5], ["06-26", 2338.1], ["06-27", 2445.0], ["06-28", 2311.4], ["06-29", 2766.7], ["06-30", 2323.9], ["07-01", 2471.9], ["07-02", 2532.5], ["07-03", 2529.7], ["07-04", 2978.2], ["07-05", 2644.6], ["07-06", 2483.8], ["07-07", 2201.7], ["07-08", 1939.0], ["07-09", 2390.0], ["07-10", 2499.8], ["07-11", 2684.6], ["07-12", 2577.2], ["07-13", 2352.2], ["07-14", 1936.9], ["07-15", 1745.5], ["07-16", 2003.1], ["07-17", 1578.8], ["07-18", 1347.7], ["07-19", 1284.6], ["07-20", 1091.0], ["07-21", 1119.4], ["07-22", 687.1], ["07-23", 879.3], ["07-24", 850.0], ["07-25", 1006.0], ["07-26", 783.6], ["07-27", 1002.1], ["07-28", 1154.4], ["07-29", 938.4], ["07-30", 1092.3], ["07-31", 989.7], ["08-01", 990.1], ["08-02", 924.6], ["08-03", 541.3], ["08-04", 1004.2], ["08-05", 845.6], ["08-06", 582.7], ["08-07", 754.9], ["08-08", 1148.1], ["08-09", 602.1], ["08-10", 866.5], ["08-11", 738.9], ["08-12", 868.1], ["08-13", 947.9], ["08-14", 888.4], ["08-15", 863.8], ["08-16", 881.8], ["08-17", 864.5], ["08-18", 651.4], ["08-19", 552.7], ["08-20", 443.6], ["08-21", 371.5], ["08-22", 458.2], ["08-23", 327.2], ["08-24", 334.4], ["08-25", 329.6], ["08-26", 310.3], ["08-27", 308.9], ["08-28", 368.2], ["08-29", 214.3], ["08-30", 148.8], ["08-31", 179.9], ["09-01", 258.8], ["09-02", 114.4], ["09-03", 117.1], ["09-04", 163.8], ["09-05", 66.3], ["09-06", 83.6], ["09-08", 43.2], ["09-09", 90.2], ["09-10", 79.8], ["09-12", 18.1], ["09-13", 66.0], ["09-14", 33.2], ["09-15", 34.1], ["09-16", 61.1]], "sicam_2025": [["06-15", 67.1], ["06-16", 146.3], ["06-17", 156.2], ["06-18", 336.3], ["06-19", 490.3], ["06-20", 601.9], ["06-21", 686.3], ["06-22", 794.7], ["06-23", 1062.9], ["06-24", 1200.1], ["06-25", 1026.3], ["06-26", 1360.5], ["06-27", 1424.7], ["06-28", 1270.7], ["06-29", 1557.8], ["06-30", 1182.5], ["07-01", 1382.0], ["07-02", 1345.8], ["07-03", 1410.4], ["07-04", 1602.1], ["07-05", 1359.5], ["07-06", 1089.8], ["07-07", 892.3], ["07-08", 874.6], ["07-09", 993.7], ["07-10", 1125.5], ["07-11", 1383.7], ["07-12", 1317.2], ["07-13", 1119.3], ["07-14", 858.0], ["07-15", 686.0], ["07-16", 925.3], ["07-17", 751.5], ["07-18", 511.9], ["07-19", 543.4], ["07-20", 424.4], ["07-21", 259.2], ["07-22", 185.9], ["07-23", 262.6], ["07-24", 143.4], ["07-25", 462.4], ["07-26", 346.3], ["07-27", 516.4], ["07-28", 441.2], ["07-29", 376.6], ["07-30", 514.8], ["07-31", 401.4], ["08-01", 302.3], ["08-02", 349.8], ["08-03", 295.3], ["08-04", 214.8], ["08-05", 342.2], ["08-06", 236.9], ["08-07", 282.1], ["08-08", 319.2], ["08-09", 163.6], ["08-10", 238.0], ["08-11", 362.6], ["08-12", 323.3], ["08-13", 416.8], ["08-14", 358.9], ["08-15", 363.9], ["08-16", 351.1], ["08-17", 366.0], ["08-18", 182.6], ["08-19", 216.6], ["08-20", 235.4], ["08-21", 311.8], ["08-22", 305.2], ["08-23", 229.4], ["08-24", 233.8], ["08-25", 260.7], ["08-26", 263.9], ["08-27", 247.7], ["08-28", 299.2], ["08-29", 214.3], ["08-30", 98.0], ["08-31", 125.3], ["09-01", 243.0], ["09-02", 88.4], ["09-03", 102.2], ["09-04", 163.8], ["09-05", 66.3], ["09-06", 83.6], ["09-08", 43.2], ["09-09", 90.2], ["09-10", 79.8]], "autres_2025": [["06-15", 0.0], ["06-16", 0.0], ["06-17", 0.0], ["06-18", 79.1], ["06-19", 116.8], ["06-20", 214.7], ["06-21", 261.0], ["06-22", 328.2], ["06-23", 353.8], ["06-24", 600.7], ["06-25", 937.2], ["06-26", 977.6], ["06-27", 1020.2], ["06-28", 1040.7], ["06-29", 1208.9], ["06-30", 1141.4], ["07-01", 1090.0], ["07-02", 1186.8], ["07-03", 1119.3], ["07-04", 1376.1], ["07-05", 1285.1], ["07-06", 1394.0], ["07-07", 1309.4], ["07-08", 1064.3], ["07-09", 1396.3], ["07-10", 1374.2], ["07-11", 1300.9], ["07-12", 1260.0], ["07-13", 1232.9], ["07-14", 1079.0], ["07-15", 1059.5], ["07-16", 1077.7], ["07-17", 827.2], ["07-18", 835.8], ["07-19", 741.2], ["07-20", 666.6], ["07-21", 860.3], ["07-22", 501.2], ["07-23", 616.7], ["07-24", 706.6], ["07-25", 543.6], ["07-26", 437.3], ["07-27", 485.7], ["07-28", 713.2], ["07-29", 561.8], ["07-30", 577.5], ["07-31", 588.3], ["08-01", 687.8], ["08-02", 574.8], ["08-03", 246.0], ["08-04", 789.5], ["08-05", 503.4], ["08-06", 345.8], ["08-07", 472.8], ["08-08", 828.9], ["08-09", 438.5], ["08-10", 628.5], ["08-11", 376.3], ["08-12", 544.8], ["08-13", 531.1], ["08-14", 529.5], ["08-15", 499.9], ["08-16", 530.7], ["08-17", 498.5], ["08-18", 468.8], ["08-19", 336.1], ["08-20", 208.3], ["08-21", 59.6], ["08-22", 153.0], ["08-23", 97.8], ["08-24", 100.6], ["08-25", 68.9], ["08-26", 46.4], ["08-27", 61.2], ["08-28", 69.0], ["08-29", 0.0], ["08-30", 50.8], ["08-31", 54.6], ["09-01", 15.9], ["09-02", 26.0], ["09-03", 15.0], ["09-04", 0.0], ["09-05", 0.0], ["09-06", 0.0], ["09-08", 0.0], ["09-09", 0.0], ["09-10", 0.0], ["09-12", 18.1], ["09-13", 66.0], ["09-14", 33.2], ["09-15", 34.1], ["09-16", 61.1]], "stats": {"global_total": 95962.5, "global_max": 2978.2, "global_max_date": "04/07/2025", "global_avg_peak": 2397.8, "sicam_total": 47342.3, "sicam_max": 1602.1, "autres_max": 1396.3, "autres_total": 48620.2, "plan_total": 87557.0, "plan_max": 2870.0, "plan_avg_peak": 2304.3}, "plan_2026": [["06-20", 140.0], ["06-21", 200.0], ["06-22", 280.0], ["06-23", 370.0], ["06-24", 400.0], ["06-25", 655.0], ["06-26", 675.0], ["06-27", 845.0], ["06-28", 975.0], ["06-29", 1143.0], ["06-30", 1273.0], ["07-01", 1523.0], ["07-02", 1560.0], ["07-03", 1785.0], ["07-04", 1920.0], ["07-05", 2153.0], ["07-06", 2043.0], ["07-07", 2140.0], ["07-08", 2240.0], ["07-09", 2660.0], ["07-10", 2800.0], ["07-11", 2790.0], ["07-12", 2775.0], ["07-13", 2870.0], ["07-14", 2790.0], ["07-15", 2515.0], ["07-16", 2438.0], ["07-17", 2310.0], ["07-18", 2195.0], ["07-19", 2002.0], ["07-20", 1900.0], ["07-21", 1801.0], ["07-22", 1645.0], ["07-23", 1693.0], ["07-24", 1618.0], ["07-25", 1833.0], ["07-26", 1870.0], ["07-27", 1885.0], ["07-28", 2010.0], ["07-29", 2036.0], ["07-30", 1878.0], ["07-31", 1745.0], ["08-01", 1687.0], ["08-02", 1627.0], ["08-03", 1450.0], ["08-04", 1368.0], ["08-05", 1265.0], ["08-06", 1235.0], ["08-07", 1100.0], ["08-08", 873.0], ["08-09", 898.0], ["08-10", 815.0], ["08-11", 790.0], ["08-12", 630.0], ["08-13", 470.0], ["08-14", 420.0], ["08-15", 240.0], ["08-16", 190.0], ["08-17", 120.0]], "factory_2026": {"COMOCAP": [["06-29", 20.0], ["06-30", 55.0], ["07-01", 55.0], ["07-02", 60.0], ["07-03", 135.0], ["07-04", 145.0], ["07-05", 160.0], ["07-06", 165.0], ["07-07", 165.0], ["07-08", 170.0], ["07-09", 400.0], ["07-10", 520.0], ["07-11", 500.0], ["07-12", 505.0], ["07-13", 585.0], ["07-14", 600.0], ["07-15", 515.0], ["07-16", 558.0], ["07-17", 545.0], ["07-18", 580.0], ["07-19", 542.0], ["07-20", 520.0], ["07-21", 421.0], ["07-22", 380.0], ["07-23", 463.0], ["07-24", 343.0], ["07-25", 293.0], ["07-26", 275.0], ["07-27", 245.0], ["07-28", 290.0], ["07-29", 306.0], ["07-30", 293.0], ["07-31", 250.0], ["08-01", 247.0], ["08-02", 197.0], ["08-03", 160.0], ["08-04", 118.0], ["08-05", 45.0], ["08-06", 40.0], ["08-07", 15.0], ["08-08", 15.0], ["08-09", 8.0]], "SICAM": [["06-20", 100.0], ["06-21", 120.0], ["06-22", 180.0], ["06-23", 250.0], ["06-24", 250.0], ["06-25", 420.0], ["06-26", 440.0], ["06-27", 500.0], ["06-28", 560.0], ["06-29", 653.0], ["06-30", 743.0], ["07-01", 898.0], ["07-02", 895.0], ["07-03", 1000.0], ["07-04", 1105.0], ["07-05", 1128.0], ["07-06", 1213.0], ["07-07", 1285.0], ["07-08", 1340.0], ["07-09", 1490.0], ["07-10", 1530.0], ["07-11", 1540.0], ["07-12", 1510.0], ["07-13", 1495.0], ["07-14", 1440.0], ["07-15", 1350.0], ["07-16", 1280.0], ["07-17", 1210.0], ["07-18", 1140.0], ["07-19", 1015.0], ["07-20", 970.0], ["07-21", 960.0], ["07-22", 965.0], ["07-23", 930.0], ["07-24", 930.0], ["07-25", 1155.0], ["07-26", 1180.0], ["07-27", 1220.0], ["07-28", 1270.0], ["07-29", 1280.0], ["07-30", 1180.0], ["07-31", 1090.0], ["08-01", 1045.0], ["08-02", 1040.0], ["08-03", 940.0], ["08-04", 860.0], ["08-05", 850.0], ["08-06", 835.0], ["08-07", 795.0], ["08-08", 578.0], ["08-09", 600.0], ["08-10", 540.0], ["08-11", 520.0], ["08-12", 380.0], ["08-13", 260.0], ["08-14", 210.0], ["08-15", 150.0], ["08-16", 90.0], ["08-17", 30.0]], "TUCAL": [["06-20", 20.0], ["06-21", 60.0], ["06-22", 80.0], ["06-23", 80.0], ["06-24", 110.0], ["06-25", 195.0], ["06-26", 195.0], ["06-27", 245.0], ["06-28", 315.0], ["06-29", 320.0], ["06-30", 325.0], ["07-01", 330.0], ["07-02", 365.0], ["07-03", 390.0], ["07-04", 420.0], ["07-05", 415.0], ["07-06", 395.0], ["07-07", 380.0], ["07-08", 350.0], ["07-09", 370.0], ["07-10", 340.0], ["07-11", 300.0], ["07-12", 290.0], ["07-13", 320.0], ["07-14", 300.0], ["07-15", 230.0], ["07-16", 210.0], ["07-17", 205.0], ["07-18", 185.0], ["07-19", 255.0], ["07-20", 240.0], ["07-21", 240.0], ["07-22", 140.0], ["07-23", 160.0], ["07-24", 235.0], ["07-25", 315.0], ["07-26", 345.0], ["07-27", 380.0], ["07-28", 410.0], ["07-29", 410.0], ["07-30", 385.0], ["07-31", 385.0], ["08-01", 375.0], ["08-02", 370.0], ["08-03", 330.0], ["08-04", 370.0], ["08-05", 350.0], ["08-06", 340.0], ["08-07", 270.0], ["08-08", 260.0], ["08-09", 270.0], ["08-10", 255.0], ["08-11", 250.0], ["08-12", 230.0], ["08-13", 190.0], ["08-14", 190.0], ["08-15", 90.0], ["08-16", 100.0], ["08-17", 90.0]], "ELFALLEH": [["07-01", 70.0], ["07-02", 70.0], ["07-03", 90.0], ["07-04", 90.0], ["07-05", 290.0], ["07-06", 110.0], ["07-07", 110.0], ["07-08", 120.0], ["07-09", 140.0], ["07-10", 150.0], ["07-11", 190.0], ["07-12", 210.0], ["07-13", 210.0], ["07-14", 210.0], ["07-15", 220.0], ["07-16", 220.0], ["07-17", 210.0], ["07-18", 180.0], ["07-19", 110.0], ["07-20", 90.0], ["07-21", 100.0], ["07-22", 100.0], ["07-23", 100.0], ["07-24", 70.0], ["07-25", 30.0], ["07-26", 30.0], ["07-27", 20.0], ["07-28", 20.0], ["07-29", 20.0], ["07-30", 20.0], ["07-31", 20.0], ["08-01", 20.0], ["08-02", 20.0], ["08-03", 20.0], ["08-04", 20.0], ["08-05", 20.0], ["08-06", 20.0], ["08-07", 20.0], ["08-08", 20.0], ["08-09", 20.0], ["08-10", 20.0], ["08-11", 20.0], ["08-12", 20.0], ["08-13", 20.0], ["08-14", 20.0]], "ABIDA": [["06-20", 20.0], ["06-21", 20.0], ["06-22", 20.0], ["06-23", 40.0], ["06-24", 40.0], ["06-25", 40.0], ["06-26", 40.0], ["06-27", 100.0], ["06-28", 100.0], ["06-29", 150.0], ["06-30", 150.0], ["07-01", 170.0], ["07-02", 170.0], ["07-03", 170.0], ["07-04", 160.0], ["07-05", 160.0], ["07-06", 160.0], ["07-07", 200.0], ["07-08", 260.0], ["07-09", 260.0], ["07-10", 260.0], ["07-11", 260.0], ["07-12", 260.0], ["07-13", 260.0], ["07-14", 240.0], ["07-15", 200.0], ["07-16", 170.0], ["07-17", 140.0], ["07-18", 110.0], ["07-19", 80.0], ["07-20", 80.0], ["07-21", 80.0], ["07-22", 60.0], ["07-23", 40.0], ["07-24", 40.0], ["07-25", 40.0], ["07-26", 40.0], ["07-27", 20.0], ["07-28", 20.0], ["07-29", 20.0]]}}
 
     st.subheader("Comparaison Historique 2025 (réel) vs Plan 2026")
@@ -4365,9 +4532,158 @@ with tab6:
         st.dataframe(df_rl, use_container_width=True, hide_index=True)
 
 
-# ── TAB 8 (new): PRÉVISIONS DÉC→MAI→JUIN ────────────────────
+# ── TAB 8 (new): COMPARAISON PAR PRÉVISION ──────────────────
 with tab8:
-    st.subheader("📊 Suivi des Prévisions — Décembre 2025 → Mai 2026 → Juin 2026")
+    st.subheader("📊 Comparaison par prévision — Mai / Juin / Réalisé (multi-années)")
+    st.caption("Importer pour chaque année : Prévision Mai + Prévision Juin + Réalisé — comparer entre saisons")
+
+    # ══════════════════════════════════════════════════════════════════
+    #  MODULE IMPORT MULTI-ANNÉES POUR PRÉVISIONS
+    # ══════════════════════════════════════════════════════════════════
+    if "prev_data" not in st.session_state:
+        st.session_state.prev_data = {}   # {annee: {"mai":df, "juin":df, "reel":df}}
+    if "prev_apply" not in st.session_state:
+        st.session_state.prev_apply = False
+
+    with st.expander("📤 Importer / Gérer les prévisions par année", expanded=False):
+        st.caption(
+            "Pour chaque année, tu peux charger 3 fichiers : Prévision Mai, Prévision Juin, Réalisé. "
+            "Format attendu : colonne **Region** et **Tonnage** (+ optionnel : usines SICAM, TUCAL, COMOCAP, ABIDA, ELFALLEH)."
+        )
+
+        _c1, _c2 = st.columns(2)
+        with _c1:
+            _prev_annee = st.number_input("Année à charger", min_value=2020, max_value=2035,
+                                           value=2025, step=1, key="prev_annee_new")
+        with _c2:
+            _prev_type = st.selectbox(
+                "Type de prévision",
+                ["Prévision Mai","Prévision Juin","Réalisé"],
+                key="prev_type_new"
+            )
+        _file_prev = st.file_uploader(
+            f"Charger {_prev_type} — {_prev_annee}",
+            type=["xlsx","xls","csv"], key=f"prev_up_{_prev_annee}_{_prev_type}"
+        )
+        if _file_prev is not None:
+            try:
+                _df_prev = _pd.read_excel(_file_prev) if _file_prev.name.lower().endswith(("xlsx","xls")) \
+                           else _pd.read_csv(_file_prev)
+                _df_prev.columns = [str(c).strip() for c in _df_prev.columns]
+                _mp = {}
+                for c in _df_prev.columns:
+                    lc = c.lower()
+                    if lc in ("region","région","zone"):        _mp[c] = "Region"
+                    elif lc in ("tonnage","tonnes","total"):    _mp[c] = "Tonnage"
+                    elif lc in ("besoin","besoin_usines"):      _mp[c] = "Besoin"
+                _df_prev = _df_prev.rename(columns=_mp)
+                if "Region" in _df_prev.columns and "Tonnage" in _df_prev.columns:
+                    _df_prev["Tonnage"] = _pd.to_numeric(_df_prev["Tonnage"], errors="coerce").fillna(0)
+                    _key = {"Prévision Mai":"mai","Prévision Juin":"juin","Réalisé":"reel"}[_prev_type]
+                    st.session_state.prev_data.setdefault(int(_prev_annee), {})[_key] = _df_prev
+                    st.success(f"✅ {_prev_type} {_prev_annee} chargée : {len(_df_prev)} régions")
+                else:
+                    st.error("❌ Le fichier doit contenir au minimum les colonnes **Region** et **Tonnage**")
+            except Exception as _e:
+                st.error(f"❌ Erreur : {_e}")
+
+        # Liste des prévisions chargées
+        if st.session_state.prev_data:
+            st.markdown("**Prévisions chargées :**")
+            for _an in sorted(st.session_state.prev_data.keys()):
+                _d = st.session_state.prev_data[_an]
+                _tags = []
+                if "mai"  in _d: _tags.append(f"Mai ({_d['mai']['Tonnage'].sum():,.0f}t)")
+                if "juin" in _d: _tags.append(f"Juin ({_d['juin']['Tonnage'].sum():,.0f}t)")
+                if "reel" in _d: _tags.append(f"Réel ({_d['reel']['Tonnage'].sum():,.0f}t)")
+                _c_left, _c_right = st.columns([4,1])
+                with _c_left:
+                    st.markdown(f"**{_an}** : {' • '.join(_tags)}")
+                with _c_right:
+                    if st.button("🗑️", key=f"del_prev_{_an}"):
+                        del st.session_state.prev_data[_an]
+                        st.rerun()
+
+        st.markdown("---")
+        _cap1, _cap2 = st.columns([1,3])
+        with _cap1:
+            if st.button("✅ Appliquer prévisions", type="primary", use_container_width=True,
+                         disabled=not st.session_state.prev_data, key="btn_apply_prev"):
+                st.session_state.prev_apply = True
+                st.success("Comparaison mise à jour")
+        with _cap2:
+            if st.button("🔄 Réinitialiser prévisions par défaut", use_container_width=True, key="btn_reset_prev"):
+                st.session_state.prev_data = {}
+                st.session_state.prev_apply = False
+                st.rerun()
+
+    st.markdown("---")
+
+    # ══════════════════════════════════════════════════════════════════
+    #  COMPARAISON MULTI-ANNÉES + MULTI-PRÉVISIONS
+    # ══════════════════════════════════════════════════════════════════
+    if st.session_state.prev_apply and st.session_state.prev_data:
+        st.markdown("### 📊 Comparaison entre prévisions et années")
+
+        # Construire un tableau : lignes = régions, colonnes = (année, prévision)
+        _regions = set()
+        for _an, _d in st.session_state.prev_data.items():
+            for _k, _df in _d.items():
+                _regions.update(_df["Region"].astype(str).unique())
+        _regions = sorted(_regions)
+        _rows = []
+        for _r in _regions:
+            _row = {"Région": _r}
+            for _an in sorted(st.session_state.prev_data.keys()):
+                _d = st.session_state.prev_data[_an]
+                for _k, _label in [("mai",f"Mai {_an}"),("juin",f"Juin {_an}"),("reel",f"Réel {_an}")]:
+                    if _k in _d:
+                        _v = _d[_k][_d[_k]["Region"].astype(str) == _r]["Tonnage"].sum()
+                        _row[_label] = _v
+            _rows.append(_row)
+        _df_all = _pd.DataFrame(_rows)
+        # TOTAL
+        _tot_row = {"Région":"TOTAL"}
+        for c in _df_all.columns[1:]:
+            _tot_row[c] = _df_all[c].sum()
+        _df_all = _pd.concat([_df_all, _pd.DataFrame([_tot_row])], ignore_index=True)
+        st.dataframe(_df_all, use_container_width=True, hide_index=True)
+
+        # ── Graphique comparaison ──
+        import plotly.graph_objects as go
+        fig_prev = go.Figure()
+        COULEURS_ANNEE = {2023:"#9C27B0", 2024:"#3B82F6", 2025:"#00C896", 2026:"#F5A623", 2027:"#F97316"}
+        STYLES = {"mai":"solid","juin":"dash","reel":"dot"}
+        LABELS = {"mai":"Prév. Mai","juin":"Prév. Juin","reel":"Réel"}
+
+        for _an in sorted(st.session_state.prev_data.keys()):
+            _color = COULEURS_ANNEE.get(_an, "#94a3b8")
+            _d = st.session_state.prev_data[_an]
+            for _k in ["mai","juin","reel"]:
+                if _k in _d:
+                    _df = _d[_k]
+                    fig_prev.add_trace(go.Bar(
+                        name=f"{LABELS[_k]} {_an}",
+                        x=_df["Region"].astype(str),
+                        y=_df["Tonnage"],
+                        marker_color=_color,
+                        opacity=(0.9 if _k=="mai" else (0.65 if _k=="juin" else 0.4)),
+                        text=[f"{v:,.0f}" for v in _df["Tonnage"]],
+                        textposition="outside",
+                    ))
+        fig_prev.update_layout(
+            barmode="group", template="plotly_dark",
+            paper_bgcolor="#161b22", plot_bgcolor="#0d1117",
+            height=500, title="Comparaison prévisions × années",
+            yaxis_title="Tonnes", hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        )
+        st.plotly_chart(fig_prev, use_container_width=True)
+    else:
+        st.info("💡 Importez au moins une prévision dans la section ci-dessus, ou consultez les données par défaut ci-dessous.")
+
+    st.markdown("---")
+    st.subheader("📊 Données par défaut — Décembre 2025 → Mai 2026 → Juin 2026")
     st.caption("Évolution des besoins par région et usine sur les 3 prévisions de la saison")
 
     # ── DATA EXACTES — source: TONNAGE_PAR_REGION_anouer__2___1_.xlsx ─────
