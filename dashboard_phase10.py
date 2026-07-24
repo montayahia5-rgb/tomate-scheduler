@@ -4153,7 +4153,7 @@ with tab6:
                        zerolinecolor="rgba(255,255,255,0.15)", tickfont=dict(size=11)),
             xaxis=dict(title="Jour de la saison (MM-JJ) — superposition multi-années",
                        gridcolor="rgba(255,255,255,0)", tickfont=dict(size=11),
-                       type="category"),
+                       type="category", categoryorder="category ascending"),
             margin=dict(l=70, r=40, t=60, b=60),
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -4254,7 +4254,7 @@ with tab6:
                                 yaxis=dict(title="t/jour", gridcolor="rgba(255,255,255,0.06)",
                                            tickfont=dict(size=9)),
                                 xaxis=dict(gridcolor="rgba(255,255,255,0)", tickfont=dict(size=9),
-                                           type="category"),
+                                           type="category", categoryorder="category ascending"),
                                 margin=dict(l=50, r=20, t=40, b=40),
                             )
                             st.plotly_chart(_fig_u, use_container_width=True)
