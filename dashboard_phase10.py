@@ -3943,7 +3943,7 @@ with tab6:
         with c2:
             _annee_couleur = st.color_picker("Couleur", value="#3b82f6", key="annee_new_color")
         with c3:
-            _annee_style = st.selectbox("Style", ["Solide","Pointillé"], key="annee_new_style")
+            _annee_style = st.selectbox("Style", ["Solide","Pointillé"], index=0, key="annee_new_style")
 
         _file_annee = st.file_uploader(
             f"Fichier pour {_annee_new}", type=["xlsx","xls","csv"], key=f"annee_up_{_annee_new}"
@@ -4116,8 +4116,8 @@ with tab6:
                 x=_xs, y=_ys,
                 name=f"{_an} — {sum(_ys):,.0f} t",
                 customdata=[_an]*len(_xs),
-                line=dict(color=_col, width=(3.2 if _is_ref else 2.2), dash=_dash,
-                          shape="spline", smoothing=1.3),
+                line=dict(color=_col, width=(3.0 if _is_ref else 2.0), dash=_dash,
+                          shape="spline", smoothing=0.6),
                 mode="lines",
                 hovertemplate=f"<b>%{{customdata}}-%{{x}}</b><br>%{{y:,.0f}} t/jour<extra></extra>",
             ))
@@ -4206,6 +4206,58 @@ with tab6:
                 legend=dict(orientation="h", yanchor="bottom", y=1.02),
             )
             st.plotly_chart(_fig_comm, use_container_width=True)
+
+        # ── NOUVELLE SECTION : Comparaison par usine (5 mini-graphiques) ──
+        if _all_usines:
+            st.markdown("---")
+            st.markdown("### 🏭 Comparaison par usine × année")
+            st.caption("Un mini-graphique par usine, superposition des 3 années — même style que le graphique principal.")
+            _usine_order = [u for u in ["SICAM","TUCAL","COMOCAP","ABIDA","ELFALLEH"] if u in _all_usines]
+            if _usine_order:
+                # Afficher 2 mini-graphiques par ligne
+                for _row_idx in range(0, len(_usine_order), 2):
+                    _cols = st.columns(2)
+                    for _ci, _u in enumerate(_usine_order[_row_idx:_row_idx+2]):
+                        with _cols[_ci]:
+                            _fig_u = go.Figure()
+                            for _idx_yr, _an in enumerate(annees_tri):
+                                _df = st.session_state.annees_data[_an]
+                                _serie = _to_daily(_df, usine_filter=_u,
+                                                    commercial_filter=_comm_choix)
+                                # Appliquer le filtre min_tonnes
+                                if _min_tonnes and _min_tonnes > 0:
+                                    _serie = [(d, t) for d, t in _serie if t >= _min_tonnes]
+                                if not _serie: continue
+                                _xs = [d for d,_ in _serie]
+                                _ys = [t for _,t in _serie]
+                                _col = _df["_couleur"].iloc[0] if "_couleur" in _df.columns else "#3b82f6"
+                                _sty = _df["_style"].iloc[0]   if "_style"   in _df.columns else "Solide"
+                                _dash = "dot" if _sty == "Pointillé" else None
+                                _is_ref_u = (_idx_yr == 0)
+                                _fig_u.add_trace(go.Scatter(
+                                    x=_xs, y=_ys,
+                                    name=f"{_an} ({sum(_ys):,.0f} t)",
+                                    customdata=[_an]*len(_xs),
+                                    line=dict(color=_col,
+                                              width=(2.5 if _is_ref_u else 1.8),
+                                              dash=_dash, shape="spline", smoothing=0.6),
+                                    mode="lines",
+                                    hovertemplate=f"<b>{_u} · %{{customdata}}-%{{x}}</b><br>%{{y:,.0f}} t/jour<extra></extra>",
+                                ))
+                            _fig_u.update_layout(
+                                template="plotly_dark",
+                                plot_bgcolor="#0d1117", paper_bgcolor="#0d1117",
+                                height=300, hovermode="x unified",
+                                title=dict(text=f"🏭 {_u}", font=dict(size=13, color="#e5e7eb"), x=0.02),
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+                                            bgcolor="rgba(0,0,0,0)", font=dict(size=9)),
+                                yaxis=dict(title="t/jour", gridcolor="rgba(255,255,255,0.06)",
+                                           tickfont=dict(size=9)),
+                                xaxis=dict(gridcolor="rgba(255,255,255,0)", tickfont=dict(size=9),
+                                           type="category"),
+                                margin=dict(l=50, r=20, t=40, b=40),
+                            )
+                            st.plotly_chart(_fig_u, use_container_width=True)
 
     else:
         st.info("💡 Importez des fichiers dans la section « Importer / Gérer les années » "
