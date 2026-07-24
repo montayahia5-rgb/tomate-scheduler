@@ -4014,10 +4014,10 @@ with tab6:
     #  GRAPHIQUE — style photo (Plan Rectifié)
     # ══════════════════════════════════════════════════════════════════
     def _to_daily(df, usine_filter=None):
-        """Retourne une liste [(date_iso, tonnes)] triée.
-        - Si 'Usine' existe et usine_filter=None : ne prend QUE les lignes Usine=TOTAL
-        - Si usine_filter fourni : ne prend QUE les lignes matching cette usine
-        - Sinon : somme brute (rétrocompatibilité)
+        """Retourne une liste [(mmdd, tonnes)] triée pour SUPERPOSITION.
+        On extrait MM-JJ pour que toutes les années se retrouvent sur le même axe X.
+        - Si 'Usine' existe et usine_filter=None/TOTAL : ne prend QUE les lignes Usine=TOTAL
+        - Si usine_filter fourni : ne prend QUE cette usine
         """
         if df is None or df.empty:
             return []
@@ -4026,28 +4026,25 @@ with tab6:
             u_col = d["Usine"].astype(str).str.upper().str.strip()
             if usine_filter is None or str(usine_filter).upper() == "TOTAL":
                 d = d[u_col == "TOTAL"]
-                # fallback si aucune ligne TOTAL présente
                 if len(d) == 0:
                     d = df.copy()
-                    # ré-agréger en sommant les usines par date
                     d["Tonnes"] = _pd.to_numeric(d["Tonnes"], errors="coerce").fillna(0)
                     d = d.groupby("Date", as_index=False)["Tonnes"].sum()
             else:
                 d = d[u_col == str(usine_filter).upper()]
-        # regrouper par date (au cas où)
         d["Tonnes"] = _pd.to_numeric(d["Tonnes"], errors="coerce").fillna(0)
-        agg = d.groupby("Date", as_index=False)["Tonnes"].sum()
-        out = []
-        for _, r in agg.iterrows():
-            _d = str(r["Date"]).strip()
-            if len(_d) >= 10:
-                _key = _d[:10]   # AAAA-MM-JJ
-            else:
-                _key = _d
-            out.append((_key, float(r["Tonnes"])))
-        return sorted(out)
+        # Extraire MM-JJ pour superposition
+        def _mmdd(x):
+            s = str(x).strip()
+            # AAAA-MM-JJ → MM-JJ
+            if len(s) >= 10 and s[4] in "-/":
+                return s[5:10].replace("/", "-")
+            return s
+        d["_mmdd"] = d["Date"].apply(_mmdd)
+        agg = d.groupby("_mmdd", as_index=False)["Tonnes"].sum()
+        return sorted([(str(r["_mmdd"]), float(r["Tonnes"])) for _, r in agg.iterrows()])
 
-    # Filtre usine
+    # Filtre usine + zone PIC
     _all_usines = set()
     for _dfa in st.session_state.annees_data.values():
         if "Usine" in _dfa.columns:
@@ -4056,50 +4053,48 @@ with tab6:
                     _all_usines.add(u.upper())
     _usines_opts = ["TOTAL"] + sorted(_all_usines)
 
-    cF1, cF2, cF3 = st.columns([1,1,2])
+    cF1, cF2 = st.columns([1, 3])
     with cF1:
         _usine_choix = st.selectbox("🏭 Filtre usine", _usines_opts, index=0, key="usine_filter_tab6")
     with cF2:
-        _cap_ligne = st.number_input("Capacité max/jour (t)", min_value=0, value=1300, step=50,
-                                      key="cap_input_tab6")
-    with cF3:
-        _pic_dates = st.text_input("Zone PIC (dates AAAA-MM-JJ → AAAA-MM-JJ)",
-                                    value="2026-07-01 → 2026-07-15", key="pic_dates_tab6")
+        _pic_dates = st.text_input("Zone PIC (MM-JJ → MM-JJ)",
+                                    value="07-01 → 07-15", key="pic_dates_tab6")
 
-    st.subheader("📊 Courbes journalières comparées")
+    st.subheader("📊 Courbes journalières comparées — superposition année par année")
 
     if st.session_state.annees_apply and st.session_state.annees_data:
         fig = go.Figure()
         annees_tri = sorted(st.session_state.annees_data.keys(), reverse=True)
-        _tots = []
+        _cap_auto = 0  # capacité calculée comme le max de toutes les années
         for _idx, _an in enumerate(annees_tri):
             _df = st.session_state.annees_data[_an]
             _serie = _to_daily(_df, usine_filter=_usine_choix)
             if not _serie: continue
-            _dates = [d for d,_ in _serie]
-            _tons  = [t for _,t in _serie]
-            _tots.append((_an, sum(_tons)))
+            _xs = [d for d,_ in _serie]     # MM-JJ (superposition)
+            _ys = [t for _,t in _serie]
+            _cap_auto = max(_cap_auto, max(_ys) if _ys else 0)
             _col = _df["_couleur"].iloc[0] if "_couleur" in _df.columns else "#3b82f6"
             _sty = _df["_style"].iloc[0]   if "_style"   in _df.columns else "Solide"
             _dash = "dot" if _sty == "Pointillé" else None
             _is_ref = (_idx == 0)
             fig.add_trace(go.Scatter(
-                x=_dates, y=_tons,
-                name=f"{_an} — {sum(_tons):,.0f} t",
+                x=_xs, y=_ys,
+                name=f"{_an} — {sum(_ys):,.0f} t",
+                customdata=[_an]*len(_xs),
                 line=dict(color=_col, width=(3.2 if _is_ref else 2.2), dash=_dash,
                           shape="spline", smoothing=1.1),
                 mode="lines",
-                hovertemplate=f"<b>{_an}</b><br>%{{x}}<br>%{{y:,.0f}} t/jour<extra></extra>",
+                hovertemplate=f"<b>%{{customdata}}-%{{x}}</b><br>%{{y:,.0f}} t/jour<extra></extra>",
             ))
 
-        # Ligne capacité (style photo — rouge pointillée)
-        if _cap_ligne and _cap_ligne > 0:
-            fig.add_hline(y=_cap_ligne, line_dash="dash", line_color="#e8543a", line_width=1.7,
-                          annotation_text=f"Cap: {_cap_ligne:,.0f}t/j",
-                          annotation_position="top right",
-                          annotation_font_color="#e8543a", annotation_font_size=11)
+        # Ligne capacité (fixée à 1300 t/j comme sur la photo)
+        _cap = 1300
+        fig.add_hline(y=_cap, line_dash="dash", line_color="#e8543a", line_width=1.7,
+                      annotation_text=f"Cap: {_cap:,.0f}t/j",
+                      annotation_position="top right",
+                      annotation_font_color="#e8543a", annotation_font_size=11)
 
-        # Zone PIC (rectangle jaune transparent)
+        # Zone PIC (rectangle jaune transparent — format MM-JJ maintenant)
         try:
             _p = [s.strip() for s in _pic_dates.replace("→","->").split("->")]
             if len(_p) == 2 and _p[0] and _p[1]:
@@ -4109,7 +4104,6 @@ with tab6:
                               annotation_font_color="#f4c430", annotation_font_size=13)
         except Exception: pass
 
-        # Layout style photo (fond sombre, sans grille sur x, grille discrète sur y)
         fig.update_layout(
             template="plotly_dark",
             plot_bgcolor="#0d1117", paper_bgcolor="#0d1117",
@@ -4118,7 +4112,9 @@ with tab6:
                         bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
             yaxis=dict(title="Tonnes/jour", gridcolor="rgba(255,255,255,0.08)",
                        zerolinecolor="rgba(255,255,255,0.15)", tickfont=dict(size=11)),
-            xaxis=dict(title="Date", gridcolor="rgba(255,255,255,0)", tickfont=dict(size=11)),
+            xaxis=dict(title="Jour de la saison (MM-JJ) — superposition multi-années",
+                       gridcolor="rgba(255,255,255,0)", tickfont=dict(size=11),
+                       type="category"),
             margin=dict(l=70, r=40, t=50, b=60),
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -4148,851 +4144,6 @@ with tab6:
         st.info("💡 Importez des fichiers dans la section « Importer / Gérer les années » "
                 "puis cliquez **Appliquer** pour afficher le graphique.")
 
-    # ═══════════════════════════════════════════════════════════════════
-    # SECTION FALLBACK — données par défaut (si aucun import)
-    # ═══════════════════════════════════════════════════════════════════
-    st.markdown("---")
-    if not (st.session_state.annees_apply and st.session_state.annees_data):
-        st.markdown("### 📁 Données par défaut (2025 réel vs plan 2026)")
-        # Historical data embedded — NaN-free, validated (FALLBACK)
-    HIST = {"global_2025": [["06-15", 67.1], ["06-16", 146.3], ["06-17", 156.2], ["06-18", 415.4], ["06-19", 607.1], ["06-20", 816.5], ["06-21", 947.3], ["06-22", 1122.9], ["06-23", 1416.7], ["06-24", 1800.8], ["06-25", 1963.5], ["06-26", 2338.1], ["06-27", 2445.0], ["06-28", 2311.4], ["06-29", 2766.7], ["06-30", 2323.9], ["07-01", 2471.9], ["07-02", 2532.5], ["07-03", 2529.7], ["07-04", 2978.2], ["07-05", 2644.6], ["07-06", 2483.8], ["07-07", 2201.7], ["07-08", 1939.0], ["07-09", 2390.0], ["07-10", 2499.8], ["07-11", 2684.6], ["07-12", 2577.2], ["07-13", 2352.2], ["07-14", 1936.9], ["07-15", 1745.5], ["07-16", 2003.1], ["07-17", 1578.8], ["07-18", 1347.7], ["07-19", 1284.6], ["07-20", 1091.0], ["07-21", 1119.4], ["07-22", 687.1], ["07-23", 879.3], ["07-24", 850.0], ["07-25", 1006.0], ["07-26", 783.6], ["07-27", 1002.1], ["07-28", 1154.4], ["07-29", 938.4], ["07-30", 1092.3], ["07-31", 989.7], ["08-01", 990.1], ["08-02", 924.6], ["08-03", 541.3], ["08-04", 1004.2], ["08-05", 845.6], ["08-06", 582.7], ["08-07", 754.9], ["08-08", 1148.1], ["08-09", 602.1], ["08-10", 866.5], ["08-11", 738.9], ["08-12", 868.1], ["08-13", 947.9], ["08-14", 888.4], ["08-15", 863.8], ["08-16", 881.8], ["08-17", 864.5], ["08-18", 651.4], ["08-19", 552.7], ["08-20", 443.6], ["08-21", 371.5], ["08-22", 458.2], ["08-23", 327.2], ["08-24", 334.4], ["08-25", 329.6], ["08-26", 310.3], ["08-27", 308.9], ["08-28", 368.2], ["08-29", 214.3], ["08-30", 148.8], ["08-31", 179.9], ["09-01", 258.8], ["09-02", 114.4], ["09-03", 117.1], ["09-04", 163.8], ["09-05", 66.3], ["09-06", 83.6], ["09-08", 43.2], ["09-09", 90.2], ["09-10", 79.8], ["09-12", 18.1], ["09-13", 66.0], ["09-14", 33.2], ["09-15", 34.1], ["09-16", 61.1]], "sicam_2025": [["06-15", 67.1], ["06-16", 146.3], ["06-17", 156.2], ["06-18", 336.3], ["06-19", 490.3], ["06-20", 601.9], ["06-21", 686.3], ["06-22", 794.7], ["06-23", 1062.9], ["06-24", 1200.1], ["06-25", 1026.3], ["06-26", 1360.5], ["06-27", 1424.7], ["06-28", 1270.7], ["06-29", 1557.8], ["06-30", 1182.5], ["07-01", 1382.0], ["07-02", 1345.8], ["07-03", 1410.4], ["07-04", 1602.1], ["07-05", 1359.5], ["07-06", 1089.8], ["07-07", 892.3], ["07-08", 874.6], ["07-09", 993.7], ["07-10", 1125.5], ["07-11", 1383.7], ["07-12", 1317.2], ["07-13", 1119.3], ["07-14", 858.0], ["07-15", 686.0], ["07-16", 925.3], ["07-17", 751.5], ["07-18", 511.9], ["07-19", 543.4], ["07-20", 424.4], ["07-21", 259.2], ["07-22", 185.9], ["07-23", 262.6], ["07-24", 143.4], ["07-25", 462.4], ["07-26", 346.3], ["07-27", 516.4], ["07-28", 441.2], ["07-29", 376.6], ["07-30", 514.8], ["07-31", 401.4], ["08-01", 302.3], ["08-02", 349.8], ["08-03", 295.3], ["08-04", 214.8], ["08-05", 342.2], ["08-06", 236.9], ["08-07", 282.1], ["08-08", 319.2], ["08-09", 163.6], ["08-10", 238.0], ["08-11", 362.6], ["08-12", 323.3], ["08-13", 416.8], ["08-14", 358.9], ["08-15", 363.9], ["08-16", 351.1], ["08-17", 366.0], ["08-18", 182.6], ["08-19", 216.6], ["08-20", 235.4], ["08-21", 311.8], ["08-22", 305.2], ["08-23", 229.4], ["08-24", 233.8], ["08-25", 260.7], ["08-26", 263.9], ["08-27", 247.7], ["08-28", 299.2], ["08-29", 214.3], ["08-30", 98.0], ["08-31", 125.3], ["09-01", 243.0], ["09-02", 88.4], ["09-03", 102.2], ["09-04", 163.8], ["09-05", 66.3], ["09-06", 83.6], ["09-08", 43.2], ["09-09", 90.2], ["09-10", 79.8]], "autres_2025": [["06-15", 0.0], ["06-16", 0.0], ["06-17", 0.0], ["06-18", 79.1], ["06-19", 116.8], ["06-20", 214.7], ["06-21", 261.0], ["06-22", 328.2], ["06-23", 353.8], ["06-24", 600.7], ["06-25", 937.2], ["06-26", 977.6], ["06-27", 1020.2], ["06-28", 1040.7], ["06-29", 1208.9], ["06-30", 1141.4], ["07-01", 1090.0], ["07-02", 1186.8], ["07-03", 1119.3], ["07-04", 1376.1], ["07-05", 1285.1], ["07-06", 1394.0], ["07-07", 1309.4], ["07-08", 1064.3], ["07-09", 1396.3], ["07-10", 1374.2], ["07-11", 1300.9], ["07-12", 1260.0], ["07-13", 1232.9], ["07-14", 1079.0], ["07-15", 1059.5], ["07-16", 1077.7], ["07-17", 827.2], ["07-18", 835.8], ["07-19", 741.2], ["07-20", 666.6], ["07-21", 860.3], ["07-22", 501.2], ["07-23", 616.7], ["07-24", 706.6], ["07-25", 543.6], ["07-26", 437.3], ["07-27", 485.7], ["07-28", 713.2], ["07-29", 561.8], ["07-30", 577.5], ["07-31", 588.3], ["08-01", 687.8], ["08-02", 574.8], ["08-03", 246.0], ["08-04", 789.5], ["08-05", 503.4], ["08-06", 345.8], ["08-07", 472.8], ["08-08", 828.9], ["08-09", 438.5], ["08-10", 628.5], ["08-11", 376.3], ["08-12", 544.8], ["08-13", 531.1], ["08-14", 529.5], ["08-15", 499.9], ["08-16", 530.7], ["08-17", 498.5], ["08-18", 468.8], ["08-19", 336.1], ["08-20", 208.3], ["08-21", 59.6], ["08-22", 153.0], ["08-23", 97.8], ["08-24", 100.6], ["08-25", 68.9], ["08-26", 46.4], ["08-27", 61.2], ["08-28", 69.0], ["08-29", 0.0], ["08-30", 50.8], ["08-31", 54.6], ["09-01", 15.9], ["09-02", 26.0], ["09-03", 15.0], ["09-04", 0.0], ["09-05", 0.0], ["09-06", 0.0], ["09-08", 0.0], ["09-09", 0.0], ["09-10", 0.0], ["09-12", 18.1], ["09-13", 66.0], ["09-14", 33.2], ["09-15", 34.1], ["09-16", 61.1]], "stats": {"global_total": 95962.5, "global_max": 2978.2, "global_max_date": "04/07/2025", "global_avg_peak": 2397.8, "sicam_total": 47342.3, "sicam_max": 1602.1, "autres_max": 1396.3, "autres_total": 48620.2, "plan_total": 87557.0, "plan_max": 2870.0, "plan_avg_peak": 2304.3}, "plan_2026": [["06-20", 140.0], ["06-21", 200.0], ["06-22", 280.0], ["06-23", 370.0], ["06-24", 400.0], ["06-25", 655.0], ["06-26", 675.0], ["06-27", 845.0], ["06-28", 975.0], ["06-29", 1143.0], ["06-30", 1273.0], ["07-01", 1523.0], ["07-02", 1560.0], ["07-03", 1785.0], ["07-04", 1920.0], ["07-05", 2153.0], ["07-06", 2043.0], ["07-07", 2140.0], ["07-08", 2240.0], ["07-09", 2660.0], ["07-10", 2800.0], ["07-11", 2790.0], ["07-12", 2775.0], ["07-13", 2870.0], ["07-14", 2790.0], ["07-15", 2515.0], ["07-16", 2438.0], ["07-17", 2310.0], ["07-18", 2195.0], ["07-19", 2002.0], ["07-20", 1900.0], ["07-21", 1801.0], ["07-22", 1645.0], ["07-23", 1693.0], ["07-24", 1618.0], ["07-25", 1833.0], ["07-26", 1870.0], ["07-27", 1885.0], ["07-28", 2010.0], ["07-29", 2036.0], ["07-30", 1878.0], ["07-31", 1745.0], ["08-01", 1687.0], ["08-02", 1627.0], ["08-03", 1450.0], ["08-04", 1368.0], ["08-05", 1265.0], ["08-06", 1235.0], ["08-07", 1100.0], ["08-08", 873.0], ["08-09", 898.0], ["08-10", 815.0], ["08-11", 790.0], ["08-12", 630.0], ["08-13", 470.0], ["08-14", 420.0], ["08-15", 240.0], ["08-16", 190.0], ["08-17", 120.0]], "factory_2026": {"COMOCAP": [["06-29", 20.0], ["06-30", 55.0], ["07-01", 55.0], ["07-02", 60.0], ["07-03", 135.0], ["07-04", 145.0], ["07-05", 160.0], ["07-06", 165.0], ["07-07", 165.0], ["07-08", 170.0], ["07-09", 400.0], ["07-10", 520.0], ["07-11", 500.0], ["07-12", 505.0], ["07-13", 585.0], ["07-14", 600.0], ["07-15", 515.0], ["07-16", 558.0], ["07-17", 545.0], ["07-18", 580.0], ["07-19", 542.0], ["07-20", 520.0], ["07-21", 421.0], ["07-22", 380.0], ["07-23", 463.0], ["07-24", 343.0], ["07-25", 293.0], ["07-26", 275.0], ["07-27", 245.0], ["07-28", 290.0], ["07-29", 306.0], ["07-30", 293.0], ["07-31", 250.0], ["08-01", 247.0], ["08-02", 197.0], ["08-03", 160.0], ["08-04", 118.0], ["08-05", 45.0], ["08-06", 40.0], ["08-07", 15.0], ["08-08", 15.0], ["08-09", 8.0]], "SICAM": [["06-20", 100.0], ["06-21", 120.0], ["06-22", 180.0], ["06-23", 250.0], ["06-24", 250.0], ["06-25", 420.0], ["06-26", 440.0], ["06-27", 500.0], ["06-28", 560.0], ["06-29", 653.0], ["06-30", 743.0], ["07-01", 898.0], ["07-02", 895.0], ["07-03", 1000.0], ["07-04", 1105.0], ["07-05", 1128.0], ["07-06", 1213.0], ["07-07", 1285.0], ["07-08", 1340.0], ["07-09", 1490.0], ["07-10", 1530.0], ["07-11", 1540.0], ["07-12", 1510.0], ["07-13", 1495.0], ["07-14", 1440.0], ["07-15", 1350.0], ["07-16", 1280.0], ["07-17", 1210.0], ["07-18", 1140.0], ["07-19", 1015.0], ["07-20", 970.0], ["07-21", 960.0], ["07-22", 965.0], ["07-23", 930.0], ["07-24", 930.0], ["07-25", 1155.0], ["07-26", 1180.0], ["07-27", 1220.0], ["07-28", 1270.0], ["07-29", 1280.0], ["07-30", 1180.0], ["07-31", 1090.0], ["08-01", 1045.0], ["08-02", 1040.0], ["08-03", 940.0], ["08-04", 860.0], ["08-05", 850.0], ["08-06", 835.0], ["08-07", 795.0], ["08-08", 578.0], ["08-09", 600.0], ["08-10", 540.0], ["08-11", 520.0], ["08-12", 380.0], ["08-13", 260.0], ["08-14", 210.0], ["08-15", 150.0], ["08-16", 90.0], ["08-17", 30.0]], "TUCAL": [["06-20", 20.0], ["06-21", 60.0], ["06-22", 80.0], ["06-23", 80.0], ["06-24", 110.0], ["06-25", 195.0], ["06-26", 195.0], ["06-27", 245.0], ["06-28", 315.0], ["06-29", 320.0], ["06-30", 325.0], ["07-01", 330.0], ["07-02", 365.0], ["07-03", 390.0], ["07-04", 420.0], ["07-05", 415.0], ["07-06", 395.0], ["07-07", 380.0], ["07-08", 350.0], ["07-09", 370.0], ["07-10", 340.0], ["07-11", 300.0], ["07-12", 290.0], ["07-13", 320.0], ["07-14", 300.0], ["07-15", 230.0], ["07-16", 210.0], ["07-17", 205.0], ["07-18", 185.0], ["07-19", 255.0], ["07-20", 240.0], ["07-21", 240.0], ["07-22", 140.0], ["07-23", 160.0], ["07-24", 235.0], ["07-25", 315.0], ["07-26", 345.0], ["07-27", 380.0], ["07-28", 410.0], ["07-29", 410.0], ["07-30", 385.0], ["07-31", 385.0], ["08-01", 375.0], ["08-02", 370.0], ["08-03", 330.0], ["08-04", 370.0], ["08-05", 350.0], ["08-06", 340.0], ["08-07", 270.0], ["08-08", 260.0], ["08-09", 270.0], ["08-10", 255.0], ["08-11", 250.0], ["08-12", 230.0], ["08-13", 190.0], ["08-14", 190.0], ["08-15", 90.0], ["08-16", 100.0], ["08-17", 90.0]], "ELFALLEH": [["07-01", 70.0], ["07-02", 70.0], ["07-03", 90.0], ["07-04", 90.0], ["07-05", 290.0], ["07-06", 110.0], ["07-07", 110.0], ["07-08", 120.0], ["07-09", 140.0], ["07-10", 150.0], ["07-11", 190.0], ["07-12", 210.0], ["07-13", 210.0], ["07-14", 210.0], ["07-15", 220.0], ["07-16", 220.0], ["07-17", 210.0], ["07-18", 180.0], ["07-19", 110.0], ["07-20", 90.0], ["07-21", 100.0], ["07-22", 100.0], ["07-23", 100.0], ["07-24", 70.0], ["07-25", 30.0], ["07-26", 30.0], ["07-27", 20.0], ["07-28", 20.0], ["07-29", 20.0], ["07-30", 20.0], ["07-31", 20.0], ["08-01", 20.0], ["08-02", 20.0], ["08-03", 20.0], ["08-04", 20.0], ["08-05", 20.0], ["08-06", 20.0], ["08-07", 20.0], ["08-08", 20.0], ["08-09", 20.0], ["08-10", 20.0], ["08-11", 20.0], ["08-12", 20.0], ["08-13", 20.0], ["08-14", 20.0]], "ABIDA": [["06-20", 20.0], ["06-21", 20.0], ["06-22", 20.0], ["06-23", 40.0], ["06-24", 40.0], ["06-25", 40.0], ["06-26", 40.0], ["06-27", 100.0], ["06-28", 100.0], ["06-29", 150.0], ["06-30", 150.0], ["07-01", 170.0], ["07-02", 170.0], ["07-03", 170.0], ["07-04", 160.0], ["07-05", 160.0], ["07-06", 160.0], ["07-07", 200.0], ["07-08", 260.0], ["07-09", 260.0], ["07-10", 260.0], ["07-11", 260.0], ["07-12", 260.0], ["07-13", 260.0], ["07-14", 240.0], ["07-15", 200.0], ["07-16", 170.0], ["07-17", 140.0], ["07-18", 110.0], ["07-19", 80.0], ["07-20", 80.0], ["07-21", 80.0], ["07-22", 60.0], ["07-23", 40.0], ["07-24", 40.0], ["07-25", 40.0], ["07-26", 40.0], ["07-27", 20.0], ["07-28", 20.0], ["07-29", 20.0]]}}
-
-    st.subheader("Comparaison Historique 2025 (réel) vs Plan 2026")
-
-    # ── KPI cards ──
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        delta = round(HIST["stats"]["plan_total"] - HIST["stats"]["global_total"], 0)
-        st.metric("Total saison", f"{HIST['stats']['plan_total']:,.0f} t (2026)",
-                  delta=f"{delta:+,.0f} t vs 2025", delta_color="inverse")
-    with c2:
-        delta = round(HIST["stats"]["plan_max"] - HIST["stats"]["global_max"], 0)
-        st.metric("Pic max journalier", f"{HIST['stats']['plan_max']:,.0f} t (2026)",
-                  delta=f"{delta:+,.0f} t vs 2025", delta_color="inverse")
-    with c3:
-        delta = round(HIST["stats"]["plan_avg_peak"] - HIST["stats"]["global_avg_peak"], 0)
-        st.metric("Moy. 1–15 Juillet", f"{HIST['stats']['plan_avg_peak']:,.0f} t/jour (2026)",
-                  delta=f"{delta:+,.0f} t/j vs 2025", delta_color="inverse")
-    with c4:
-        pct = round(HIST["stats"]["plan_total"] / HIST["stats"]["global_total"] * 100 - 100, 1)
-        st.metric("Variation globale", f"{pct:+.1f}%", delta="vs saison 2025",
-                  delta_color="inverse")
-
-    st.markdown("---")
-
-    # ── Chart 1: Comparaison PAR MOIS (lecture beaucoup plus claire) ──
-    st.subheader("📊 Comparaison MENSUELLE — 2025 réel vs 2026 plan")
-    st.caption("Tonnage agrégé par mois pour voir clairement la différence entre les 2 saisons")
-    
-    # Agréger 2025 et 2026 par mois (MM-YYYY)
-    from collections import defaultdict as _dd
-    _m25 = _dd(float)
-    _m26 = _dd(float)
-    MONTH_NAMES = {6:"Juin",7:"Juillet",8:"Août",9:"Septembre"}
-    
-    for date_str, tons in HIST["global_2025"]:
-        try:
-            mm = int(date_str.split("-")[0])
-            _m25[mm] += tons
-        except Exception:
-            pass
-    for date_str, tons in HIST["plan_2026"]:
-        try:
-            mm = int(date_str.split("-")[0])
-            _m26[mm] += tons
-        except Exception:
-            pass
-    
-    months_sorted = sorted(set(list(_m25.keys()) + list(_m26.keys())))
-    month_labels = [MONTH_NAMES.get(m, f"M{m}") for m in months_sorted]
-    vals_25 = [_m25.get(m, 0) for m in months_sorted]
-    vals_26 = [_m26.get(m, 0) for m in months_sorted]
-    
-    fig1 = go.Figure()
-    # ✅ COULEURS TRÈS DISTINCTES : 2025 = violet, 2026 = orange vif
-    fig1.add_trace(go.Bar(
-        name="📅 2025 Réel",
-        x=month_labels, y=vals_25,
-        marker_color="#9C27B0",     # violet foncé
-        marker_line_color="#6A1B9A", marker_line_width=2,
-        text=[f"{v:,.0f}t" for v in vals_25],
-        textposition="outside", textfont=dict(size=13, color="#E1BEE7"),
-    ))
-    fig1.add_trace(go.Bar(
-        name="🎯 2026 Plan",
-        x=month_labels, y=vals_26,
-        marker_color="#FF6B35",     # orange vif
-        marker_line_color="#C44115", marker_line_width=2,
-        text=[f"{v:,.0f}t" for v in vals_26],
-        textposition="outside", textfont=dict(size=13, color="#FFCC80"),
-    ))
-    fig1.update_layout(
-        barmode="group", template="plotly_dark",
-        plot_bgcolor="#0d1117", paper_bgcolor="#161b22",
-        height=460, hovermode="x",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                    font=dict(size=14)),
-        yaxis=dict(title="Tonnes totales", gridcolor="#21262d"),
-        xaxis=dict(title="Mois", tickfont=dict(size=14)),
-        bargap=0.15, bargroupgap=0.05,
-        title=dict(text="<b>Évolution mensuelle 2025 → 2026</b>",
-                    font=dict(size=16, color="#f0f6fc")),
-    )
-    st.plotly_chart(fig1, use_container_width=True)
-    
-    # Différences relatives par mois
-    st.markdown("**📈 Variations mois par mois**")
-    _diff_cols = st.columns(len(months_sorted))
-    for i, m in enumerate(months_sorted):
-        v25 = _m25.get(m, 0)
-        v26 = _m26.get(m, 0)
-        delta = v26 - v25
-        pct = (delta / v25 * 100) if v25 > 0 else 0
-        with _diff_cols[i]:
-            st.metric(
-                MONTH_NAMES.get(m, f"M{m}"),
-                f"{v26:,.0f}t",
-                delta=f"{delta:+,.0f}t ({pct:+.0f}%) vs 2025",
-                delta_color="inverse",
-            )
-    
-    st.divider()
-    
-    # ── Chart courbes journalières (pour les utilisateurs qui veulent le détail) ──
-    with st.expander("📉 Voir aussi le détail journalier (courbes superposées)", expanded=False):
-        fig1d = go.Figure()
-        fig1d.add_trace(go.Scatter(
-            x=[f"2025-{r[0]}" for r in HIST["global_2025"]],
-            y=[r[1] for r in HIST["global_2025"]],
-            name="2025 Réel", line=dict(color="#9C27B0", width=2),
-            fill="tozeroy", fillcolor="rgba(156,39,176,0.1)", mode="lines",
-        ))
-        fig1d.add_trace(go.Scatter(
-            x=[f"2026-{r[0]}" for r in HIST["plan_2026"]],
-            y=[r[1] for r in HIST["plan_2026"]],
-            name="2026 Plan", line=dict(color="#FF6B35", width=2.5),
-            fill="tozeroy", fillcolor="rgba(255,107,53,0.1)", mode="lines",
-        ))
-        fig1d.update_layout(
-            template="plotly_dark", plot_bgcolor="#0d1117", paper_bgcolor="#161b22",
-            height=380, hovermode="closest",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02),
-            yaxis=dict(title="Tonnes/jour"),
-        )
-        st.plotly_chart(fig1d, use_container_width=True)
-
-    # ── Charts 2 & 3 side by side ──
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("SICAM — 2025 vs 2026")
-        fig2 = go.Figure()
-        fig2.add_trace(go.Scatter(
-            x=[f"2025-{r[0]}" for r in HIST["sicam_2025"]],
-            y=[r[1] for r in HIST["sicam_2025"]],
-            name="SICAM 2025", line=dict(color="#8b5cf6", width=2),
-            fill="tozeroy", fillcolor="rgba(139,92,246,0.1)",
-        ))
-        if "SICAM" in HIST["factory_2026"]:
-            fig2.add_trace(go.Scatter(
-                x=[f"2026-{r[0]}" for r in HIST["factory_2026"]["SICAM"]],
-                y=[r[1] for r in HIST["factory_2026"]["SICAM"]],
-                name="SICAM 2026", line=dict(color="#f5a623", width=2.5),
-                fill="tozeroy", fillcolor="rgba(245,166,35,0.1)",
-            ))
-        fig2.add_hline(y=HIST["stats"]["sicam_max"],
-            line_dash="dot", line_color="#e8543a", line_width=1.5,
-            annotation_text=f"Cap 2025 : {HIST['stats']['sicam_max']:,.0f}t",
-            annotation_position="top right")
-        fig2.update_layout(template="plotly_dark", plot_bgcolor="#0d1117",
-            paper_bgcolor="#161b22", height=300, hovermode="closest",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02),
-            yaxis=dict(title="t/jour"))
-        st.plotly_chart(fig2, use_container_width=True)
-
-    with c2:
-        st.subheader("Autres usines — 2025 vs 2026")
-        fig3 = go.Figure()
-        # Filter out zero-only tail from autres_2025
-        autres_clean = [[d,t] for d,t in HIST["autres_2025"] if t > 0]
-        fig3.add_trace(go.Scatter(
-            x=[f"2025-{r[0]}" for r in autres_clean],
-            y=[r[1] for r in autres_clean],
-            name="Autres 2025", line=dict(color="#3b82f6", width=2),
-            fill="tozeroy", fillcolor="rgba(59,130,246,0.1)",
-        ))
-        from collections import defaultdict
-        day_tots = defaultdict(float)
-        for fac in ["COMOCAP","TUCAL","ABIDA","ELFALLEH"]:
-            for d, t in HIST["factory_2026"].get(fac, []):
-                day_tots[f"2026-{d}"] += t
-        sorted_days = sorted(day_tots.items())
-        if sorted_days:
-            fig3.add_trace(go.Scatter(
-                x=[d for d,_ in sorted_days], y=[t for _,t in sorted_days],
-                name="Autres 2026", line=dict(color="#00e5a0", width=2.5),
-                fill="tozeroy", fillcolor="rgba(0,229,160,0.1)",
-            ))
-        fig3.add_hline(y=HIST["stats"]["autres_max"],
-            line_dash="dot", line_color="#e8543a", line_width=1.5,
-            annotation_text=f"Cap 2025 : {HIST['stats']['autres_max']:,.0f}t",
-            annotation_position="top right")
-        fig3.update_layout(template="plotly_dark", plot_bgcolor="#0d1117",
-            paper_bgcolor="#161b22", height=300, hovermode="closest",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02),
-            yaxis=dict(title="t/jour"))
-        st.plotly_chart(fig3, use_container_width=True)
-
-    # ── Chart 4: Stacked by factory 2026 ──
-    st.subheader("Répartition par usine — Plan 2026 (courbes empilées)")
-    FACTORY_COLORS_MAP = {
-        "SICAM":    "#f5a623",
-        "COMOCAP":  "#3b82f6",
-        "TUCAL":    "#8b5cf6",
-        "ABIDA":    "#ff6b9d",
-        "ELFALLEH": "#00e5a0",
-    }
-    # Plotly requires rgba() format for transparent fills — hex+alpha not supported
-    FACTORY_FILL_MAP = {
-        "SICAM":    "rgba(245,166,35,0.6)",
-        "COMOCAP":  "rgba(59,130,246,0.6)",
-        "TUCAL":    "rgba(139,92,246,0.6)",
-        "ABIDA":    "rgba(255,107,157,0.6)",
-        "ELFALLEH": "rgba(0,229,160,0.6)",
-    }
-    fig4 = go.Figure()
-    for factory, rows in HIST["factory_2026"].items():
-        if not rows:
-            continue
-        fig4.add_trace(go.Scatter(
-            x=[f"2026-{r[0]}" for r in rows],
-            y=[r[1] for r in rows],
-            name=factory, stackgroup="one",
-            line=dict(width=0.5),
-            fillcolor=FACTORY_FILL_MAP.get(factory, "rgba(153,153,153,0.6)"),
-            mode="lines",
-        ))
-    fig4.update_layout(
-        template="plotly_dark", plot_bgcolor="#0d1117", paper_bgcolor="#161b22",
-        height=340, hovermode="closest",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-        yaxis=dict(title="Tonnes/jour"),
-        title="Courbes empilées par usine (plan 2026)",
-    )
-    st.plotly_chart(fig4, use_container_width=True)
-
-    # ── Comparison table — 2026 values from real TONNAGE column ──
-    st.subheader("Tableau comparatif")
-
-    def fmt(v):
-        """Format tonnes: no decimal, comma only if >= 10000"""
-        v = round(v, 0)
-        if v >= 10000:
-            return f"{v:,.0f} t"
-        else:
-            return f"{int(v):,} t" if v >= 1000 else f"{int(v)} t"
-
-    # Real 2026 totals from TONNAGE column (source of truth)
-    USINE_2026_REAL = {
-        "SICAM":    44713.0,
-        "COMOCAP":  17280.0,
-        "TUCAL":    20915.0,
-        "ELFALLEH":  4250.0,
-        "ABIDA":     6530.0,
-    }
-    sicam_2026_total  = GLOBAL_USINE_TONS.get("SICAM", USINE_2026_REAL["SICAM"])
-    autres_2026_total = sum(GLOBAL_USINE_TONS.get(f, USINE_2026_REAL[f])
-                            for f in ["COMOCAP","TUCAL","ABIDA","ELFALLEH"])
-    total_2026        = GLOBAL_TOTAL_TONS if GLOBAL_TOTAL_TONS > 0 else 86548.0  # fallback = current real
-    avg_peak_2026     = GLOBAL_PEAK_TONS / 15 if GLOBAL_PEAK_TONS > 0 else 2304.0
-
-    comp_data = {
-        "Indicateur": [
-            "Total saison (toutes usines)",
-            "Pic max en 1 jour",
-            "Moyenne journalière 1–15 Jul",
-            "Total SICAM",
-            "Total autres usines",
-        ],
-        "2025 Réel": [
-            fmt(HIST["stats"]["global_total"]),
-            fmt(HIST["stats"]["global_max"]) + f"  ({HIST['stats']['global_max_date']})",
-            fmt(HIST["stats"]["global_avg_peak"]) + "/jour",
-            fmt(HIST["stats"]["sicam_total"]),
-            fmt(HIST["stats"]["autres_total"]),
-        ],
-        "2026 Plan": [
-            fmt(total_2026),
-            fmt(HIST["stats"]["plan_max"]),
-            fmt(avg_peak_2026) + "/jour",
-            fmt(sicam_2026_total),
-            fmt(autres_2026_total),
-        ],
-        "Variation": [
-            f"{round(total_2026 - HIST['stats']['global_total']):+,} t",
-            f"{round(HIST['stats']['plan_max'] - HIST['stats']['global_max']):+,} t",
-            f"{round(avg_peak_2026 - HIST['stats']['global_avg_peak']):+,} t/j",
-            "—", "—",
-        ],
-    }
-    import pandas as _pd
-    st.dataframe(_pd.DataFrame(comp_data), use_container_width=True, hide_index=True)
-    st.download_button(
-        "📊 Exporter comparatif (Excel)",
-        data=df_to_xlsx_styled(_pd.DataFrame(comp_data)),
-        file_name="comparatif_2025_2026.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
-    # ════════════════════════════════════════════════════════════════
-    # COMPARAISON PAR COMMERCIAL : Mai 25 / Mai 26 / Juin 26
-    # ════════════════════════════════════════════════════════════════
-    st.divider()
-    st.markdown("## 👤 Prévisions par commercial — Mai 25 / Mai 26 / Juin 26")
-
-    PREV_COMPARE = [
-        {'commercial':'FEDI','mai25':30241,'mai26':33712,'juin26':32312,'n25':64,'n26':75,'delta_25_juin':2071,'delta_26_juin':-1400},
-        {'commercial':'MAKKI BEN SALAH','mai25':19135,'mai26':21265,'juin26':22525,'n25':59,'n26':81,'delta_25_juin':3390,'delta_26_juin':1260},
-        {'commercial':'KHALIL','mai25':23312,'mai26':15120,'juin26':16510,'n25':27,'n26':22,'delta_25_juin':-6802,'delta_26_juin':1390},
-        {'commercial':'ACHREF AJLANI','mai25':8850,'mai26':16625,'juin26':16373,'n25':40,'n26':13,'delta_25_juin':7523,'delta_26_juin':-252},
-        {'commercial':'JILANI OBAY','mai25':8350,'mai26':6965,'juin26':6965,'n25':16,'n26':11,'delta_25_juin':-1385,'delta_26_juin':0},
-    ]
-    LOST_FARMERS = {
-        "FEDI":[
-            {"nom":"MOUHAMED BEN MAOUIA","tonnage":4200,"zone":"MENZEL HOR"},
-            {"nom":"STE COMPTOIR M S","tonnage":4200,"zone":"MENZELTAMIM"},
-            {"nom":"MED WESLATI","tonnage":4000,"zone":"MEDJEZ BEB"},
-            {"nom":"ROMDHAN ELMEHEDEBI","tonnage":1560,"zone":"BOUFICHA"},
-            {"nom":"STE COMPTOIR M S","tonnage":1245,"zone":"MENZELTAMIM"},
-            {"nom":"SOPPA","tonnage":1050,"zone":"MEDJEZ BEB"},
-            {"nom":"HASSEN BEN ALAYA","tonnage":1000,"zone":"LEBNA"},
-            {"nom":"STE AGROBESTE","tonnage":900,"zone":"KORBA"},
-            {"nom":"NOMEN CHAKRAOUI","tonnage":770,"zone":"DAR ALOUCH"},
-            {"nom":"FATHI HABIBI","tonnage":350,"zone":"MORJ AMRI"},
-        ],
-        "MAKKI BEN SALAH":[
-            {"nom":"OMAR HAMAMI","tonnage":1360,"zone":"KORBA"},
-            {"nom":"MONIR BEY","tonnage":800,"zone":"TEFELOUN"},
-            {"nom":"MOHAMED MANOUBI","tonnage":560,"zone":"BOUJRIDA"},
-            {"nom":"ZOUHEIR BAICH (MED KHARBESH)","tonnage":520,"zone":"LEBNA"},
-            {"nom":"AYMEN CHAABEN","tonnage":400,"zone":"DIAR HOJEJ"},
-            {"nom":"HOUSSEM MBAREK","tonnage":350,"zone":"AYEYDA"},
-            {"nom":"ABDERAZZEK BEY","tonnage":300,"zone":"TEFELOUN"},
-            {"nom":"LOTFI GARES","tonnage":300,"zone":"MENZEL TMIM"},
-            {"nom":"SLAH ROUIES","tonnage":280,"zone":"KNAIES"},
-        ],
-        "KHALIL":[
-            {"nom":"STE CHOKRI-SICAM","tonnage":1680,"zone":"SBIKHA-CHRARDA"},
-            {"nom":"EZZEDINE GUESMI-KR","tonnage":1500,"zone":"RAGADA-ELKHADHRA"},
-            {"nom":"STE CHOKRI-COMOCAP","tonnage":1440,"zone":"SBIKHA-CHRARDA"},
-            {"nom":"STE SEMAG-KR","tonnage":1400,"zone":"ELKHADHRA"},
-            {"nom":"SALEM MEJRI-TUCAL","tonnage":1250,"zone":"CHEBIKA-ELHAWEREB"},
-            {"nom":"SAMIR ATTIYA-ABIDA","tonnage":1200,"zone":"ELHAWAREB-HAFOUZ"},
-            {"nom":"CHAKIR HICHRI","tonnage":1200,"zone":"BOUFICHA"},
-            {"nom":"NEGI ZAAFOURI-SICAM","tonnage":900,"zone":"ZAAFRIYA"},
-            {"nom":"AMOR KHECHIN-01","tonnage":640,"zone":"BATTEN-ZAAFRANA"},
-        ],
-        "ACHREF AJLANI":[
-            {"nom":"WAEL ZOUARI","tonnage":780,"zone":"OULED ZID"},
-            {"nom":"KARIM GARMALLAH","tonnage":600,"zone":"SIDI AICH"},
-            {"nom":"SAMIR BRAIKIYA","tonnage":450,"zone":"OULED ZID"},
-            {"nom":"HAFEDH MESBEH","tonnage":420,"zone":"SIDI AICH"},
-            {"nom":"YESSINE CHELGHOUM","tonnage":390,"zone":"Aouled Ouhiba"},
-            {"nom":"SEJIR SNENI","tonnage":360,"zone":"SIDI AICH"},
-            {"nom":"HSEN CHERIF","tonnage":360,"zone":"SIDI AICH"},
-            {"nom":"NASREDDINE B LAMINE","tonnage":360,"zone":"SIDI AICH"},
-        ],
-        "JILANI OBAY":[
-            {"nom":"Riadh Kouki","tonnage":750,"zone":"Sidi Ismail"},
-            {"nom":"Naceur Sallami","tonnage":700,"zone":"Bou Salem"},
-            {"nom":"Sameh Allouchi","tonnage":420,"zone":"Wed Mliz"},
-            {"nom":"Lashed Rbei","tonnage":400,"zone":"Gar Dimaou"},
-        ],
-    }
-
-    # Filtrer selon le rôle : commercial voit seulement ses données
-    if CURRENT_ROLE == "commercial":
-        my_name = st.session_state.get("name", "").upper()
-        visible_comm = [c for c in PREV_COMPARE if c["commercial"].upper() == my_name]
-        if not visible_comm:
-            visible_comm = PREV_COMPARE  # fallback
-    else:
-        visible_comm = PREV_COMPARE
-
-    # ── Graphique groupé Mai25/Mai26/Juin26 ──────────────────────────
-    fig_pc = go.Figure()
-    comms = [c["commercial"] for c in visible_comm]
-    fig_pc.add_trace(go.Bar(name="Mai 2025", x=comms,
-                            y=[c["mai25"] for c in visible_comm],
-                            marker_color="#90A4AE",
-                            text=[f"{c['mai25']}t" for c in visible_comm], textposition="outside"))
-    fig_pc.add_trace(go.Bar(name="Mai 2026 (prév.)", x=comms,
-                            y=[c["mai26"] for c in visible_comm],
-                            marker_color="#42A5F5",
-                            text=[f"{c['mai26']}t" for c in visible_comm], textposition="outside"))
-    fig_pc.add_trace(go.Bar(name="Juin 2026 (déposé)", x=comms,
-                            y=[c["juin26"] for c in visible_comm],
-                            marker_color="#66BB6A",
-                            text=[f"{c['juin26']}t" for c in visible_comm], textposition="outside"))
-    fig_pc.update_layout(barmode="group", template="plotly_dark",
-                         paper_bgcolor="#161b22", plot_bgcolor="#0d1117",
-                         height=400, title="Évolution des prévisions par commercial",
-                         legend=dict(orientation="h", y=-0.2), yaxis_title="Tonnes")
-    st.plotly_chart(fig_pc, use_container_width=True)
-
-    # ── Tableau comparatif ───────────────────────────────────────────
-    rows_pc = []
-    for c in visible_comm:
-        pct_25 = f"{c['delta_25_juin']/c['mai25']*100:+.0f}%" if c['mai25'] else "—"
-        rows_pc.append({
-            "Commercial":      c["commercial"],
-            "Mai 2025 (t)":    c["mai25"],
-            "Mai 2026 (t)":    c["mai26"],
-            "Juin 2026 (t)":   c["juin26"],
-            "Δ vs Mai25":      f"{c['delta_25_juin']:+d}",
-            "Δ vs Mai26":      f"{c['delta_26_juin']:+d}",
-            "% vs 2025":       pct_25,
-            "Tendance":        "📈 hausse" if c['delta_25_juin']>0 else ("📉 baisse" if c['delta_25_juin']<0 else "➡️ stable"),
-        })
-    st.dataframe(_pd.DataFrame(rows_pc), use_container_width=True, hide_index=True)
-
-    # ════════════════════════════════════════════════════════════════
-    # AGRICULTEURS PERDUS (présents 2025, absents 2026)
-    # ════════════════════════════════════════════════════════════════
-    st.divider()
-    st.markdown("## ⚠️ Agriculteurs de 2025 non retrouvés en 2026")
-    st.caption("Agriculteurs qui livraient en Mai 2025 mais absents de la prévision 2026 (≥200t) — à recontacter éventuellement")
-
-    for c in visible_comm:
-        comm = c["commercial"]
-        lost = LOST_FARMERS.get(comm, [])
-        if not lost:
-            continue
-        total_lost = sum(l["tonnage"] for l in lost)
-        with st.expander(f"🔴 {comm} — {len(lost)} agriculteurs perdus ({total_lost:,}t potentiels)".replace(",", " ")):
-            df_lost = _pd.DataFrame(lost)
-            df_lost.columns = ["Agriculteur","Tonnage 2025 (t)","Zone"]
-            df_lost = df_lost.sort_values("Tonnage 2025 (t)", ascending=False)
-            st.dataframe(df_lost, use_container_width=True, hide_index=True)
-            st.download_button(
-                f"📊 Exporter perdus {comm} (Excel)",
-                data=df_to_xlsx_styled(df_lost),
-                file_name=f"agriculteurs_perdus_{comm.split()[0]}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"lost_{comm}",
-            )
-
-    # Récapitulatif global perdus (admin uniquement)
-    if CURRENT_ROLE != "commercial":
-        st.markdown("**📊 Récapitulatif global des agriculteurs perdus**")
-        recap_lost = []
-        for comm in [c["commercial"] for c in PREV_COMPARE]:
-            lst = LOST_FARMERS.get(comm, [])
-            recap_lost.append({
-                "Commercial": comm,
-                "Nb perdus (≥200t)": len(lst),
-                "Tonnage perdu (t)": sum(l["tonnage"] for l in lst),
-            })
-        df_rl = _pd.DataFrame(recap_lost)
-        tot_row = {"Commercial":"TOTAL",
-                   "Nb perdus (≥200t)":df_rl["Nb perdus (≥200t)"].sum(),
-                   "Tonnage perdu (t)":df_rl["Tonnage perdu (t)"].sum()}
-        df_rl = _pd.concat([df_rl, _pd.DataFrame([tot_row])], ignore_index=True)
-        st.dataframe(df_rl, use_container_width=True, hide_index=True)
-
-
-# ── TAB 8 (new): COMPARAISON PAR PRÉVISION ──────────────────
-with tab8:
-    st.subheader("📊 Comparaison par prévision — Mai / Juin / Réalisé (multi-années)")
-    st.caption("Importer pour chaque année : Prévision Mai + Prévision Juin + Réalisé — comparer entre saisons")
-
-    if "prev_data" not in st.session_state:
-        st.session_state.prev_data = {}
-    if "prev_apply" not in st.session_state:
-        st.session_state.prev_apply = False
-
-    with st.expander("📤 Importer / Gérer les prévisions par année", expanded=False):
-        st.caption("Colonnes attendues : **Region** et **Tonnage**")
-        cP1, cP2 = st.columns(2)
-        with cP1:
-            _prev_annee = st.number_input("Année", min_value=2020, max_value=2035, value=2025,
-                                           step=1, key="prev_annee_new")
-        with cP2:
-            _prev_type = st.selectbox("Type", ["Prévision Mai","Prévision Juin","Réalisé"],
-                                       key="prev_type_new")
-        _file_prev = st.file_uploader(
-            f"Charger {_prev_type} — {_prev_annee}",
-            type=["xlsx","xls","csv"], key=f"prev_up_{_prev_annee}_{_prev_type}"
-        )
-        if _file_prev is not None:
-            try:
-                _df_prev = _pd.read_excel(_file_prev) if _file_prev.name.lower().endswith(("xlsx","xls")) \
-                           else _pd.read_csv(_file_prev)
-                _df_prev.columns = [str(c).strip() for c in _df_prev.columns]
-                _mp = {}
-                for c in _df_prev.columns:
-                    lc = str(c).lower().strip()
-                    if lc in ("region","région","zone"):        _mp[c] = "Region"
-                    elif lc in ("tonnage","tonnes","total"):    _mp[c] = "Tonnage"
-                _df_prev = _df_prev.rename(columns=_mp)
-                if "Region" in _df_prev.columns and "Tonnage" in _df_prev.columns:
-                    _df_prev["Tonnage"] = _pd.to_numeric(_df_prev["Tonnage"], errors="coerce").fillna(0)
-                    _key = {"Prévision Mai":"mai","Prévision Juin":"juin","Réalisé":"reel"}[_prev_type]
-                    st.session_state.prev_data.setdefault(int(_prev_annee), {})[_key] = _df_prev
-                    st.success(f"✅ {_prev_type} {_prev_annee} : {len(_df_prev)} régions — Total {_df_prev['Tonnage'].sum():,.0f} t")
-                else:
-                    st.error("❌ Colonnes **Region** et **Tonnage** requises")
-            except Exception as _e:
-                st.error(f"❌ Erreur : {_e}")
-
-        if st.session_state.prev_data:
-            st.markdown("**Prévisions chargées :**")
-            for _an in sorted(st.session_state.prev_data.keys()):
-                _d = st.session_state.prev_data[_an]
-                _tags = []
-                if "mai"  in _d: _tags.append(f"Mai ({_d['mai']['Tonnage'].sum():,.0f}t)")
-                if "juin" in _d: _tags.append(f"Juin ({_d['juin']['Tonnage'].sum():,.0f}t)")
-                if "reel" in _d: _tags.append(f"Réel ({_d['reel']['Tonnage'].sum():,.0f}t)")
-                cL, cR = st.columns([4,1])
-                with cL: st.markdown(f"**{_an}** : {' • '.join(_tags)}")
-                with cR:
-                    if st.button("🗑️", key=f"del_prev_{_an}"):
-                        del st.session_state.prev_data[_an]
-                        st.rerun()
-
-        st.markdown("---")
-        cP3, cP4 = st.columns([1,3])
-        with cP3:
-            if st.button("✅ Appliquer prévisions", type="primary", use_container_width=True,
-                         disabled=not st.session_state.prev_data, key="btn_apply_prev"):
-                st.session_state.prev_apply = True
-                st.success("Mis à jour")
-        with cP4:
-            if st.button("🔄 Réinitialiser", use_container_width=True, key="btn_reset_prev"):
-                st.session_state.prev_data = {}
-                st.session_state.prev_apply = False
-                st.rerun()
-
-    st.markdown("---")
-
-    if st.session_state.prev_apply and st.session_state.prev_data:
-        import plotly.graph_objects as go
-        _regions = set()
-        for _an, _d in st.session_state.prev_data.items():
-            for _k, _dfr in _d.items():
-                _regions.update(_dfr["Region"].astype(str).unique())
-        _regions = sorted(_regions)
-        _rows = []
-        for _r in _regions:
-            _row = {"Région": _r}
-            for _an in sorted(st.session_state.prev_data.keys()):
-                _d = st.session_state.prev_data[_an]
-                for _k, _label in [("mai",f"Mai {_an}"),("juin",f"Juin {_an}"),("reel",f"Réel {_an}")]:
-                    if _k in _d:
-                        _v = _d[_k][_d[_k]["Region"].astype(str) == _r]["Tonnage"].sum()
-                        _row[_label] = _v
-            _rows.append(_row)
-        _df_all_p = _pd.DataFrame(_rows)
-        _tot = {"Région":"TOTAL"}
-        for c in _df_all_p.columns[1:]:
-            _tot[c] = _df_all_p[c].sum()
-        _df_all_p = _pd.concat([_df_all_p, _pd.DataFrame([_tot])], ignore_index=True)
-        st.dataframe(_df_all_p, use_container_width=True, hide_index=True)
-
-        fig_p = go.Figure()
-        COULEURS_ANNEE = {2023:"#9C27B0", 2024:"#3B82F6", 2025:"#00C896", 2026:"#F5A623", 2027:"#F97316"}
-        LAB = {"mai":"Prév. Mai","juin":"Prév. Juin","reel":"Réel"}
-        for _an in sorted(st.session_state.prev_data.keys()):
-            _color = COULEURS_ANNEE.get(_an, "#94a3b8")
-            _d = st.session_state.prev_data[_an]
-            for _k in ["mai","juin","reel"]:
-                if _k in _d:
-                    _dfr = _d[_k]
-                    fig_p.add_trace(go.Bar(
-                        name=f"{LAB[_k]} {_an}", x=_dfr["Region"].astype(str),
-                        y=_dfr["Tonnage"], marker_color=_color,
-                        opacity=(0.9 if _k=="mai" else (0.65 if _k=="juin" else 0.4)),
-                        text=[f"{v:,.0f}" for v in _dfr["Tonnage"]], textposition="outside",
-                    ))
-        fig_p.update_layout(barmode="group", template="plotly_dark",
-                            paper_bgcolor="#161b22", plot_bgcolor="#0d1117",
-                            height=500, yaxis_title="Tonnes", hovermode="x unified",
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02))
-        st.plotly_chart(fig_p, use_container_width=True)
-    else:
-        st.info("💡 Importez au moins une prévision puis cliquez **Appliquer**.")
-
-    st.markdown("---")
-    st.subheader("📊 Données par défaut — Décembre 2025 → Mai 2026 → Juin 2026")
-    st.caption("Évolution des besoins par région et usine sur les 3 prévisions de la saison")
-
-    # ── DATA EXACTES — source: TONNAGE_PAR_REGION_anouer__2___1_.xlsx ─────
-    import math
-    def _c100(x):
-        if not x or x == 0: return 0
-        return math.ceil(float(x) / 100) * 100
-
-    DEC25 = {
-        'CAP BON':          {'tonnage':48000,'SICAM':22000,'TUCAL':10000,'COMOCAP':13000,'ABIDA':0,   'ELFALLEH':3000,'BESOIN':48000},
-        'NORD':             {'tonnage':12000,'SICAM':3500, 'TUCAL':7000, 'COMOCAP':1500, 'ABIDA':500, 'ELFALLEH':500, 'BESOIN':13000},
-        'GAFSA / KASSRINE': {'tonnage':15500,'SICAM':11500,'TUCAL':2500, 'COMOCAP':1500, 'ABIDA':2500,'ELFALLEH':0,   'BESOIN':18000},
-        'KAIROUAN':         {'tonnage':9000, 'SICAM':4500, 'TUCAL':2000, 'COMOCAP':1500, 'ABIDA':2000,'ELFALLEH':0,   'BESOIN':10000},
-        'SIDI BOUZID':      {'tonnage':5500, 'SICAM':2500, 'TUCAL':500,  'COMOCAP':1500, 'ABIDA':2000,'ELFALLEH':0,   'BESOIN':6500},
-        'BOUFICHA':         {'tonnage':3500, 'SICAM':1000, 'TUCAL':1000, 'COMOCAP':1000, 'ABIDA':0,   'ELFALLEH':500, 'BESOIN':3500},
-    }
-    MAI26 = {
-        'CAP BON':          {'tonnage':49000,'SICAM':22000,'TUCAL':11000,'COMOCAP':13000,'ABIDA':0,   'ELFALLEH':4000,'BESOIN':50000},
-        'NORD':             {'tonnage':12500,'SICAM':3500, 'TUCAL':4500, 'COMOCAP':3000, 'ABIDA':1000,'ELFALLEH':500, 'BESOIN':12500},
-        'GAFSA / KASSRINE': {'tonnage':17000,'SICAM':11000,'TUCAL':2000, 'COMOCAP':500,  'ABIDA':3500,'ELFALLEH':0,   'BESOIN':17000},
-        'KAIROUAN':         {'tonnage':8000, 'SICAM':4500, 'TUCAL':1200, 'COMOCAP':1000, 'ABIDA':1500,'ELFALLEH':0,   'BESOIN':8200},
-        'SIDI BOUZID':      {'tonnage':4000, 'SICAM':2500, 'TUCAL':500,  'COMOCAP':1500, 'ABIDA':2000,'ELFALLEH':0,   'BESOIN':6500},
-        'BOUFICHA':         {'tonnage':3000, 'SICAM':1000, 'TUCAL':1000, 'COMOCAP':1000, 'ABIDA':0,   'ELFALLEH':0,   'BESOIN':3000},
-    }
-    JUN26 = {
-        'CAP BON':          {'tonnage':49000,'SICAM':22000,'TUCAL':11000,'COMOCAP':12500,'ABIDA':0,   'ELFALLEH':4000,'BESOIN':49500},
-        'NORD':             {'tonnage':12500,'SICAM':3500, 'TUCAL':4500, 'COMOCAP':3000, 'ABIDA':1000,'ELFALLEH':500, 'BESOIN':12500},
-        'GAFSA / KASSRINE': {'tonnage':18000,'SICAM':11000,'TUCAL':2500, 'COMOCAP':500,  'ABIDA':3500,'ELFALLEH':0,   'BESOIN':17500},
-        'KAIROUAN':         {'tonnage':9000, 'SICAM':4500, 'TUCAL':1200, 'COMOCAP':1500, 'ABIDA':1500,'ELFALLEH':500, 'BESOIN':9200},
-        'SIDI BOUZID':      {'tonnage':6500, 'SICAM':2500, 'TUCAL':500,  'COMOCAP':1500, 'ABIDA':2000,'ELFALLEH':0,   'BESOIN':6500},
-        'BOUFICHA':         {'tonnage':3000, 'SICAM':1000, 'TUCAL':1000, 'COMOCAP':1000, 'ABIDA':0,   'ELFALLEH':0,   'BESOIN':3000},
-    }
-
-    REGIONS_P = ['CAP BON','NORD','GAFSA / KASSRINE','KAIROUAN','SIDI BOUZID','BOUFICHA']
-    PREVISIONS_DATES = {'DEC25':'16/01/2026','MAI26':'09/05/2026','JUN26':'03/06/2026'}
-    USINES_P  = ['SICAM','TUCAL','COMOCAP','ABIDA','ELFALLEH']
-    U_COLORS  = {'SICAM':'#F5A623','TUCAL':'#8B5CF6','COMOCAP':'#3B82F6','ABIDA':'#FF6B9D','ELFALLEH':'#00C896'}
-    R_COLORS  = {'CAP BON':'#1F4E79','NORD':'#375623','GAFSA / KASSRINE':'#064E3B',
-                 'KAIROUAN':'#7B2D8B','SIDI BOUZID':'#C00000','BOUFICHA':'#B45309'}
-
-    # ── KPI résumé ──────────────────────────────────────────
-    st.markdown("### 📌 Vue d'ensemble")
-    k1,k2,k3,k4 = st.columns(4)
-    k1.metric("Production Déc25",  f"{sum(_c100(v['tonnage']) for v in DEC25.values()):,} t")
-    k2.metric("Production Mai26",  f"{sum(_c100(v['tonnage']) for v in MAI26.values()):,} t",
-              delta=f"{sum(_c100(v['tonnage']) for v in MAI26.values())-sum(_c100(v['tonnage']) for v in DEC25.values()):+,} t")
-    k3.metric("Production Juin26", f"{sum(_c100(v['tonnage']) for v in JUN26.values()):,} t",
-              delta=f"{sum(_c100(v['tonnage']) for v in JUN26.values())-sum(_c100(v['tonnage']) for v in MAI26.values()):+,} t vs Mai")
-    k4.metric("Besoin total usines Mai26", f"{sum(_c100(v['BESOIN']) for v in MAI26.values()):,} t")
-    st.markdown("---")
-
-    # ── TAB internes : Production / Usines / Décalages ──────
-    pt1, pt2, pt3 = st.tabs([
-        "📈 Évolution Production par Région",
-        "🏭 Besoin Usines Déc vs Mai",
-        "🔍 Analyse Décalages Mai26",
-    ])
-
-    # ─── Sous-tab 1 : Evolution production ───────────────────
-    with pt1:
-        # Bar chart grouped : Dec vs Mai par region
-        import plotly.graph_objects as go
-
-        fig_evol = go.Figure()
-        fig_evol.add_trace(go.Bar(
-            name='Déc 2025',
-            x=REGIONS_P,
-            y=[_c100(DEC25[r]['tonnage']) for r in REGIONS_P],
-            marker_color='#4A90D9',
-            text=[f"{_c100(DEC25[r]['tonnage']):,}t" for r in REGIONS_P],
-            textposition='outside',
-        ))
-        fig_evol.add_trace(go.Bar(
-            name='Mai 2026',
-            x=REGIONS_P,
-            y=[_c100(MAI26[r]['tonnage']) for r in REGIONS_P],
-            marker_color='#00C896',
-            text=[f"{_c100(MAI26[r]['tonnage']):,}t" for r in REGIONS_P],
-            textposition='outside',
-        ))
-        # Jun26 — afficher TONNAGE PRODUIT (pas BESOIN)
-        fig_evol.add_trace(go.Bar(
-            name='Juin 2026 (Production prévue)',
-            x=REGIONS_P,
-            y=[_c100(JUN26[r]['tonnage']) for r in REGIONS_P],
-            marker_color='#F5A623',
-            text=[f"{_c100(JUN26[r]['tonnage']):,}t" for r in REGIONS_P],
-            textposition='outside',
-        ))
-        fig_evol.update_layout(
-            barmode='group', template='plotly_dark',
-            paper_bgcolor='#161b22', plot_bgcolor='#0d1117',
-            height=420, title='Évolution production prévue par région (3 prévisions)',
-            yaxis_title='Tonnes', hovermode='x unified',
-            legend=dict(orientation='h', yanchor='bottom', y=1.02),
-        )
-        st.plotly_chart(fig_evol, use_container_width=True)
-
-        # Line evolution total
-        fig_line = go.Figure()
-        previsions = ['Déc 2025','Mai 2026']
-        totaux = [sum(_c100(v['tonnage']) for v in DEC25.values()),
-                  sum(_c100(v['tonnage']) for v in MAI26.values())]
-        if JUN26:
-            previsions.append('Juin 2026')
-            totaux.append(sum(_c100(v['tonnage']) for v in JUN26.values()))
-
-        fig_line.add_trace(go.Scatter(
-            x=previsions, y=totaux, mode='lines+markers+text',
-            text=[f"{t:,}t" for t in totaux],
-            textposition='top center',
-            line=dict(color='#F5A623', width=3),
-            marker=dict(size=12, color='#F5A623'),
-        ))
-        fig_line.update_layout(
-            template='plotly_dark', paper_bgcolor='#161b22',
-            plot_bgcolor='#0d1117', height=280,
-            title='Évolution du total production — toutes régions',
-            yaxis_title='Tonnes',
-        )
-        st.plotly_chart(fig_line, use_container_width=True)
-
-        # Table comparaison
-        rows_comp = []
-        for r in REGIONS_P:
-            d_t = _c100(DEC25[r]['tonnage'])
-            m_t = _c100(MAI26[r]['tonnage'])
-            j_t = _c100(JUN26[r]['tonnage'])
-            j_b = _c100(JUN26[r]['BESOIN'])
-            evol = j_t - m_t
-            rows_comp.append({
-                'Région': r,
-                'Déc 2025 (prod)': f"{d_t:,} t",
-                'Mai 2026 (prod)': f"{m_t:,} t",
-                'Juin 2026 (prod)': f"{j_t:,} t",
-                'Évolution Mai→Juin': f"{evol:+,} t",
-                'Besoin Usines Juin': f"{j_b:,} t",
-                '% vs Déc': f"{(j_t/d_t-1)*100:+.1f}%" if d_t > 0 else '—',
-            })
-        st.dataframe(pd.DataFrame(rows_comp), use_container_width=True, hide_index=True)
-
-    # ─── Sous-tab 2 : Besoin usines ──────────────────────────
-    with pt2:
-        col_sel = st.selectbox("Choisir une usine", USINES_P, key='usine_sel_prev')
-
-        fig_usine = go.Figure()
-        fig_usine.add_trace(go.Bar(
-            name='Besoin Déc 2025',
-            x=REGIONS_P,
-            y=[DEC25[r][col_sel] for r in REGIONS_P],
-            marker_color='#4A90D9',
-            text=[f"{DEC25[r][col_sel]:,}t" if DEC25[r][col_sel] > 0 else '' for r in REGIONS_P],
-            textposition='outside',
-        ))
-        fig_usine.add_trace(go.Bar(
-            name='Besoin Mai 2026',
-            x=REGIONS_P,
-            y=[MAI26[r][col_sel] for r in REGIONS_P],
-            marker_color=U_COLORS[col_sel],
-            text=[f"{MAI26[r][col_sel]:,}t" if MAI26[r][col_sel] > 0 else '' for r in REGIONS_P],
-            textposition='outside',
-        ))
-        fig_usine.update_layout(
-            barmode='group', template='plotly_dark',
-            paper_bgcolor='#161b22', plot_bgcolor='#0d1117',
-            height=380, title=f'Besoin {col_sel} — Déc 2025 vs Mai 2026 par région',
-            yaxis_title='Tonnes',
-        )
-        st.plotly_chart(fig_usine, use_container_width=True)
-
-        # Totaux usine
-        c1, c2, c3 = st.columns(3)
-        tot_d = sum(DEC25[r][col_sel] for r in REGIONS_P)
-        tot_m = sum(MAI26[r][col_sel] for r in REGIONS_P)
-        c1.metric(f"Total besoin {col_sel} Déc25", f"{tot_d:,} t")
-        c2.metric(f"Total besoin {col_sel} Mai26", f"{tot_m:,} t", delta=f"{tot_m-tot_d:+,} t")
-        c3.metric(f"Variation", f"{(tot_m/tot_d-1)*100:+.1f}%" if tot_d > 0 else "—")
-
-        # Radar chart all usines Dec vs Mai
-        fig_radar = go.Figure()
-        theta = USINES_P + [USINES_P[0]]
-        fig_radar.add_trace(go.Scatterpolar(
-            r=[sum(DEC25[r][u] for r in REGIONS_P) for u in USINES_P] +
-              [sum(DEC25[r][USINES_P[0]] for r in REGIONS_P)],
-            theta=theta, fill='toself', name='Déc 2025',
-            line_color='#4A90D9',
-        ))
-        fig_radar.add_trace(go.Scatterpolar(
-            r=[sum(MAI26[r][u] for r in REGIONS_P) for u in USINES_P] +
-              [sum(MAI26[r][USINES_P[0]] for r in REGIONS_P)],
-            theta=theta, fill='toself', name='Mai 2026',
-            line_color='#00C896',
-        ))
-        fig_radar.update_layout(
-            polar=dict(bgcolor='#161b22'),
-            template='plotly_dark', paper_bgcolor='#161b22',
-            height=380, title='Répartition totale par usine — Déc vs Mai',
-        )
-        st.plotly_chart(fig_radar, use_container_width=True)
-
-    # ─── Sous-tab 3 : Analyse décalages ──────────────────────
-    with pt3:
-        st.markdown("#### Décalage = Besoin Usine − Production Allouée")
-        st.caption("La production est allouée proportionnellement aux besoins de chaque usine dans la région.")
-
-        rows_decal = []
-        for region in REGIONS_P:
-            m = MAI26[region]
-            prod = m['tonnage']
-            total_b = m['BESOIN']
-            for u in USINES_P:
-                b = m[u]
-                if b == 0: continue
-                share      = b / total_b if total_b > 0 else 0
-                prod_alloc = round(prod * share)
-                solde      = prod_alloc - b
-                rows_decal.append({
-                    'Région':        region,
-                    'Usine':         u,
-                    'Besoin (t)':    b,
-                    'Prod. allouée': prod_alloc,
-                    'Solde (t)':     solde,
-                    'Statut':        '✅ OK' if solde >= 0 else ('⚠️ Léger' if solde >= -500 else '🔴 Déficit'),
-                })
-
-        df_decal = pd.DataFrame(rows_decal)
-
-        # Heatmap-style visualization
-        pivot_solde = df_decal.pivot_table(
-            index='Région', columns='Usine', values='Solde (t)', fill_value=0)
-
-        fig_heat = go.Figure(data=go.Heatmap(
-            z=pivot_solde.values,
-            x=list(pivot_solde.columns),
-            y=list(pivot_solde.index),
-            colorscale=[[0,'#C62828'],[0.5,'#F5F5F5'],[1,'#2E7D32']],
-            zmid=0,
-            text=[[f"{v:+,}t" for v in row] for row in pivot_solde.values],
-            texttemplate='%{text}',
-            textfont=dict(size=11, color='white'),
-            colorbar=dict(title='Solde (t)'),
-        ))
-        fig_heat.update_layout(
-            template='plotly_dark', paper_bgcolor='#161b22',
-            height=350, title='Solde par région × usine (Mai 2026) — Vert=excédent Rouge=déficit',
-        )
-        st.plotly_chart(fig_heat, use_container_width=True)
-
-        # Table détaillée
-        st.dataframe(
-            df_decal,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                'Solde (t)': st.column_config.NumberColumn('Solde (t)', format='%+d t'),
-                'Statut':    st.column_config.TextColumn(width='small'),
-            }
-        )
-
-        # Summary déficits
-        deficits = df_decal[df_decal['Solde (t)'] < 0].sort_values('Solde (t)')
-        if not deficits.empty:
-            st.markdown("#### ⚠️ Déficits à combler")
-            for _, row in deficits.iterrows():
-                color = "🔴" if row['Solde (t)'] < -500 else "⚠️"
-                st.warning(f"{color} **{row['Région']}** → **{row['Usine']}** : manque **{abs(row['Solde (t)']):,}t** (besoin {row['Besoin (t)']:,}t, production allouée {row['Prod. allouée']:,}t)")
-        else:
-            st.success("✅ Aucun déficit détecté — production Mai26 couvre tous les besoins")
-
-        st.success("✅ Prévision Juin 2026 intégrée — données du 03/06/2026")
 
 # ── TAB 7: TONNAGE PAR RÉGION ────────────────────────────────
 with tab7:
@@ -5311,6 +4462,128 @@ with tab7:
                 data=df_to_xlsx_styled(pv_comm_display.reset_index()),
                 file_name=f"tonnage_region_commercial_{filter_label.replace(' ','_')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+
+# ── TAB 8: COMPARAISON PAR PRÉVISION ─────────────────────────
+with tab8:
+    import pandas as _pd
+    import plotly.graph_objects as go
+    st.subheader("📊 Comparaison par prévision — Mai / Juin / Réalisé (multi-années)")
+    st.caption("Importer pour chaque année : Prévision Mai + Prévision Juin + Réalisé — comparer entre saisons")
+
+    if "prev_data" not in st.session_state:
+        st.session_state.prev_data = {}
+    if "prev_apply" not in st.session_state:
+        st.session_state.prev_apply = False
+
+    with st.expander("📤 Importer / Gérer les prévisions par année", expanded=False):
+        st.caption("Colonnes attendues : **Region** et **Tonnage**")
+        cP1, cP2 = st.columns(2)
+        with cP1:
+            _prev_annee = st.number_input("Année", min_value=2020, max_value=2035, value=2025,
+                                           step=1, key="prev_annee_new")
+        with cP2:
+            _prev_type = st.selectbox("Type", ["Prévision Mai","Prévision Juin","Réalisé"],
+                                       key="prev_type_new")
+        _file_prev = st.file_uploader(
+            f"Charger {_prev_type} — {_prev_annee}",
+            type=["xlsx","xls","csv"], key=f"prev_up_{_prev_annee}_{_prev_type}"
+        )
+        if _file_prev is not None:
+            try:
+                _df_prev = _pd.read_excel(_file_prev) if _file_prev.name.lower().endswith(("xlsx","xls")) \
+                           else _pd.read_csv(_file_prev)
+                _df_prev.columns = [str(c).strip() for c in _df_prev.columns]
+                _mp = {}
+                for c in _df_prev.columns:
+                    lc = str(c).lower().strip()
+                    if lc in ("region","région","zone"):        _mp[c] = "Region"
+                    elif lc in ("tonnage","tonnes","total"):    _mp[c] = "Tonnage"
+                _df_prev = _df_prev.rename(columns=_mp)
+                if "Region" in _df_prev.columns and "Tonnage" in _df_prev.columns:
+                    _df_prev["Tonnage"] = _pd.to_numeric(_df_prev["Tonnage"], errors="coerce").fillna(0)
+                    _key = {"Prévision Mai":"mai","Prévision Juin":"juin","Réalisé":"reel"}[_prev_type]
+                    st.session_state.prev_data.setdefault(int(_prev_annee), {})[_key] = _df_prev
+                    st.success(f"✅ {_prev_type} {_prev_annee} : {len(_df_prev)} régions — Total {_df_prev['Tonnage'].sum():,.0f} t")
+                else:
+                    st.error("❌ Colonnes **Region** et **Tonnage** requises")
+            except Exception as _e:
+                st.error(f"❌ Erreur : {_e}")
+
+        if st.session_state.prev_data:
+            st.markdown("**Prévisions chargées :**")
+            for _an in sorted(st.session_state.prev_data.keys()):
+                _d = st.session_state.prev_data[_an]
+                _tags = []
+                if "mai"  in _d: _tags.append(f"Mai ({_d['mai']['Tonnage'].sum():,.0f}t)")
+                if "juin" in _d: _tags.append(f"Juin ({_d['juin']['Tonnage'].sum():,.0f}t)")
+                if "reel" in _d: _tags.append(f"Réel ({_d['reel']['Tonnage'].sum():,.0f}t)")
+                cL, cR = st.columns([4,1])
+                with cL: st.markdown(f"**{_an}** : {' • '.join(_tags)}")
+                with cR:
+                    if st.button("🗑️", key=f"del_prev_{_an}"):
+                        del st.session_state.prev_data[_an]
+                        st.rerun()
+
+        st.markdown("---")
+        cP3, cP4 = st.columns([1,3])
+        with cP3:
+            if st.button("✅ Appliquer prévisions", type="primary", use_container_width=True,
+                         disabled=not st.session_state.prev_data, key="btn_apply_prev"):
+                st.session_state.prev_apply = True
+                st.success("Mis à jour")
+        with cP4:
+            if st.button("🔄 Réinitialiser", use_container_width=True, key="btn_reset_prev"):
+                st.session_state.prev_data = {}
+                st.session_state.prev_apply = False
+                st.rerun()
+
+    st.markdown("---")
+
+    if st.session_state.prev_apply and st.session_state.prev_data:
+        _regions = set()
+        for _an, _d in st.session_state.prev_data.items():
+            for _k, _dfr in _d.items():
+                _regions.update(_dfr["Region"].astype(str).unique())
+        _regions = sorted(_regions)
+        _rows = []
+        for _r in _regions:
+            _row = {"Région": _r}
+            for _an in sorted(st.session_state.prev_data.keys()):
+                _d = st.session_state.prev_data[_an]
+                for _k, _label in [("mai",f"Mai {_an}"),("juin",f"Juin {_an}"),("reel",f"Réel {_an}")]:
+                    if _k in _d:
+                        _v = _d[_k][_d[_k]["Region"].astype(str) == _r]["Tonnage"].sum()
+                        _row[_label] = _v
+            _rows.append(_row)
+        _df_all_p = _pd.DataFrame(_rows)
+        _tot = {"Région":"TOTAL"}
+        for c in _df_all_p.columns[1:]:
+            _tot[c] = _df_all_p[c].sum()
+        _df_all_p = _pd.concat([_df_all_p, _pd.DataFrame([_tot])], ignore_index=True)
+        st.dataframe(_df_all_p, use_container_width=True, hide_index=True)
+
+        fig_p = go.Figure()
+        COULEURS_ANNEE = {2023:"#9C27B0", 2024:"#3B82F6", 2025:"#00C896", 2026:"#F5A623", 2027:"#F97316"}
+        LAB = {"mai":"Prév. Mai","juin":"Prév. Juin","reel":"Réel"}
+        for _an in sorted(st.session_state.prev_data.keys()):
+            _color = COULEURS_ANNEE.get(_an, "#94a3b8")
+            _d = st.session_state.prev_data[_an]
+            for _k in ["mai","juin","reel"]:
+                if _k in _d:
+                    _dfr = _d[_k]
+                    fig_p.add_trace(go.Bar(
+                        name=f"{LAB[_k]} {_an}", x=_dfr["Region"].astype(str),
+                        y=_dfr["Tonnage"], marker_color=_color,
+                        opacity=(0.9 if _k=="mai" else (0.65 if _k=="juin" else 0.4)),
+                        text=[f"{v:,.0f}" for v in _dfr["Tonnage"]], textposition="outside",
+                    ))
+        fig_p.update_layout(barmode="group", template="plotly_dark",
+                            paper_bgcolor="#161b22", plot_bgcolor="#0d1117",
+                            height=500, yaxis_title="Tonnes", hovermode="x unified",
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02))
+        st.plotly_chart(fig_p, use_container_width=True)
+    else:
+        st.info("💡 Importez au moins une prévision puis cliquez **Appliquer**.")
 
 # ── TAB 9: GESTION AGRICULTEURS ──────────────────────────────
 with tab9:
