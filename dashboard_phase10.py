@@ -3959,6 +3959,7 @@ with tab6:
                     if lc in ("date","jour","day"):        _mp[c] = "Date"
                     elif lc in ("tonnes","tonnage","t/jour","tonnes/jour"): _mp[c] = "Tonnes"
                     elif lc in ("usine","factory","site"): _mp[c] = "Usine"
+                    elif lc in ("commercial","responsable","commerciale","commerciaux"): _mp[c] = "Commercial"
                 _df_up = _df_up.rename(columns=_mp)
                 if "Date" in _df_up.columns and "Tonnes" in _df_up.columns:
                     _df_up["Tonnes"] = _pd.to_numeric(_df_up["Tonnes"], errors="coerce").fillna(0)
@@ -4013,30 +4014,51 @@ with tab6:
     # ══════════════════════════════════════════════════════════════════
     #  GRAPHIQUE — style photo (Plan Rectifié)
     # ══════════════════════════════════════════════════════════════════
-    def _to_daily(df, usine_filter=None):
-        """Retourne une liste [(mmdd, tonnes)] triée pour SUPERPOSITION.
-        On extrait MM-JJ pour que toutes les années se retrouvent sur le même axe X.
-        - Si 'Usine' existe et usine_filter=None/TOTAL : ne prend QUE les lignes Usine=TOTAL
-        - Si usine_filter fourni : ne prend QUE cette usine
+    def _to_daily(df, usine_filter=None, commercial_filter=None):
+        """Retourne [(mmdd, tonnes)] triée pour SUPERPOSITION multi-années.
+        Filtres cumulatifs :
+        - usine_filter :  TOTAL | SICAM | TUCAL | ... 
+        - commercial_filter : TOUS | FEDI | ACHREF AJLANI | ...
+        Règle : ligne TOTAL (Usine=TOTAL, Commercial=TOTAL) uniquement quand aucun filtre.
+        Sinon on somme les lignes détail correspondantes.
         """
         if df is None or df.empty:
             return []
         d = df.copy()
-        if "Usine" in d.columns:
-            u_col = d["Usine"].astype(str).str.upper().str.strip()
-            if usine_filter is None or str(usine_filter).upper() == "TOTAL":
+        u_col = d["Usine"].astype(str).str.upper().str.strip() if "Usine" in d.columns else None
+        c_col = d["Commercial"].astype(str).str.upper().str.strip() if "Commercial" in d.columns else None
+        
+        u_choix = str(usine_filter or "TOTAL").upper()
+        c_choix = str(commercial_filter or "TOUS").upper()
+        
+        # Cas 1: aucun filtre → prendre les lignes TOTAL / TOTAL
+        if u_choix == "TOTAL" and c_choix == "TOUS":
+            if u_col is not None and c_col is not None:
+                d = d[(u_col == "TOTAL") & (c_col == "TOTAL")]
+            elif u_col is not None:
                 d = d[u_col == "TOTAL"]
-                if len(d) == 0:
-                    d = df.copy()
-                    d["Tonnes"] = _pd.to_numeric(d["Tonnes"], errors="coerce").fillna(0)
-                    d = d.groupby("Date", as_index=False)["Tonnes"].sum()
-            else:
-                d = d[u_col == str(usine_filter).upper()]
+            # Fallback si pas de ligne TOTAL
+            if len(d) == 0:
+                d = df.copy()
+                if u_col is not None:
+                    d = d[d["Usine"].astype(str).str.upper() != "TOTAL"]
+        # Cas 2: filtres actifs → agréger détail
+        else:
+            d = df.copy()
+            if u_col is not None and u_choix != "TOTAL":
+                d = d[d["Usine"].astype(str).str.upper().str.strip() == u_choix]
+            elif u_col is not None:
+                # Toutes usines sauf ligne TOTAL
+                d = d[d["Usine"].astype(str).str.upper().str.strip() != "TOTAL"]
+            if c_col is not None and c_choix != "TOUS":
+                d = d[d["Commercial"].astype(str).str.upper().str.strip() == c_choix]
+            elif c_col is not None:
+                # Tous sauf ligne TOTAL
+                d = d[d["Commercial"].astype(str).str.upper().str.strip() != "TOTAL"]
+        
         d["Tonnes"] = _pd.to_numeric(d["Tonnes"], errors="coerce").fillna(0)
-        # Extraire MM-JJ pour superposition
         def _mmdd(x):
             s = str(x).strip()
-            # AAAA-MM-JJ → MM-JJ
             if len(s) >= 10 and s[4] in "-/":
                 return s[5:10].replace("/", "-")
             return s
@@ -4044,19 +4066,31 @@ with tab6:
         agg = d.groupby("_mmdd", as_index=False)["Tonnes"].sum()
         return sorted([(str(r["_mmdd"]), float(r["Tonnes"])) for _, r in agg.iterrows()])
 
-    # Filtre usine + zone PIC
+    # Filtres usine + commercial + PIC
     _all_usines = set()
+    _all_comms = set()
     for _dfa in st.session_state.annees_data.values():
         if "Usine" in _dfa.columns:
             for u in _dfa["Usine"].dropna().astype(str).str.strip().unique():
                 if u.upper() != "TOTAL":
                     _all_usines.add(u.upper())
+        if "Commercial" in _dfa.columns:
+            for c in _dfa["Commercial"].dropna().astype(str).str.strip().unique():
+                if c.upper() not in ("TOTAL","HISTORIQUE","INCONNU","NAN"):
+                    _all_comms.add(c.upper())
     _usines_opts = ["TOTAL"] + sorted(_all_usines)
+    _comms_opts  = ["TOUS"] + sorted(_all_comms) + (["HISTORIQUE"] if any("HISTORIQUE" in _dfa.get("Commercial", _pd.Series()).astype(str).str.upper().values for _dfa in st.session_state.annees_data.values()) else [])
 
-    cF1, cF2 = st.columns([1, 3])
+    cF1, cF2, cF3, cF4 = st.columns([1, 1, 1, 2])
     with cF1:
         _usine_choix = st.selectbox("🏭 Filtre usine", _usines_opts, index=0, key="usine_filter_tab6")
     with cF2:
+        _comm_choix = st.selectbox("👤 Filtre commercial", _comms_opts, index=0, key="comm_filter_tab6")
+    with cF3:
+        _min_tonnes = st.number_input("Cacher jours < (t)", min_value=0, max_value=500, value=50,
+                                       step=10, key="min_tonnes_tab6",
+                                       help="Cache les jours avec un tonnage négligeable (queues de saison)")
+    with cF4:
         _pic_dates = st.text_input("Zone PIC (MM-JJ → MM-JJ)",
                                     value="07-01 → 07-15", key="pic_dates_tab6")
 
@@ -4065,14 +4099,15 @@ with tab6:
     if st.session_state.annees_apply and st.session_state.annees_data:
         fig = go.Figure()
         annees_tri = sorted(st.session_state.annees_data.keys(), reverse=True)
-        _cap_auto = 0  # capacité calculée comme le max de toutes les années
         for _idx, _an in enumerate(annees_tri):
             _df = st.session_state.annees_data[_an]
-            _serie = _to_daily(_df, usine_filter=_usine_choix)
+            _serie = _to_daily(_df, usine_filter=_usine_choix, commercial_filter=_comm_choix)
+            # ✅ FIX: filtrer les jours avec tonnage négligeable (queues de saison)
+            if _min_tonnes and _min_tonnes > 0:
+                _serie = [(d, t) for d, t in _serie if t >= _min_tonnes]
             if not _serie: continue
-            _xs = [d for d,_ in _serie]     # MM-JJ (superposition)
+            _xs = [d for d,_ in _serie]
             _ys = [t for _,t in _serie]
-            _cap_auto = max(_cap_auto, max(_ys) if _ys else 0)
             _col = _df["_couleur"].iloc[0] if "_couleur" in _df.columns else "#3b82f6"
             _sty = _df["_style"].iloc[0]   if "_style"   in _df.columns else "Solide"
             _dash = "dot" if _sty == "Pointillé" else None
@@ -4082,19 +4117,18 @@ with tab6:
                 name=f"{_an} — {sum(_ys):,.0f} t",
                 customdata=[_an]*len(_xs),
                 line=dict(color=_col, width=(3.2 if _is_ref else 2.2), dash=_dash,
-                          shape="spline", smoothing=1.1),
+                          shape="spline", smoothing=1.3),
                 mode="lines",
                 hovertemplate=f"<b>%{{customdata}}-%{{x}}</b><br>%{{y:,.0f}} t/jour<extra></extra>",
             ))
 
-        # Ligne capacité (fixée à 1300 t/j comme sur la photo)
-        _cap = 1300
-        fig.add_hline(y=_cap, line_dash="dash", line_color="#e8543a", line_width=1.7,
-                      annotation_text=f"Cap: {_cap:,.0f}t/j",
+        # Ligne capacité fixée à 1300 t/j
+        fig.add_hline(y=1300, line_dash="dash", line_color="#e8543a", line_width=1.7,
+                      annotation_text="Cap: 1,300t/j",
                       annotation_position="top right",
                       annotation_font_color="#e8543a", annotation_font_size=11)
 
-        # Zone PIC (rectangle jaune transparent — format MM-JJ maintenant)
+        # Zone PIC
         try:
             _p = [s.strip() for s in _pic_dates.replace("→","->").split("->")]
             if len(_p) == 2 and _p[0] and _p[1]:
@@ -4104,10 +4138,15 @@ with tab6:
                               annotation_font_color="#f4c430", annotation_font_size=13)
         except Exception: pass
 
+        _titre_filtre = ""
+        if _usine_choix != "TOTAL": _titre_filtre += f" · usine {_usine_choix}"
+        if _comm_choix != "TOUS":   _titre_filtre += f" · commercial {_comm_choix}"
+
         fig.update_layout(
             template="plotly_dark",
             plot_bgcolor="#0d1117", paper_bgcolor="#0d1117",
             height=460, hovermode="x unified",
+            title=dict(text=f"Comparaison{_titre_filtre}", font=dict(size=13, color="#94a3b8"), x=0.01),
             legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="left", x=0,
                         bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
             yaxis=dict(title="Tonnes/jour", gridcolor="rgba(255,255,255,0.08)",
@@ -4115,7 +4154,7 @@ with tab6:
             xaxis=dict(title="Jour de la saison (MM-JJ) — superposition multi-années",
                        gridcolor="rgba(255,255,255,0)", tickfont=dict(size=11),
                        type="category"),
-            margin=dict(l=70, r=40, t=50, b=60),
+            margin=dict(l=70, r=40, t=60, b=60),
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -4124,21 +4163,49 @@ with tab6:
         _stats_cols = st.columns(len(annees_tri))
         for _i, _an in enumerate(annees_tri):
             _df = st.session_state.annees_data[_an]
-            _serie = _to_daily(_df, usine_filter=_usine_choix)
+            _serie = _to_daily(_df, usine_filter=_usine_choix, commercial_filter=_comm_choix)
             _tot = sum(t for _,t in _serie) if _serie else 0
             _mx  = max(t for _,t in _serie) if _serie else 0
             _mx_date = max(_serie, key=lambda x: x[1])[0] if _serie else "-"
             _n_jours = len(_serie)
             _col = _df["_couleur"].iloc[0] if "_couleur" in _df.columns else "#3b82f6"
             with _stats_cols[_i]:
+                _label = f"{_usine_choix}" + (f" · {_comm_choix}" if _comm_choix != "TOUS" else "")
                 st.markdown(f"<div style='background:{_col}22; border-left:4px solid {_col}; "
                             f"padding:8px 12px; border-radius:4px; margin-bottom:8px;'>"
                             f"<b style='color:{_col}; font-size:15px;'>{_an}</b> "
-                            f"<span style='color:#888; font-size:11px;'>· {_usine_choix}</span></div>",
+                            f"<span style='color:#888; font-size:11px;'>· {_label}</span></div>",
                             unsafe_allow_html=True)
                 st.metric("Total saison", f"{_tot:,.0f} t")
                 st.metric("Pic max/jour", f"{_mx:,.0f} t", delta=str(_mx_date))
                 st.metric("Jours d'activité", f"{_n_jours}")
+
+        # ── Comparaison par commercial (barres empilées) ──
+        if _comm_choix == "TOUS" and any("Commercial" in _dfa.columns for _dfa in st.session_state.annees_data.values()):
+            st.markdown("---")
+            st.markdown("### 👤 Comparaison par commercial × année")
+            _fig_comm = go.Figure()
+            _all_comm_list = sorted(_all_comms)
+            for _an in annees_tri:
+                _df = st.session_state.annees_data[_an]
+                if "Commercial" not in _df.columns: continue
+                _col = _df["_couleur"].iloc[0] if "_couleur" in _df.columns else "#3b82f6"
+                _tots_comm = []
+                for _cn in _all_comm_list:
+                    _s = _to_daily(_df, usine_filter=_usine_choix, commercial_filter=_cn)
+                    _tots_comm.append(sum(t for _,t in _s))
+                _fig_comm.add_trace(go.Bar(
+                    name=str(_an), x=_all_comm_list, y=_tots_comm,
+                    marker_color=_col,
+                    text=[f"{v:,.0f}" for v in _tots_comm], textposition="outside",
+                ))
+            _fig_comm.update_layout(
+                barmode="group", template="plotly_dark",
+                paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+                height=400, yaxis_title="Tonnes totales saison",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            )
+            st.plotly_chart(_fig_comm, use_container_width=True)
 
     else:
         st.info("💡 Importez des fichiers dans la section « Importer / Gérer les années » "
