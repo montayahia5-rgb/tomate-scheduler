@@ -4106,9 +4106,6 @@ with tab6:
                 d = df.copy()
                 if u_col is not None:
                     d = d[d["Usine"].astype(str).str.upper() != "TOTAL"]
-                d = df.copy()
-                if u_col is not None:
-                    d = d[d["Usine"].astype(str).str.upper() != "TOTAL"]
         else:
             d = df.copy()
             if u_col is not None:
@@ -4133,43 +4130,49 @@ with tab6:
             if len(s) >= 10 and s[4] in "-/":
                 return s[5:10].replace("/", "-")
             return s
-        d["_mmdd"] = d["Date"].apply(_mmdd)
-        agg = d.groupby("_mmdd", as_index=False)["Tonnes"].sum()
-        return sorted([(str(r["_mmdd"]), float(r["Tonnes"])) for _, r in agg.iterrows()])
+        try:
+            d["_mmdd"] = d["Date"].apply(_mmdd)
+            agg = d.groupby("_mmdd", as_index=False)["Tonnes"].sum()
+            return sorted([(str(row["_mmdd"]), float(row["Tonnes"])) for _, row in agg.iterrows()])
+        except Exception:
+            return []
 
     # ══════════════════════════════════════════════════════════════════
-    #  FILTRES — collecter les valeurs distinctes de chaque dimension
-    #  Guards : vérifier que _dfa est bien un DataFrame + colonne existe
+    #  FILTRES — collecte des valeurs avec protection totale
     # ══════════════════════════════════════════════════════════════════
     _all_usines  = set()
     _all_comms   = set()
     _all_regions = set()
+
+    def _safe_get_col(df, col):
+        """Retourne la colonne comme liste Python pure, sans jamais lever d'exception."""
+        try:
+            if not isinstance(df, _pd.DataFrame): return []
+            if col not in df.columns: return []
+            vals = df[col].tolist()
+            return [str(v).strip() for v in vals if v is not None and str(v).strip() not in ('nan','None','')]
+        except Exception:
+            return []
+
     for _dfa in st.session_state.annees_data.values():
-        if not isinstance(_dfa, _pd.DataFrame):
-            continue
-        if "Usine" in _dfa.columns:
-            for u in _dfa["Usine"].dropna().astype(str).str.strip().unique():
-                if u.upper() not in ("TOTAL", "NAN", ""):
+        try:
+            for u in _safe_get_col(_dfa, "Usine"):
+                if u.upper() not in ("TOTAL","NAN",""):
                     _all_usines.add(u.upper())
-        if "Commercial" in _dfa.columns:
-            for c in _dfa["Commercial"].dropna().astype(str).str.strip().unique():
+            for c in _safe_get_col(_dfa, "Commercial"):
                 if c.upper() not in ("TOTAL","HISTORIQUE","INCONNU","NAN",""):
                     _all_comms.add(c.upper())
-        if "Region" in _dfa.columns:
-            for r in _dfa["Region"].dropna().astype(str).str.strip().unique():
+            for r in _safe_get_col(_dfa, "Region"):
                 if r.upper() not in ("TOTAL","NAN","","A CONFIRMER","NON RENSEIGNE"):
                     _all_regions.add(r.upper())
+        except Exception:
+            continue
 
     _usines_opts  = ["TOTAL"]  + sorted(_all_usines)
     _comms_opts   = ["TOUS"]   + sorted(_all_comms)
     _regions_opts = ["TOUTES"] + sorted(_all_regions)
-    # Ajouter HISTORIQUE si présent
-    _has_hist = any(
-        isinstance(_dfa, _pd.DataFrame) and
-        "Commercial" in _dfa.columns and
-        "HISTORIQUE" in _dfa["Commercial"].astype(str).str.upper().values
-        for _dfa in st.session_state.annees_data.values()
-    )
+    _has_hist = "HISTORIQUE" in [str(c).upper() for _dfa in st.session_state.annees_data.values()
+                                  for c in _safe_get_col(_dfa, "Commercial")]
     if _has_hist:
         _comms_opts.append("HISTORIQUE")
 
