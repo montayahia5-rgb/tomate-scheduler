@@ -1490,10 +1490,10 @@ def load_data(_sb_version: int = 0):
                     _adf["tonnage_total"] = pd.to_numeric(_adf["tonnage_total"], errors="coerce")
                     _adf = _adf[_adf["tonnage_total"] > 0]
                     # Filtrer lignes TOTAL et noms invalides
-                    _nom_e = _adf["nom"].astype(str).str.strip().str.upper()
-                    _adf = _adf[~_nom_e.str.startswith("TOTAL")]
-                    _adf = _adf[~_nom_e.str.startswith("SOUS-TOTAL")]
-                    _adf = _adf[_nom_e.str.len() > 2]
+                    _nom_e = _adf["nom"].apply(lambda v: str(v).strip().upper())
+                    _adf = _adf[~_nom_e.apply(lambda v: v.startswith("TOTAL"))]
+                    _adf = _adf[~_nom_e.apply(lambda v: v.startswith("SOUS-TOTAL"))]
+                    _adf = _adf[_nom_e.apply(len) > 2]
                     if not _adf.empty:
                         _grp  = _adf.groupby("commercial")
                         resume = pd.DataFrame({
@@ -1559,10 +1559,10 @@ def load_data(_sb_version: int = 0):
             agri_raw["tonnage_total"] = pd.to_numeric(agri_raw["tonnage_total"], errors="coerce")
             agri_raw = agri_raw[agri_raw["tonnage_total"] > 0]
             # Filtrer les lignes TOTAL et noms invalides
-            _nom_r = agri_raw["nom"].astype(str).str.strip().str.upper()
-            agri_raw = agri_raw[~_nom_r.str.startswith("TOTAL")]
-            agri_raw = agri_raw[~_nom_r.str.startswith("SOUS-TOTAL")]
-            agri_raw = agri_raw[_nom_r.str.len() > 2]
+            _nom_r = agri_raw["nom"].apply(lambda v: str(v).strip().upper())
+            agri_raw = agri_raw[~_nom_r.apply(lambda v: v.startswith("TOTAL"))]
+            agri_raw = agri_raw[~_nom_r.apply(lambda v: v.startswith("SOUS-TOTAL"))]
+            agri_raw = agri_raw[_nom_r.apply(len) > 2]
             if not agri_raw.empty:
                 agri_grp = agri_raw.groupby("commercial")
                 resume   = agri_grp["tonnage_total"].sum().reset_index()
@@ -1592,7 +1592,7 @@ orig = None  # not needed for dashboard display
 # Ses agriculteurs sont à Gafsa/Kasserine (accessibilité SEMI uniquement)
 # Si Supabase contient encore des lignes PL (vieux runs), on les corrige ici
 if not planning.empty and "Type Véhicule" in planning.columns and "Commercial" in planning.columns:
-    _ach_mask = planning["Commercial"].astype(str).str.upper().str.contains("ACHREF", na=False)
+    _ach_mask = planning["Commercial"].apply(lambda v: "ACHREF" in str(v).upper())
     if _ach_mask.any():
         planning.loc[_ach_mask, "Type Véhicule"] = planning.loc[_ach_mask, "Type Véhicule"].apply(
             lambda v: "SEMI" if str(v).strip().upper() in ("PL","PPL","TRACTEUR","PL/PPL") else v
@@ -1629,10 +1629,10 @@ def load_global_stats(_version: int = 0):
         df["tonnage_total"] = pd.to_numeric(df["tonnage_total"], errors="coerce")
         df = df[df["tonnage_total"] > 0]   # filtre tonnage nul
         # Filtrer les lignes de TOTAL qui ont pu être insérées par erreur
-        _nom = df["nom"].astype(str).str.strip().str.upper()
-        df = df[~_nom.str.startswith("TOTAL")]
-        df = df[~_nom.str.startswith("SOUS-TOTAL")]
-        df = df[_nom.str.len() > 2]
+        _nom = df["nom"].apply(lambda v: str(v).strip().upper())
+        df = df[~_nom.apply(lambda v: v.startswith("TOTAL"))]
+        df = df[~_nom.apply(lambda v: v.startswith("SOUS-TOTAL"))]
+        df = df[_nom.apply(len) > 2]
 
         # Normalisation régions (évite les doublons nabeul/NABEUL/beja/MANOUBA)
         REGION_NORM = {
@@ -1644,7 +1644,7 @@ def load_global_stats(_version: int = 0):
             "capb1": "CAP BON 1",  "CAPB1": "CAP BON 1",
             "capb2": "CAP BON 2",  "CAPB2": "CAP BON 2",
         }
-        df["region"] = df["region"].fillna("").astype(str).str.strip()
+        df["region"] = df["region"].fillna("").apply(lambda v: str(v).strip())
         df["region"] = df["region"].replace(REGION_NORM)
 
         # Filtre dates invalides — permissif pour ne pas perdre des données valides
@@ -2308,9 +2308,8 @@ with tab1:
     
     # Appliquer le filtre de recherche
     if search_farmer.strip():
-        mask = p_display["Agriculteur"].astype(str).str.upper().str.contains(
-            search_farmer.upper().strip(), na=False
-        )
+        _sf = search_farmer.upper().strip()
+        mask = p_display["Agriculteur"].apply(lambda v: _sf in str(v).upper())
         p_display = p_display[mask]
         if len(p_display) == 0:
             st.warning(f"Aucun agriculteur trouvé pour '{search_farmer}'")
@@ -2820,7 +2819,7 @@ with tab2:
     
     if not p.empty and "Note" in p.columns:
         # Filtrer livraisons marquées JOUR DOUBLE
-        dbl_mask = p["Note"].astype(str).str.contains("JOUR DOUBLE", case=False, na=False)
+        dbl_mask = p["Note"].apply(lambda v: "JOUR DOUBLE" in str(v).upper())
         df_dbl = p[dbl_mask].copy()
         
         if df_dbl.empty:
@@ -3044,7 +3043,7 @@ with tab4:
     # Stacked bar — all 4 vehicles
     veh_long = veh_daily.melt(id_vars="Date", value_vars=ALL_VEH_COLS,
                                var_name="Véhicule", value_name="Voyages")
-    veh_long["Véhicule"] = veh_long["Véhicule"].str.replace("Voyages ", "")
+    veh_long["Véhicule"] = veh_long["Véhicule"].apply(lambda v: str(v).replace("Voyages ", ""))
     fig12 = px.bar(
         veh_long, x="Date", y="Voyages", color="Véhicule",
         barmode="stack",
@@ -3276,7 +3275,7 @@ with tab4:
                 return FALLBACK, False
             ALIASES = {"EL FALLEH":"ELFALLEH","FELLEH":"ELFALLEH","FELLA":"ELFALLEH",
                        "LUI-MEME":"LUIMEME","LUI-MÊME":"LUIMEME","TOTAL":"SKIP"}
-            df_t["_u"] = df_t[usine_col].astype(str).str.strip().str.upper().map(
+            df_t["_u"] = df_t[usine_col].apply(lambda v: str(v).strip().upper()).map(
                 lambda x: ALIASES.get(x, x))
             df_t["_t"] = pd.to_numeric(df_t[ton_col], errors="coerce")
             def _vt(t):
@@ -3286,7 +3285,7 @@ with tab4:
                 if t.startswith("PL"):            return "PL"
                 return t
             df_t["_v"] = df_t[type_col].apply(_vt)
-            df_t["_a"] = df_t[conf_col].astype(str).str.strip().str.lower() \
+            df_t["_a"] = df_t[conf_col].apply(lambda v: str(v).strip().lower()) \
                          if conf_col else pd.Series("ok", index=df_t.index)
             df_ok = df_t[(df_t["_a"]=="ok") & df_t["_t"].notna() &
                          (df_t["_t"]>0) & (df_t["_u"]!="SKIP")]
@@ -4027,7 +4026,7 @@ with tab6:
                     _save_annees_to_disk()
                     # ── FIX: afficher le vrai total (lignes TOTAL uniquement si Usine présente) ──
                     if "Usine" in _df_up.columns:
-                        _mask_total = _df_up["Usine"].astype(str).str.upper().str.strip() == "TOTAL"
+                        _mask_total = _df_up["Usine"].apply(lambda v: str(v).strip().upper()) == "TOTAL"
                         _tot_verif = _df_up.loc[_mask_total, "Tonnes"].sum() if _mask_total.any() \
                                      else _df_up["Tonnes"].sum()
                     else:
@@ -4045,7 +4044,7 @@ with tab6:
                 with _row_cols[_i % len(_row_cols)]:
                     _dfa = st.session_state.annees_data[_an]
                     if "Usine" in _dfa.columns:
-                        _mt = _dfa["Usine"].astype(str).str.upper().str.strip() == "TOTAL"
+                        _mt = _dfa["Usine"].apply(lambda v: str(v).strip().upper()) == "TOTAL"
                         _t = _dfa.loc[_mt, "Tonnes"].sum() if _mt.any() else _dfa["Tonnes"].sum()
                     else:
                         _t = _dfa["Tonnes"].sum()
@@ -4083,9 +4082,9 @@ with tab6:
         if df is None or not isinstance(df, _pd.DataFrame) or df.empty:
             return []
         d = df.copy()
-        u_col = d["Usine"].astype(str).str.upper().str.strip()     if "Usine"      in d.columns else None
-        c_col = d["Commercial"].astype(str).str.upper().str.strip() if "Commercial" in d.columns else None
-        r_col = d["Region"].astype(str).str.upper().str.strip()     if "Region"     in d.columns else None
+        u_col = d["Usine"].apply(lambda v: str(v).strip().upper())      if "Usine"      in d.columns else None
+        c_col = d["Commercial"].apply(lambda v: str(v).strip().upper())  if "Commercial" in d.columns else None
+        r_col = d["Region"].apply(lambda v: str(v).strip().upper())      if "Region"     in d.columns else None
 
         u_choix = str(usine_filter       or "TOTAL").upper()
         c_choix = str(commercial_filter  or "TOUS").upper()
@@ -4105,24 +4104,24 @@ with tab6:
                 # Fallback : sommer les détails
                 d = df.copy()
                 if u_col is not None:
-                    d = d[d["Usine"].astype(str).str.upper() != "TOTAL"]
+                    d = d[d["Usine"].apply(lambda v: str(v).upper()) != "TOTAL"]
         else:
             d = df.copy()
             if u_col is not None:
                 if u_choix != "TOTAL":
-                    d = d[d["Usine"].astype(str).str.upper().str.strip() == u_choix]
+                    d = d[d["Usine"].apply(lambda v: str(v).strip().upper()) == u_choix]
                 else:
-                    d = d[d["Usine"].astype(str).str.upper().str.strip() != "TOTAL"]
+                    d = d[d["Usine"].apply(lambda v: str(v).strip().upper()) != "TOTAL"]
             if c_col is not None:
                 if c_choix != "TOUS":
-                    d = d[d["Commercial"].astype(str).str.upper().str.strip() == c_choix]
+                    d = d[d["Commercial"].apply(lambda v: str(v).strip().upper()) == c_choix]
                 else:
-                    d = d[d["Commercial"].astype(str).str.upper().str.strip() != "TOTAL"]
+                    d = d[d["Commercial"].apply(lambda v: str(v).strip().upper()) != "TOTAL"]
             if r_col is not None:
                 if r_choix != "TOUTES":
-                    d = d[d["Region"].astype(str).str.upper().str.strip() == r_choix]
+                    d = d[d["Region"].apply(lambda v: str(v).strip().upper()) == r_choix]
                 else:
-                    d = d[d["Region"].astype(str).str.upper().str.strip() != "TOTAL"]
+                    d = d[d["Region"].apply(lambda v: str(v).strip().upper()) != "TOTAL"]
         
         d["Tonnes"] = _pd.to_numeric(d["Tonnes"], errors="coerce").fillna(0)
         def _mmdd(x):
@@ -4532,18 +4531,18 @@ with tab7:
                 }
 
                 def normalize_reg(series):
-                    s = series.fillna("").astype(str).str.strip()
+                    s = series.fillna("").apply(lambda v: str(v).strip())
                     # Premier passage: matching exact
                     s = s.replace(NORM)
                     # Deuxième passage: UPPER pour ce qui reste
                     mask = ~s.isin(REG_ORD) & (s != "")
                     if mask.any():
-                        s_upper = s[mask].str.upper()
+                        s_upper = s[mask].apply(lambda v: v.upper())
                         s[mask] = s_upper.replace(NORM)
                     # Troisième passage: contient "CAP BON" → CAP BON 1
                     mask2 = ~s.isin(REG_ORD) & (s != "")
                     if mask2.any():
-                        cap_mask = s[mask2].str.upper().str.contains("CAP", na=False) & s[mask2].str.upper().str.contains("BON", na=False)
+                        cap_mask = s[mask2].apply(lambda v: "CAP" in v.upper()) & s[mask2].apply(lambda v: "BON" in v.upper())
                         if cap_mask.any():
                             idx = s[mask2][cap_mask].index
                             s.loc[idx] = "CAP BON 1"
@@ -4556,7 +4555,7 @@ with tab7:
                         df_agri["tonnage_total"], errors="coerce")
                     df_agri = df_agri[df_agri["tonnage_total"] > 0]
                     df_agri["REGION"] = normalize_reg(df_agri["region"])
-                    df_agri["nom_key"] = df_agri["nom"].fillna("").astype(str).str.upper()
+                    df_agri["nom_key"] = df_agri["nom"].fillna("").apply(lambda v: str(v).upper())
                     df_agri_ok = df_agri[df_agri["REGION"].isin(REG_ORD)].copy()
                     if not df_agri_ok.empty:
                         df_agri_ok = df_agri_ok.rename(columns={"nom":"nom"})
@@ -4594,12 +4593,12 @@ with tab7:
         # Fallback to planning if agriculteurs empty
         if (df_reg is None or df_reg.empty) and not p.empty and "Région" in p.columns:
             p_all = p.copy()
-            p_all["REGION"] = p_all["Région"].fillna("").astype(str).str.strip().str.upper()
+            p_all["REGION"] = p_all["Région"].fillna("").apply(lambda v: str(v).strip().upper())
             p_all["REGION"] = p_all["REGION"].replace(REG_NORM)
             p_all = p_all[p_all["REGION"].isin(REG_ORD)]
-            p_all["usine"]       = p_all["Usine"].fillna("").astype(str).str.strip().str.upper()
-            p_all["commercial"]  = p_all["Commercial"].fillna("").astype(str).str.strip()
-            p_all["nom"]         = p_all["Agriculteur"].fillna("").astype(str).str.strip()
+            p_all["usine"]       = p_all["Usine"].fillna("").apply(lambda v: str(v).strip().upper())
+            p_all["commercial"]  = p_all["Commercial"].fillna("").apply(lambda v: str(v).strip())
+            p_all["nom"]         = p_all["Agriculteur"].fillna("").apply(lambda v: str(v).strip())
             p_all["tonnage_total"] = pd.to_numeric(p_all["Tonnes/Jour"], errors="coerce").fillna(0)
             df_reg = p_all[["commercial","nom","tonnage_total","usine","REGION"]].copy()
 
@@ -4937,7 +4936,7 @@ with tab9:
                     # Régions invalides
                     GOOD_REGIONS = {"CAP BON 1","CAP BON 2","NORD","GAFSA / KASSRINE",
                                     "KAIROUAN","SIDI BOUZID","BOUFICHA"}
-                    bad_reg = df_diag[~df_diag["region"].fillna("").str.strip().isin(GOOD_REGIONS)]
+                    bad_reg = df_diag[~df_diag["region"].fillna("").apply(lambda v: str(v).strip()).isin(GOOD_REGIONS)]
                     if len(bad_reg) > 0:
                         problems.append(f"⚠️ {len(bad_reg)} lignes avec région non normalisée: {bad_reg['region'].unique().tolist()}")
 
@@ -5131,8 +5130,9 @@ with tab9:
                                    placeholder="ex: MOHAMED ou FEDI")
             filtered = df_agri.copy()
             if search.strip():
-                mask = (filtered["nom"].str.upper().str.contains(search.upper(), na=False) |
-                        filtered["commercial"].str.upper().str.contains(search.upper(), na=False))
+                _sk = search.upper()
+                mask = (filtered["nom"].apply(lambda v: _sk in str(v).upper()) |
+                        filtered["commercial"].apply(lambda v: _sk in str(v).upper()))
                 filtered = filtered[mask]
 
             if filtered.empty:
@@ -5235,8 +5235,9 @@ with tab9:
                                         placeholder="ex: HSSINE BRINI")
             filtered_del = df_agri.copy()
             if search_del.strip():
-                mask = (filtered_del["nom"].str.upper().str.contains(search_del.upper(), na=False) |
-                        filtered_del["commercial"].str.upper().str.contains(search_del.upper(), na=False))
+                _sk_del = search_del.upper()
+                mask = (filtered_del["nom"].apply(lambda v: _sk_del in str(v).upper()) |
+                        filtered_del["commercial"].apply(lambda v: _sk_del in str(v).upper()))
                 filtered_del = filtered_del[mask]
 
             if filtered_del.empty:
