@@ -3997,6 +3997,7 @@ with tab6:
                     elif lc in ("tonnes","tonnage","t/jour","tonnes/jour"): _mp[c] = "Tonnes"
                     elif lc in ("usine","factory","site"): _mp[c] = "Usine"
                     elif lc in ("commercial","responsable","commerciale","commerciaux"): _mp[c] = "Commercial"
+                    elif lc in ("region","région","zone","gouvernorat"): _mp[c] = "Region"
                 _df_up = _df_up.rename(columns=_mp)
                 if "Date" in _df_up.columns and "Tonnes" in _df_up.columns:
                     _df_up["Tonnes"] = _pd.to_numeric(_df_up["Tonnes"], errors="coerce").fillna(0)
@@ -4055,47 +4056,53 @@ with tab6:
     # ══════════════════════════════════════════════════════════════════
     #  GRAPHIQUE — style photo (Plan Rectifié)
     # ══════════════════════════════════════════════════════════════════
-    def _to_daily(df, usine_filter=None, commercial_filter=None):
+    def _to_daily(df, usine_filter=None, commercial_filter=None, region_filter=None):
         """Retourne [(mmdd, tonnes)] triée pour SUPERPOSITION multi-années.
-        Filtres cumulatifs :
-        - usine_filter :  TOTAL | SICAM | TUCAL | ... 
-        - commercial_filter : TOUS | FEDI | ACHREF AJLANI | ...
-        Règle : ligne TOTAL (Usine=TOTAL, Commercial=TOTAL) uniquement quand aucun filtre.
-        Sinon on somme les lignes détail correspondantes.
+        Filtres cumulatifs : usine × commercial × région
         """
         if df is None or df.empty:
             return []
         d = df.copy()
         u_col = d["Usine"].astype(str).str.upper().str.strip() if "Usine" in d.columns else None
         c_col = d["Commercial"].astype(str).str.upper().str.strip() if "Commercial" in d.columns else None
+        r_col = d["Region"].astype(str).str.upper().str.strip() if "Region" in d.columns else None
         
         u_choix = str(usine_filter or "TOTAL").upper()
         c_choix = str(commercial_filter or "TOUS").upper()
+        r_choix = str(region_filter or "TOUTES").upper()
         
-        # Cas 1: aucun filtre → prendre les lignes TOTAL / TOTAL
-        if u_choix == "TOTAL" and c_choix == "TOUS":
-            if u_col is not None and c_col is not None:
-                d = d[(u_col == "TOTAL") & (c_col == "TOTAL")]
-            elif u_col is not None:
-                d = d[u_col == "TOTAL"]
-            # Fallback si pas de ligne TOTAL
+        # Aucun filtre → ligne TOTAL / TOTAL / TOTAL
+        if u_choix == "TOTAL" and c_choix == "TOUS" and r_choix == "TOUTES":
+            conds = []
+            if u_col is not None: conds.append(u_col == "TOTAL")
+            if c_col is not None: conds.append(c_col == "TOTAL")
+            if r_col is not None: conds.append(r_col == "TOTAL")
+            if conds:
+                mask = conds[0]
+                for x in conds[1:]: mask = mask & x
+                d = d[mask]
             if len(d) == 0:
+                # Fallback : détail total
                 d = df.copy()
                 if u_col is not None:
                     d = d[d["Usine"].astype(str).str.upper() != "TOTAL"]
-        # Cas 2: filtres actifs → agréger détail
         else:
             d = df.copy()
-            if u_col is not None and u_choix != "TOTAL":
-                d = d[d["Usine"].astype(str).str.upper().str.strip() == u_choix]
-            elif u_col is not None:
-                # Toutes usines sauf ligne TOTAL
-                d = d[d["Usine"].astype(str).str.upper().str.strip() != "TOTAL"]
-            if c_col is not None and c_choix != "TOUS":
-                d = d[d["Commercial"].astype(str).str.upper().str.strip() == c_choix]
-            elif c_col is not None:
-                # Tous sauf ligne TOTAL
-                d = d[d["Commercial"].astype(str).str.upper().str.strip() != "TOTAL"]
+            if u_col is not None:
+                if u_choix != "TOTAL":
+                    d = d[d["Usine"].astype(str).str.upper().str.strip() == u_choix]
+                else:
+                    d = d[d["Usine"].astype(str).str.upper().str.strip() != "TOTAL"]
+            if c_col is not None:
+                if c_choix != "TOUS":
+                    d = d[d["Commercial"].astype(str).str.upper().str.strip() == c_choix]
+                else:
+                    d = d[d["Commercial"].astype(str).str.upper().str.strip() != "TOTAL"]
+            if r_col is not None:
+                if r_choix != "TOUTES":
+                    d = d[d["Region"].astype(str).str.upper().str.strip() == r_choix]
+                else:
+                    d = d[d["Region"].astype(str).str.upper().str.strip() != "TOTAL"]
         
         d["Tonnes"] = _pd.to_numeric(d["Tonnes"], errors="coerce").fillna(0)
         def _mmdd(x):
@@ -4107,9 +4114,10 @@ with tab6:
         agg = d.groupby("_mmdd", as_index=False)["Tonnes"].sum()
         return sorted([(str(r["_mmdd"]), float(r["Tonnes"])) for _, r in agg.iterrows()])
 
-    # Filtres usine + commercial + PIC
+    # Filtres usine + commercial + région + PIC
     _all_usines = set()
     _all_comms = set()
+    _all_regions = set()
     for _dfa in st.session_state.annees_data.values():
         if "Usine" in _dfa.columns:
             for u in _dfa["Usine"].dropna().astype(str).str.strip().unique():
@@ -4119,20 +4127,26 @@ with tab6:
             for c in _dfa["Commercial"].dropna().astype(str).str.strip().unique():
                 if c.upper() not in ("TOTAL","HISTORIQUE","INCONNU","NAN"):
                     _all_comms.add(c.upper())
+        if "Region" in _dfa.columns:
+            for r in _dfa["Region"].dropna().astype(str).str.strip().unique():
+                if r.upper() not in ("TOTAL","AUTRES","NAN"):
+                    _all_regions.add(r.upper())
     _usines_opts = ["TOTAL"] + sorted(_all_usines)
     _comms_opts  = ["TOUS"] + sorted(_all_comms) + (["HISTORIQUE"] if any("HISTORIQUE" in _dfa.get("Commercial", _pd.Series()).astype(str).str.upper().values for _dfa in st.session_state.annees_data.values()) else [])
+    _regions_opts = ["TOUTES"] + sorted(_all_regions) + (["AUTRES"] if any("AUTRES" in _dfa.get("Region", _pd.Series()).astype(str).str.upper().values for _dfa in st.session_state.annees_data.values()) else [])
 
-    cF1, cF2, cF3, cF4 = st.columns([1, 1, 1, 2])
+    cF1, cF2, cF3, cF4, cF5 = st.columns([1, 1, 1, 1, 1])
     with cF1:
         _usine_choix = st.selectbox("🏭 Filtre usine", _usines_opts, index=0, key="usine_filter_tab6")
     with cF2:
         _comm_choix = st.selectbox("👤 Filtre commercial", _comms_opts, index=0, key="comm_filter_tab6")
     with cF3:
-        _min_tonnes = st.number_input("Cacher jours < (t)", min_value=0, max_value=500, value=50,
-                                       step=10, key="min_tonnes_tab6",
-                                       help="Cache les jours avec un tonnage négligeable (queues de saison)")
+        _region_choix = st.selectbox("🗺️ Filtre région", _regions_opts, index=0, key="region_filter_tab6")
     with cF4:
-        _pic_dates = st.text_input("Zone PIC (MM-JJ → MM-JJ)",
+        _min_tonnes = st.number_input("Cacher jours < (t)", min_value=0, max_value=500, value=50,
+                                       step=10, key="min_tonnes_tab6")
+    with cF5:
+        _pic_dates = st.text_input("Zone PIC",
                                     value="07-01 → 07-15", key="pic_dates_tab6")
 
     st.subheader("📊 Courbes journalières comparées — superposition année par année")
@@ -4142,8 +4156,9 @@ with tab6:
         annees_tri = sorted(st.session_state.annees_data.keys(), reverse=True)
         for _idx, _an in enumerate(annees_tri):
             _df = st.session_state.annees_data[_an]
-            _serie = _to_daily(_df, usine_filter=_usine_choix, commercial_filter=_comm_choix)
-            # ✅ FIX: filtrer les jours avec tonnage négligeable (queues de saison)
+            _serie = _to_daily(_df, usine_filter=_usine_choix,
+                                commercial_filter=_comm_choix,
+                                region_filter=_region_choix)
             if _min_tonnes and _min_tonnes > 0:
                 _serie = [(d, t) for d, t in _serie if t >= _min_tonnes]
             if not _serie: continue
@@ -4255,7 +4270,6 @@ with tab6:
             st.caption("Un mini-graphique par usine, superposition des 3 années — même style que le graphique principal.")
             _usine_order = [u for u in ["SICAM","TUCAL","COMOCAP","ABIDA","ELFALLEH"] if u in _all_usines]
             if _usine_order:
-                # Afficher 2 mini-graphiques par ligne
                 for _row_idx in range(0, len(_usine_order), 2):
                     _cols = st.columns(2)
                     for _ci, _u in enumerate(_usine_order[_row_idx:_row_idx+2]):
@@ -4264,8 +4278,8 @@ with tab6:
                             for _idx_yr, _an in enumerate(annees_tri):
                                 _df = st.session_state.annees_data[_an]
                                 _serie = _to_daily(_df, usine_filter=_u,
-                                                    commercial_filter=_comm_choix)
-                                # Appliquer le filtre min_tonnes
+                                                    commercial_filter=_comm_choix,
+                                                    region_filter=_region_choix)
                                 if _min_tonnes and _min_tonnes > 0:
                                     _serie = [(d, t) for d, t in _serie if t >= _min_tonnes]
                                 if not _serie: continue
@@ -4299,6 +4313,57 @@ with tab6:
                                 margin=dict(l=50, r=20, t=40, b=40),
                             )
                             st.plotly_chart(_fig_u, use_container_width=True)
+
+        # ── NOUVELLE SECTION : Comparaison par région (mini-graphiques) ──
+        if _all_regions:
+            st.markdown("---")
+            st.markdown("### 🗺️ Comparaison par région × année")
+            st.caption("Un mini-graphique par région, superposition des 3 années.")
+            _region_order = [r for r in ["CAP BON","NORD","KAIROUAN","SIDI BOUZID","GAFSA/KASSRINE","BOUFICHA"] if r in _all_regions]
+            if _region_order:
+                for _row_idx in range(0, len(_region_order), 2):
+                    _cols = st.columns(2)
+                    for _ci, _reg in enumerate(_region_order[_row_idx:_row_idx+2]):
+                        with _cols[_ci]:
+                            _fig_r = go.Figure()
+                            for _idx_yr, _an in enumerate(annees_tri):
+                                _df = st.session_state.annees_data[_an]
+                                _serie = _to_daily(_df, usine_filter=_usine_choix,
+                                                    commercial_filter=_comm_choix,
+                                                    region_filter=_reg)
+                                if _min_tonnes and _min_tonnes > 0:
+                                    _serie = [(d, t) for d, t in _serie if t >= _min_tonnes]
+                                if not _serie: continue
+                                _xs = [d for d,_ in _serie]
+                                _ys = [t for _,t in _serie]
+                                _col = _df["_couleur"].iloc[0] if "_couleur" in _df.columns else "#3b82f6"
+                                _sty = _df["_style"].iloc[0]   if "_style"   in _df.columns else "Solide"
+                                _dash = "dot" if _sty == "Pointillé" else None
+                                _is_ref_r = (_idx_yr == 0)
+                                _fig_r.add_trace(go.Scatter(
+                                    x=_xs, y=_ys,
+                                    name=f"{_an} ({sum(_ys):,.0f} t)",
+                                    customdata=[_an]*len(_xs),
+                                    line=dict(color=_col,
+                                              width=(2.5 if _is_ref_r else 1.8),
+                                              dash=_dash, shape="spline", smoothing=0.6),
+                                    mode="lines",
+                                    hovertemplate=f"<b>{_reg} · %{{customdata}}-%{{x}}</b><br>%{{y:,.0f}} t/jour<extra></extra>",
+                                ))
+                            _fig_r.update_layout(
+                                template="plotly_dark",
+                                plot_bgcolor="#0d1117", paper_bgcolor="#0d1117",
+                                height=300, hovermode="x unified",
+                                title=dict(text=f"🗺️ {_reg}", font=dict(size=13, color="#e5e7eb"), x=0.02),
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+                                            bgcolor="rgba(0,0,0,0)", font=dict(size=9)),
+                                yaxis=dict(title="t/jour", gridcolor="rgba(255,255,255,0.06)",
+                                           tickfont=dict(size=9)),
+                                xaxis=dict(gridcolor="rgba(255,255,255,0)", tickfont=dict(size=9),
+                                           type="category", categoryorder="category ascending"),
+                                margin=dict(l=50, r=20, t=40, b=40),
+                            )
+                            st.plotly_chart(_fig_r, use_container_width=True)
 
     else:
         st.info("💡 Importez des fichiers dans la section « Importer / Gérer les années » "
