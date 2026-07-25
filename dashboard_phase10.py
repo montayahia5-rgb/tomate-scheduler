@@ -3919,14 +3919,51 @@ with tab5:
 with tab6:
     import plotly.graph_objects as go
     import pandas as _pd
+    import pickle as _pkl
+    import os as _os
 
     st.subheader("📈 Comparaison par années — Tomate industrielle")
 
     # ══════════════════════════════════════════════════════════════════
-    #  IMPORT MULTI-ANNÉES (session_state)
+    #  PERSISTANCE DISQUE — survit aux fermetures de session
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        _PERSIST_DIR = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".dashboard_data")
+        _os.makedirs(_PERSIST_DIR, exist_ok=True)
+    except Exception:
+        _PERSIST_DIR = _os.path.join(_os.path.expanduser("~"), ".dashboard_data")
+        _os.makedirs(_PERSIST_DIR, exist_ok=True)
+    _ANNEES_FILE = _os.path.join(_PERSIST_DIR, "annees_data.pkl")
+
+    def _save_annees_to_disk():
+        try:
+            with open(_ANNEES_FILE, "wb") as _f:
+                _pkl.dump({
+                    "data": st.session_state.annees_data,
+                    "apply": st.session_state.annees_apply,
+                }, _f)
+        except Exception as _e:
+            st.warning(f"⚠️ Sauvegarde disque échouée : {_e}")
+
+    def _load_annees_from_disk():
+        try:
+            if _os.path.exists(_ANNEES_FILE):
+                with open(_ANNEES_FILE, "rb") as _f:
+                    _d = _pkl.load(_f)
+                    return _d.get("data", {}), _d.get("apply", False)
+        except Exception:
+            pass
+        return {}, False
+
+    # ══════════════════════════════════════════════════════════════════
+    #  IMPORT MULTI-ANNÉES (session_state + persistance)
     # ══════════════════════════════════════════════════════════════════
     if "annees_data" not in st.session_state:
-        st.session_state.annees_data = {}
+        _data_disk, _apply_disk = _load_annees_from_disk()
+        st.session_state.annees_data = _data_disk
+        st.session_state.annees_apply = _apply_disk
+        if _data_disk:
+            st.info(f"🔄 {len(_data_disk)} année(s) rechargée(s) automatiquement : {sorted(_data_disk.keys())}")
     if "annees_apply" not in st.session_state:
         st.session_state.annees_apply = False
 
@@ -3967,6 +4004,7 @@ with tab6:
                     _df_up["_style"] = _annee_style
                     _df_up["_annee"] = int(_annee_new)
                     st.session_state.annees_data[int(_annee_new)] = _df_up
+                    _save_annees_to_disk()
                     # ── FIX: afficher le vrai total (lignes TOTAL uniquement si Usine présente) ──
                     if "Usine" in _df_up.columns:
                         _mask_total = _df_up["Usine"].astype(str).str.upper().str.strip() == "TOTAL"
@@ -3994,6 +4032,7 @@ with tab6:
                     st.markdown(f"**{_an}** — {_t:,.0f} t")
                     if st.button(f"🗑️ Retirer {_an}", key=f"del_annee_{_an}"):
                         del st.session_state.annees_data[_an]
+                        _save_annees_to_disk()
                         st.rerun()
 
         st.markdown("---")
@@ -4002,11 +4041,13 @@ with tab6:
             if st.button("✅ Appliquer", type="primary", use_container_width=True,
                          disabled=not st.session_state.annees_data):
                 st.session_state.annees_apply = True
+                _save_annees_to_disk()
                 st.success("Graphique mis à jour")
         with cB:
             if st.button("🔄 Réinitialiser aux données par défaut", use_container_width=True):
                 st.session_state.annees_data = {}
                 st.session_state.annees_apply = False
+                _save_annees_to_disk()
                 st.rerun()
 
     st.markdown("---")
@@ -4586,11 +4627,48 @@ with tab7:
 with tab8:
     import pandas as _pd
     import plotly.graph_objects as go
+    import pickle as _pkl
+    import os as _os
     st.subheader("📊 Comparaison par prévision — Mai / Juin / Réalisé (multi-années)")
     st.caption("Importer pour chaque année : Prévision Mai + Prévision Juin + Réalisé — comparer entre saisons")
 
+    # ══════════════════════════════════════════════════════════════════
+    #  PERSISTANCE DISQUE — pour survivre aux fermetures de session
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        _PDIR = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".dashboard_data")
+        _os.makedirs(_PDIR, exist_ok=True)
+    except Exception:
+        _PDIR = _os.path.join(_os.path.expanduser("~"), ".dashboard_data")
+        _os.makedirs(_PDIR, exist_ok=True)
+    _PREV_FILE = _os.path.join(_PDIR, "prev_data.pkl")
+
+    def _save_prev_to_disk():
+        try:
+            with open(_PREV_FILE, "wb") as _f:
+                _pkl.dump({
+                    "data": st.session_state.prev_data,
+                    "apply": st.session_state.prev_apply,
+                }, _f)
+        except Exception as _e:
+            st.warning(f"⚠️ Sauvegarde disque échouée : {_e}")
+
+    def _load_prev_from_disk():
+        try:
+            if _os.path.exists(_PREV_FILE):
+                with open(_PREV_FILE, "rb") as _f:
+                    _d = _pkl.load(_f)
+                    return _d.get("data", {}), _d.get("apply", False)
+        except Exception:
+            pass
+        return {}, False
+
     if "prev_data" not in st.session_state:
-        st.session_state.prev_data = {}
+        _dprev, _aprev = _load_prev_from_disk()
+        st.session_state.prev_data = _dprev
+        st.session_state.prev_apply = _aprev
+        if _dprev:
+            st.info(f"🔄 Prévisions de {len(_dprev)} année(s) rechargées : {sorted(_dprev.keys())}")
     if "prev_apply" not in st.session_state:
         st.session_state.prev_apply = False
 
@@ -4622,6 +4700,7 @@ with tab8:
                     _df_prev["Tonnage"] = _pd.to_numeric(_df_prev["Tonnage"], errors="coerce").fillna(0)
                     _key = {"Prévision Mai":"mai","Prévision Juin":"juin","Réalisé":"reel"}[_prev_type]
                     st.session_state.prev_data.setdefault(int(_prev_annee), {})[_key] = _df_prev
+                    _save_prev_to_disk()
                     st.success(f"✅ {_prev_type} {_prev_annee} : {len(_df_prev)} régions — Total {_df_prev['Tonnage'].sum():,.0f} t")
                 else:
                     st.error("❌ Colonnes **Region** et **Tonnage** requises")
@@ -4641,6 +4720,7 @@ with tab8:
                 with cR:
                     if st.button("🗑️", key=f"del_prev_{_an}"):
                         del st.session_state.prev_data[_an]
+                        _save_prev_to_disk()
                         st.rerun()
 
         st.markdown("---")
@@ -4649,11 +4729,13 @@ with tab8:
             if st.button("✅ Appliquer prévisions", type="primary", use_container_width=True,
                          disabled=not st.session_state.prev_data, key="btn_apply_prev"):
                 st.session_state.prev_apply = True
+                _save_prev_to_disk()
                 st.success("Mis à jour")
         with cP4:
             if st.button("🔄 Réinitialiser", use_container_width=True, key="btn_reset_prev"):
                 st.session_state.prev_data = {}
                 st.session_state.prev_apply = False
+                _save_prev_to_disk()
                 st.rerun()
 
     st.markdown("---")
