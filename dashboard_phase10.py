@@ -4081,10 +4081,15 @@ with tab6:
         """
         if df is None or not isinstance(df, _pd.DataFrame) or df.empty:
             return []
-        d = df.copy()
-        u_col = d["Usine"].apply(lambda v: str(v).strip().upper())      if "Usine"      in d.columns else None
-        c_col = d["Commercial"].apply(lambda v: str(v).strip().upper())  if "Commercial" in d.columns else None
-        r_col = d["Region"].apply(lambda v: str(v).strip().upper())      if "Region"     in d.columns else None
+        # ✅ FIX Python 3.14 : reset_index pour éviter les index dupliqués qui cassent l'alignement pandas
+        d = df.copy().reset_index(drop=True)
+        import numpy as _np_local
+        has_u = "Usine"      in d.columns
+        has_c = "Commercial" in d.columns
+        has_r = "Region"     in d.columns
+        u_col = d["Usine"].apply(lambda v: str(v).strip().upper())      if has_u else None
+        c_col = d["Commercial"].apply(lambda v: str(v).strip().upper())  if has_c else None
+        r_col = d["Region"].apply(lambda v: str(v).strip().upper())      if has_r else None
 
         u_choix = str(usine_filter       or "TOTAL").upper()
         c_choix = str(commercial_filter  or "TOUS").upper()
@@ -4092,36 +4097,43 @@ with tab6:
 
         # Aucun filtre → ligne TOTAL / TOTAL / TOTAL
         if u_choix == "TOTAL" and c_choix == "TOUS" and r_choix == "TOUTES":
-            conds = []
-            if u_col is not None: conds.append(u_col == "TOTAL")
-            if c_col is not None: conds.append(c_col == "TOTAL")
-            if r_col is not None: conds.append(r_col == "TOTAL")
-            if conds:
-                mask = conds[0]
-                for x in conds[1:]: mask = mask & x
-                d = d[mask]
+            # ✅ FIX Python 3.14 : combinaison via numpy pour éviter l'alignement d'index pandas
+            mask_np = _np_local.ones(len(d), dtype=bool)
+            has_any = False
+            if u_col is not None:
+                mask_np = mask_np & (u_col.to_numpy() == "TOTAL"); has_any = True
+            if c_col is not None:
+                mask_np = mask_np & (c_col.to_numpy() == "TOTAL"); has_any = True
+            if r_col is not None:
+                mask_np = mask_np & (r_col.to_numpy() == "TOTAL"); has_any = True
+            if has_any:
+                d = d.iloc[mask_np].copy()
             if len(d) == 0:
                 # Fallback : sommer les détails
-                d = df.copy()
-                if u_col is not None:
-                    d = d[d["Usine"].apply(lambda v: str(v).upper()) != "TOTAL"]
+                d = df.copy().reset_index(drop=True)
+                if has_u:
+                    _m = d["Usine"].apply(lambda v: str(v).upper()).to_numpy() != "TOTAL"
+                    d = d.iloc[_m].copy()
         else:
-            d = df.copy()
-            if u_col is not None:
+            d = df.copy().reset_index(drop=True)
+            if has_u:
+                _uarr = d["Usine"].apply(lambda v: str(v).strip().upper()).to_numpy()
                 if u_choix != "TOTAL":
-                    d = d[d["Usine"].apply(lambda v: str(v).strip().upper()) == u_choix]
+                    d = d.iloc[_uarr == u_choix].copy()
                 else:
-                    d = d[d["Usine"].apply(lambda v: str(v).strip().upper()) != "TOTAL"]
-            if c_col is not None:
+                    d = d.iloc[_uarr != "TOTAL"].copy()
+            if has_c:
+                _carr = d["Commercial"].apply(lambda v: str(v).strip().upper()).to_numpy()
                 if c_choix != "TOUS":
-                    d = d[d["Commercial"].apply(lambda v: str(v).strip().upper()) == c_choix]
+                    d = d.iloc[_carr == c_choix].copy()
                 else:
-                    d = d[d["Commercial"].apply(lambda v: str(v).strip().upper()) != "TOTAL"]
-            if r_col is not None:
+                    d = d.iloc[_carr != "TOTAL"].copy()
+            if has_r:
+                _rarr = d["Region"].apply(lambda v: str(v).strip().upper()).to_numpy()
                 if r_choix != "TOUTES":
-                    d = d[d["Region"].apply(lambda v: str(v).strip().upper()) == r_choix]
+                    d = d.iloc[_rarr == r_choix].copy()
                 else:
-                    d = d[d["Region"].apply(lambda v: str(v).strip().upper()) != "TOTAL"]
+                    d = d.iloc[_rarr != "TOTAL"].copy()
         
         d["Tonnes"] = _pd.to_numeric(d["Tonnes"], errors="coerce").fillna(0)
         def _mmdd(x):
