@@ -3950,9 +3950,18 @@ with tab6:
             if _os.path.exists(_ANNEES_FILE):
                 with open(_ANNEES_FILE, "rb") as _f:
                     _d = _pkl.load(_f)
-                    return _d.get("data", {}), _d.get("apply", False)
-        except Exception:
-            pass
+                    _loaded = _d.get("data", {})
+                    # Valider que les données sont bien des DataFrames pandas
+                    for _k, _v in _loaded.items():
+                        if not isinstance(_v, _pd.DataFrame):
+                            raise ValueError("Format cache invalide")
+                    return _loaded, _d.get("apply", False)
+        except Exception as _e:
+            # Cache corrompu ou format incompatible → supprimer
+            try:
+                _os.remove(_ANNEES_FILE)
+            except Exception:
+                pass
         return {}, False
 
     # ══════════════════════════════════════════════════════════════════
@@ -3966,6 +3975,16 @@ with tab6:
             st.info(f"🔄 {len(_data_disk)} année(s) rechargée(s) automatiquement : {sorted(_data_disk.keys())}")
     if "annees_apply" not in st.session_state:
         st.session_state.annees_apply = False
+
+    # ── Bouton d'urgence : vider complètement le cache ──
+    with st.sidebar:
+        if st.button("🗑️ Vider le cache années", help="À utiliser si le graphique ne s'affiche plus", key="clear_cache_btn"):
+            st.session_state.annees_data  = {}
+            st.session_state.annees_apply = False
+            try:
+                if _os.path.exists(_ANNEES_FILE): _os.remove(_ANNEES_FILE)
+            except Exception: pass
+            st.rerun()
 
     with st.expander("📤 Importer / Gérer les années", expanded=False):
         st.caption(
@@ -4058,19 +4077,20 @@ with tab6:
     # ══════════════════════════════════════════════════════════════════
     def _to_daily(df, usine_filter=None, commercial_filter=None, region_filter=None):
         """Retourne [(mmdd, tonnes)] triée pour SUPERPOSITION multi-années.
+        Compatible avec les anciens fichiers (sans Region).
         Filtres cumulatifs : usine × commercial × région
         """
-        if df is None or df.empty:
+        if df is None or not isinstance(df, _pd.DataFrame) or df.empty:
             return []
         d = df.copy()
-        u_col = d["Usine"].astype(str).str.upper().str.strip() if "Usine" in d.columns else None
+        u_col = d["Usine"].astype(str).str.upper().str.strip()     if "Usine"      in d.columns else None
         c_col = d["Commercial"].astype(str).str.upper().str.strip() if "Commercial" in d.columns else None
-        r_col = d["Region"].astype(str).str.upper().str.strip() if "Region" in d.columns else None
-        
-        u_choix = str(usine_filter or "TOTAL").upper()
-        c_choix = str(commercial_filter or "TOUS").upper()
-        r_choix = str(region_filter or "TOUTES").upper()
-        
+        r_col = d["Region"].astype(str).str.upper().str.strip()     if "Region"     in d.columns else None
+
+        u_choix = str(usine_filter       or "TOTAL").upper()
+        c_choix = str(commercial_filter  or "TOUS").upper()
+        r_choix = str(region_filter      or "TOUTES").upper()
+
         # Aucun filtre → ligne TOTAL / TOTAL / TOTAL
         if u_choix == "TOTAL" and c_choix == "TOUS" and r_choix == "TOUTES":
             conds = []
@@ -4082,7 +4102,10 @@ with tab6:
                 for x in conds[1:]: mask = mask & x
                 d = d[mask]
             if len(d) == 0:
-                # Fallback : détail total
+                # Fallback : sommer les détails
+                d = df.copy()
+                if u_col is not None:
+                    d = d[d["Usine"].astype(str).str.upper() != "TOTAL"]
                 d = df.copy()
                 if u_col is not None:
                     d = d[d["Usine"].astype(str).str.upper() != "TOTAL"]
@@ -4114,26 +4137,41 @@ with tab6:
         agg = d.groupby("_mmdd", as_index=False)["Tonnes"].sum()
         return sorted([(str(r["_mmdd"]), float(r["Tonnes"])) for _, r in agg.iterrows()])
 
-    # Filtres usine + commercial + région + PIC
-    _all_usines = set()
-    _all_comms = set()
+    # ══════════════════════════════════════════════════════════════════
+    #  FILTRES — collecter les valeurs distinctes de chaque dimension
+    #  Guards : vérifier que _dfa est bien un DataFrame + colonne existe
+    # ══════════════════════════════════════════════════════════════════
+    _all_usines  = set()
+    _all_comms   = set()
     _all_regions = set()
     for _dfa in st.session_state.annees_data.values():
+        if not isinstance(_dfa, _pd.DataFrame):
+            continue
         if "Usine" in _dfa.columns:
             for u in _dfa["Usine"].dropna().astype(str).str.strip().unique():
-                if u.upper() != "TOTAL":
+                if u.upper() not in ("TOTAL", "NAN", ""):
                     _all_usines.add(u.upper())
         if "Commercial" in _dfa.columns:
             for c in _dfa["Commercial"].dropna().astype(str).str.strip().unique():
-                if c.upper() not in ("TOTAL","HISTORIQUE","INCONNU","NAN"):
+                if c.upper() not in ("TOTAL","HISTORIQUE","INCONNU","NAN",""):
                     _all_comms.add(c.upper())
         if "Region" in _dfa.columns:
             for r in _dfa["Region"].dropna().astype(str).str.strip().unique():
-                if r.upper() not in ("TOTAL","AUTRES","NAN"):
+                if r.upper() not in ("TOTAL","NAN","","A CONFIRMER","NON RENSEIGNE"):
                     _all_regions.add(r.upper())
-    _usines_opts = ["TOTAL"] + sorted(_all_usines)
-    _comms_opts  = ["TOUS"] + sorted(_all_comms) + (["HISTORIQUE"] if any("HISTORIQUE" in _dfa.get("Commercial", _pd.Series()).astype(str).str.upper().values for _dfa in st.session_state.annees_data.values()) else [])
-    _regions_opts = ["TOUTES"] + sorted(_all_regions) + (["AUTRES"] if any("AUTRES" in _dfa.get("Region", _pd.Series()).astype(str).str.upper().values for _dfa in st.session_state.annees_data.values()) else [])
+
+    _usines_opts  = ["TOTAL"]  + sorted(_all_usines)
+    _comms_opts   = ["TOUS"]   + sorted(_all_comms)
+    _regions_opts = ["TOUTES"] + sorted(_all_regions)
+    # Ajouter HISTORIQUE si présent
+    _has_hist = any(
+        isinstance(_dfa, _pd.DataFrame) and
+        "Commercial" in _dfa.columns and
+        "HISTORIQUE" in _dfa["Commercial"].astype(str).str.upper().values
+        for _dfa in st.session_state.annees_data.values()
+    )
+    if _has_hist:
+        _comms_opts.append("HISTORIQUE")
 
     cF1, cF2, cF3, cF4, cF5 = st.columns([1, 1, 1, 1, 1])
     with cF1:
