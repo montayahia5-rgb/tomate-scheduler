@@ -3954,6 +3954,12 @@ with tab6:
                     for _k, _v in _loaded.items():
                         if not isinstance(_v, _pd.DataFrame):
                             raise ValueError("Format cache invalide")
+                    # ✅ Auto-nettoyage : supprimer les colonnes dupliquées héritées
+                    #    d'un ancien import (bug Zone → Region)
+                    for _k in list(_loaded.keys()):
+                        _dfk = _loaded[_k]
+                        if _dfk.columns.duplicated().any():
+                            _loaded[_k] = _dfk.loc[:, ~_dfk.columns.duplicated()]
                     return _loaded, _d.get("apply", False)
         except Exception as _e:
             # Cache corrompu ou format incompatible → supprimer
@@ -4008,6 +4014,9 @@ with tab6:
                 _df_up = _pd.read_excel(_file_annee) if _file_annee.name.lower().endswith(("xlsx","xls")) \
                          else _pd.read_csv(_file_annee)
                 _df_up.columns = [str(c).strip() for c in _df_up.columns]
+                # ✅ FIX : ne renommer "zone" en "Region" QUE si la vraie colonne Region est absente
+                _has_region_col = any(str(c).lower().strip() in ("region","région")
+                                       for c in _df_up.columns)
                 _mp = {}
                 for c in _df_up.columns:
                     lc = str(c).lower().strip()
@@ -4015,8 +4024,13 @@ with tab6:
                     elif lc in ("tonnes","tonnage","t/jour","tonnes/jour"): _mp[c] = "Tonnes"
                     elif lc in ("usine","factory","site"): _mp[c] = "Usine"
                     elif lc in ("commercial","responsable","commerciale","commerciaux"): _mp[c] = "Commercial"
-                    elif lc in ("region","région","zone","gouvernorat"): _mp[c] = "Region"
+                    elif lc in ("region","région"):        _mp[c] = "Region"
+                    elif lc in ("zone","gouvernorat"):
+                        # Zone reste Zone si Region existe déjà (évite doublon)
+                        if not _has_region_col: _mp[c] = "Region"
                 _df_up = _df_up.rename(columns=_mp)
+                # ✅ Garde-fou : supprimer toute colonne dupliquée résiduelle
+                _df_up = _df_up.loc[:, ~_df_up.columns.duplicated()]
                 if "Date" in _df_up.columns and "Tonnes" in _df_up.columns:
                     _df_up["Tonnes"] = _pd.to_numeric(_df_up["Tonnes"], errors="coerce").fillna(0)
                     _df_up["_couleur"] = _annee_couleur
