@@ -4081,59 +4081,87 @@ with tab6:
         """
         if df is None or not isinstance(df, _pd.DataFrame) or df.empty:
             return []
-        # ✅ FIX Python 3.14 : reset_index pour éviter les index dupliqués qui cassent l'alignement pandas
+        # ✅ FIX Python 3.14 : reset_index + suppression colonnes dupliquées
         d = df.copy().reset_index(drop=True)
+        # Si le fichier Excel a deux colonnes "Region" (ou autre), on ne garde que la 1re
+        d = d.loc[:, ~d.columns.duplicated()]
         import numpy as _np_local
-        has_u = "Usine"      in d.columns
-        has_c = "Commercial" in d.columns
-        has_r = "Region"     in d.columns
-        u_col = d["Usine"].apply(lambda v: str(v).strip().upper())      if has_u else None
-        c_col = d["Commercial"].apply(lambda v: str(v).strip().upper())  if has_c else None
-        r_col = d["Region"].apply(lambda v: str(v).strip().upper())      if has_r else None
+
+        def _col_upper_arr(colname):
+            """Extrait une colonne en tableau numpy 1D uppercase-strip.
+            Retourne None si la colonne n'existe pas. Bulletproof contre
+            les colonnes dupliquées / MultiIndex / valeurs non-string."""
+            if colname not in d.columns:
+                return None
+            col = d[colname]
+            # Si duplicatas malgré tout, prendre la 1re
+            if isinstance(col, _pd.DataFrame):
+                col = col.iloc[:, 0]
+            try:
+                raw = col.fillna("").to_numpy()
+            except Exception:
+                raw = _np_local.asarray(list(col.fillna("")))
+            out = _np_local.empty(len(raw), dtype=object)
+            for i, v in enumerate(raw):
+                out[i] = str(v).strip().upper()
+            return out
+
+        u_arr = _col_upper_arr("Usine")
+        c_arr = _col_upper_arr("Commercial")
+        r_arr = _col_upper_arr("Region")
 
         u_choix = str(usine_filter       or "TOTAL").upper()
         c_choix = str(commercial_filter  or "TOUS").upper()
         r_choix = str(region_filter      or "TOUTES").upper()
 
+        N = len(d)
+
         # Aucun filtre → ligne TOTAL / TOTAL / TOTAL
         if u_choix == "TOTAL" and c_choix == "TOUS" and r_choix == "TOUTES":
-            # ✅ FIX Python 3.14 : combinaison via numpy pour éviter l'alignement d'index pandas
-            mask_np = _np_local.ones(len(d), dtype=bool)
+            mask_np = _np_local.ones(N, dtype=bool)
             has_any = False
-            if u_col is not None:
-                mask_np = mask_np & (u_col.to_numpy() == "TOTAL"); has_any = True
-            if c_col is not None:
-                mask_np = mask_np & (c_col.to_numpy() == "TOTAL"); has_any = True
-            if r_col is not None:
-                mask_np = mask_np & (r_col.to_numpy() == "TOTAL"); has_any = True
+            if u_arr is not None and len(u_arr) == N:
+                mask_np = mask_np & (u_arr == "TOTAL"); has_any = True
+            if c_arr is not None and len(c_arr) == N:
+                mask_np = mask_np & (c_arr == "TOTAL"); has_any = True
+            if r_arr is not None and len(r_arr) == N:
+                mask_np = mask_np & (r_arr == "TOTAL"); has_any = True
             if has_any:
                 d = d.iloc[mask_np].copy()
             if len(d) == 0:
-                # Fallback : sommer les détails
+                # Fallback : sommer les détails (exclure TOTAL)
                 d = df.copy().reset_index(drop=True)
-                if has_u:
-                    _m = d["Usine"].apply(lambda v: str(v).upper()).to_numpy() != "TOTAL"
-                    d = d.iloc[_m].copy()
+                d = d.loc[:, ~d.columns.duplicated()]
+                u2 = _col_upper_arr("Usine") if "Usine" in d.columns else None
+                if u2 is not None and len(u2) == len(d):
+                    d = d.iloc[u2 != "TOTAL"].copy()
         else:
-            d = df.copy().reset_index(drop=True)
-            if has_u:
-                _uarr = d["Usine"].apply(lambda v: str(v).strip().upper()).to_numpy()
+            if u_arr is not None and len(u_arr) == N:
                 if u_choix != "TOTAL":
-                    d = d.iloc[_uarr == u_choix].copy()
+                    d = d.iloc[u_arr == u_choix].copy()
+                    # Réextraire pour rester aligné après filtrage
+                    c_arr = _col_upper_arr("Commercial")
+                    r_arr = _col_upper_arr("Region")
+                    N = len(d)
                 else:
-                    d = d.iloc[_uarr != "TOTAL"].copy()
-            if has_c:
-                _carr = d["Commercial"].apply(lambda v: str(v).strip().upper()).to_numpy()
+                    d = d.iloc[u_arr != "TOTAL"].copy()
+                    c_arr = _col_upper_arr("Commercial")
+                    r_arr = _col_upper_arr("Region")
+                    N = len(d)
+            if c_arr is not None and len(c_arr) == N:
                 if c_choix != "TOUS":
-                    d = d.iloc[_carr == c_choix].copy()
+                    d = d.iloc[c_arr == c_choix].copy()
+                    r_arr = _col_upper_arr("Region")
+                    N = len(d)
                 else:
-                    d = d.iloc[_carr != "TOTAL"].copy()
-            if has_r:
-                _rarr = d["Region"].apply(lambda v: str(v).strip().upper()).to_numpy()
+                    d = d.iloc[c_arr != "TOTAL"].copy()
+                    r_arr = _col_upper_arr("Region")
+                    N = len(d)
+            if r_arr is not None and len(r_arr) == N:
                 if r_choix != "TOUTES":
-                    d = d.iloc[_rarr == r_choix].copy()
+                    d = d.iloc[r_arr == r_choix].copy()
                 else:
-                    d = d.iloc[_rarr != "TOTAL"].copy()
+                    d = d.iloc[r_arr != "TOTAL"].copy()
         
         d["Tonnes"] = _pd.to_numeric(d["Tonnes"], errors="coerce").fillna(0)
         def _mmdd(x):
