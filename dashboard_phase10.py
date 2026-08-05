@@ -3924,7 +3924,9 @@ with tab6:
     st.subheader("📈 Comparaison par années — Tomate industrielle")
 
     # ══════════════════════════════════════════════════════════════════
-    #  PERSISTANCE DISQUE — survit aux fermetures de session
+    #  PERSISTANCE — Supabase (primaire) + disque local (fallback)
+    #  ✅ Streamlit Cloud a un filesystem éphémère → Supabase est
+    #     nécessaire pour survivre aux redémarrages du conteneur.
     # ══════════════════════════════════════════════════════════════════
     try:
         _PERSIST_DIR = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".dashboard_data")
@@ -3934,15 +3936,87 @@ with tab6:
         _os.makedirs(_PERSIST_DIR, exist_ok=True)
     _ANNEES_FILE = _os.path.join(_PERSIST_DIR, "annees_data.pkl")
 
+    _SB_TABLE = "dashboard_annees"
+
+    def _df_to_json(df):
+        """Sérialise un DataFrame en JSON (compatible Supabase TEXT)."""
+        try:
+            return df.to_json(orient="split", date_format="iso", default_handler=str)
+        except Exception:
+            # fallback : passer par un dict
+            return _pd.DataFrame(df).astype(str).to_json(orient="split")
+
+    def _json_to_df(js):
+        """Reconstruit un DataFrame depuis JSON."""
+        try:
+            import io as _io_j
+            df = _pd.read_json(_io_j.StringIO(js), orient="split")
+            # Recast Tonnes en numérique si présent
+            if "Tonnes" in df.columns:
+                df["Tonnes"] = _pd.to_numeric(df["Tonnes"], errors="coerce").fillna(0)
+            return df
+        except Exception:
+            return None
+
+    def _save_annees_to_supabase():
+        """Upsert chaque année en base Supabase."""
+        try:
+            _sb = get_supabase()
+            for _yr, _df in st.session_state.annees_data.items():
+                if not isinstance(_df, _pd.DataFrame): continue
+                _sb.table(_SB_TABLE).upsert({
+                    "annee": int(_yr),
+                    "data_json": _df_to_json(_df),
+                }).execute()
+            # Supprimer les années qui ne sont plus dans session_state
+            try:
+                _resp = _sb.table(_SB_TABLE).select("annee").execute()
+                _sb_years = {int(r["annee"]) for r in (_resp.data or [])}
+                _local_years = {int(y) for y in st.session_state.annees_data.keys()}
+                _to_delete = _sb_years - _local_years
+                for _yr in _to_delete:
+                    _sb.table(_SB_TABLE).delete().eq("annee", int(_yr)).execute()
+            except Exception:
+                pass
+            return True
+        except Exception as _e:
+            st.warning(f"⚠️ Sauvegarde Supabase échouée : {_e}")
+            return False
+
+    def _load_annees_from_supabase():
+        """Charge toutes les années depuis Supabase."""
+        try:
+            _sb = get_supabase()
+            _resp = _sb.table(_SB_TABLE).select("annee, data_json").execute()
+            _out = {}
+            for _row in (_resp.data or []):
+                _df = _json_to_df(_row["data_json"])
+                if _df is not None and isinstance(_df, _pd.DataFrame):
+                    # Auto-nettoyage colonnes dupliquées
+                    if _df.columns.duplicated().any():
+                        _df = _df.loc[:, ~_df.columns.duplicated()]
+                    _out[int(_row["annee"])] = _df
+            return _out
+        except Exception as _e:
+            # Table pas encore créée ou pas de connexion → fallback silencieux
+            return {}
+
+    def _delete_annee_from_supabase(annee):
+        try:
+            get_supabase().table(_SB_TABLE).delete().eq("annee", int(annee)).execute()
+        except Exception:
+            pass
+
     def _save_annees_to_disk():
+        """Fallback local — utile en dev, inutile sur Streamlit Cloud."""
         try:
             with open(_ANNEES_FILE, "wb") as _f:
                 _pkl.dump({
                     "data": st.session_state.annees_data,
                     "apply": st.session_state.annees_apply,
                 }, _f)
-        except Exception as _e:
-            st.warning(f"⚠️ Sauvegarde disque échouée : {_e}")
+        except Exception:
+            pass
 
     def _load_annees_from_disk():
         try:
@@ -3950,45 +4024,63 @@ with tab6:
                 with open(_ANNEES_FILE, "rb") as _f:
                     _d = _pkl.load(_f)
                     _loaded = _d.get("data", {})
-                    # Valider que les données sont bien des DataFrames pandas
                     for _k, _v in _loaded.items():
                         if not isinstance(_v, _pd.DataFrame):
                             raise ValueError("Format cache invalide")
-                    # ✅ Auto-nettoyage : supprimer les colonnes dupliquées héritées
-                    #    d'un ancien import (bug Zone → Region)
                     for _k in list(_loaded.keys()):
                         _dfk = _loaded[_k]
                         if _dfk.columns.duplicated().any():
                             _loaded[_k] = _dfk.loc[:, ~_dfk.columns.duplicated()]
                     return _loaded, _d.get("apply", False)
-        except Exception as _e:
-            # Cache corrompu ou format incompatible → supprimer
-            try:
-                _os.remove(_ANNEES_FILE)
-            except Exception:
-                pass
+        except Exception:
+            try: _os.remove(_ANNEES_FILE)
+            except Exception: pass
         return {}, False
+
+    def _save_annees_everywhere():
+        """Sauve dans Supabase (primaire) + disque (fallback local)."""
+        _save_annees_to_supabase()
+        _save_annees_everywhere()
 
     # ══════════════════════════════════════════════════════════════════
     #  IMPORT MULTI-ANNÉES (session_state + persistance)
     # ══════════════════════════════════════════════════════════════════
     if "annees_data" not in st.session_state:
-        _data_disk, _apply_disk = _load_annees_from_disk()
-        st.session_state.annees_data = _data_disk
-        st.session_state.annees_apply = _apply_disk
-        if _data_disk:
-            st.info(f"🔄 {len(_data_disk)} année(s) rechargée(s) automatiquement : {sorted(_data_disk.keys())}")
+        # 1) Essayer Supabase (source de vérité)
+        _data_sb = _load_annees_from_supabase()
+        if _data_sb:
+            st.session_state.annees_data  = _data_sb
+            st.session_state.annees_apply = True
+            st.info(f"🔄 {len(_data_sb)} année(s) rechargée(s) depuis Supabase : {sorted(_data_sb.keys())}")
+        else:
+            # 2) Fallback disque local
+            _data_disk, _apply_disk = _load_annees_from_disk()
+            st.session_state.annees_data  = _data_disk
+            st.session_state.annees_apply = _apply_disk
+            if _data_disk:
+                st.info(f"🔄 {len(_data_disk)} année(s) rechargée(s) depuis le cache local : {sorted(_data_disk.keys())}")
+                # Migrer vers Supabase pour ne plus perdre au prochain restart
+                _save_annees_to_supabase()
     if "annees_apply" not in st.session_state:
         st.session_state.annees_apply = False
 
     # ── Bouton d'urgence : vider complètement le cache ──
     with st.sidebar:
-        if st.button("🗑️ Vider le cache années", help="À utiliser si le graphique ne s'affiche plus", key="clear_cache_btn"):
-            st.session_state.annees_data  = {}
-            st.session_state.annees_apply = False
+        if st.button("🗑️ Vider le cache années", help="Supprime toutes les années importées (Supabase + local)", key="clear_cache_btn"):
+            # Vider Supabase
+            try:
+                _sb_c = get_supabase()
+                _resp_c = _sb_c.table(_SB_TABLE).select("annee").execute()
+                for _r in (_resp_c.data or []):
+                    _sb_c.table(_SB_TABLE).delete().eq("annee", int(_r["annee"])).execute()
+            except Exception: pass
+            # Vider disque
             try:
                 if _os.path.exists(_ANNEES_FILE): _os.remove(_ANNEES_FILE)
             except Exception: pass
+            # Vider session
+            st.session_state.annees_data  = {}
+            st.session_state.annees_apply = False
             st.rerun()
 
     with st.expander("📤 Importer / Gérer les années", expanded=False):
@@ -4037,7 +4129,7 @@ with tab6:
                     _df_up["_style"] = _annee_style
                     _df_up["_annee"] = int(_annee_new)
                     st.session_state.annees_data[int(_annee_new)] = _df_up
-                    _save_annees_to_disk()
+                    _save_annees_everywhere()
                     # ── FIX: afficher le vrai total (lignes TOTAL uniquement si Usine présente) ──
                     if "Usine" in _df_up.columns:
                         _mask_total = _df_up["Usine"].apply(lambda v: str(v).strip().upper()) == "TOTAL"
@@ -4065,7 +4157,7 @@ with tab6:
                     st.markdown(f"**{_an}** — {_t:,.0f} t")
                     if st.button(f"🗑️ Retirer {_an}", key=f"del_annee_{_an}"):
                         del st.session_state.annees_data[_an]
-                        _save_annees_to_disk()
+                        _save_annees_everywhere()
                         st.rerun()
 
         st.markdown("---")
@@ -4074,13 +4166,13 @@ with tab6:
             if st.button("✅ Appliquer", type="primary", use_container_width=True,
                          disabled=not st.session_state.annees_data):
                 st.session_state.annees_apply = True
-                _save_annees_to_disk()
+                _save_annees_everywhere()
                 st.success("Graphique mis à jour")
         with cB:
             if st.button("🔄 Réinitialiser aux données par défaut", use_container_width=True):
                 st.session_state.annees_data = {}
                 st.session_state.annees_apply = False
-                _save_annees_to_disk()
+                _save_annees_everywhere()
                 st.rerun()
 
     st.markdown("---")
@@ -4210,7 +4302,7 @@ with tab6:
     for _dfa in st.session_state.annees_data.values():
         try:
             for u in _safe_get_col(_dfa, "Usine"):
-                if u.upper() not in ("TOTAL","NAN",""):
+                if u.upper() not in ("TOTAL","NAN","","AUTRE","AUTRES"):
                     _all_usines.add(u.upper())
             for c in _safe_get_col(_dfa, "Commercial"):
                 if c.upper() not in ("TOTAL","HISTORIQUE","INCONNU","NAN",""):
@@ -4460,12 +4552,19 @@ with tab6:
                             st.plotly_chart(_fig_r, use_container_width=True)
 
         # ══════════════════════════════════════════════════════════════════
-        # ── NOUVELLE SECTION : EXPORT EXCEL COLORÉ ──────────────────────
+        # ── NOUVELLE SECTION : EXPORT EXCEL COLORÉ (filtré) ─────────────
         # ══════════════════════════════════════════════════════════════════
         st.markdown("---")
         st.markdown("### 📥 Export Excel — Comparaison multi-années")
-        st.caption("Génère un fichier Excel coloré avec le tonnage par (Année × Commercial × Région), "
-                   "calculé UNIQUEMENT depuis les données importées ci-dessus.")
+        st.caption("Génère un fichier Excel coloré avec le tonnage par (Année × Commercial × Région × Usine). "
+                   "Les catégories fourre-tout HISTORIQUE / A CONFIRMER / NON RENSEIGNE / AUTRES sont "
+                   "isolées dans un onglet séparé « Non attribuable » pour transparence, "
+                   "sans polluer les vues principales.")
+
+        # ✅ Ensembles à filtrer des vues principales
+        _EXCL_COMM   = {"HISTORIQUE","INCONNU"}
+        _EXCL_REGION = {"A CONFIRMER","NON RENSEIGNE","INCONNU"}
+        _EXCL_USINE  = {"AUTRE","AUTRES"}
 
         if st.button("📊 Générer le fichier Excel comparatif", key="btn_export_comp_annees",
                      type="primary", use_container_width=False):
@@ -4483,6 +4582,7 @@ with tab6:
                 _ALT_FILL    = _Fill("solid", fgColor="F2F2F2")
                 _TOTAL_FILL  = _Fill("solid", fgColor="FFE699")
                 _TOTAL_FONT  = _Font(bold=True, size=11)
+                _WARN_FILL   = _Fill("solid", fgColor="F8CBAD")
                 _THIN        = _Side(border_style="thin", color="BFBFBF")
                 _BORDER      = _Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
                 _CENTER      = _Align(horizontal="center", vertical="center")
@@ -4493,23 +4593,55 @@ with tab6:
 
                 _annees_sorted = sorted(st.session_state.annees_data.keys())
 
-                # Helper : construction d'un pivot (rows: dimension, cols: années)
+                def _get_clean_details(df_yr):
+                    """Retourne DataFrame détail nettoyé (sans TOTAL, sans catégories fourre-tout)."""
+                    d = df_yr.copy().reset_index(drop=True)
+                    d = d.loc[:, ~d.columns.duplicated()]
+                    if "Usine" in d.columns:
+                        uu = d["Usine"].apply(lambda v: str(v).strip().upper()).to_numpy()
+                        d = d.iloc[uu != "TOTAL"].copy()
+                    d["Tonnes"] = _pd.to_numeric(d["Tonnes"], errors="coerce").fillna(0)
+                    # Normaliser colonnes
+                    for _c in ["Usine","Commercial","Region","Zone"]:
+                        if _c in d.columns:
+                            d[_c] = d[_c].apply(lambda v: str(v).strip().upper())
+                    # Filtrer catégories parasites
+                    if "Commercial" in d.columns:
+                        d = d[~d["Commercial"].isin(_EXCL_COMM)].copy()
+                    if "Region" in d.columns:
+                        d = d[~d["Region"].isin(_EXCL_REGION)].copy()
+                    if "Usine" in d.columns:
+                        d = d[~d["Usine"].isin(_EXCL_USINE)].copy()
+                    return d
+
+                def _get_orphans(df_yr):
+                    """Retourne DataFrame détail des catégories fourre-tout uniquement."""
+                    d = df_yr.copy().reset_index(drop=True)
+                    d = d.loc[:, ~d.columns.duplicated()]
+                    if "Usine" in d.columns:
+                        uu = d["Usine"].apply(lambda v: str(v).strip().upper()).to_numpy()
+                        d = d.iloc[uu != "TOTAL"].copy()
+                    d["Tonnes"] = _pd.to_numeric(d["Tonnes"], errors="coerce").fillna(0)
+                    for _c in ["Usine","Commercial","Region","Zone"]:
+                        if _c in d.columns:
+                            d[_c] = d[_c].apply(lambda v: str(v).strip().upper())
+                    m = _pd.Series([False]*len(d), index=d.index)
+                    if "Commercial" in d.columns:
+                        m = m | d["Commercial"].isin(_EXCL_COMM)
+                    if "Region" in d.columns:
+                        m = m | d["Region"].isin(_EXCL_REGION)
+                    if "Usine" in d.columns:
+                        m = m | d["Usine"].isin(_EXCL_USINE)
+                    return d[m].copy()
+
                 def _build_pivot(dim_col):
-                    """Retourne un DataFrame pivot : dim_col x Année → Tonnes.
-                    Uniquement à partir des lignes détail (Usine != TOTAL)."""
+                    """Pivot dim_col x Année à partir des lignes détail nettoyées."""
                     rows_all = []
                     for _yr, _df_yr in st.session_state.annees_data.items():
                         if not isinstance(_df_yr, _pd.DataFrame) or _df_yr.empty:
                             continue
-                        _d = _df_yr.copy().reset_index(drop=True)
-                        _d = _d.loc[:, ~_d.columns.duplicated()]
-                        if dim_col not in _d.columns: continue
-                        # Filtrer lignes détail (exclure TOTAL) — condition sur Usine si dispo
-                        if "Usine" in _d.columns:
-                            _uu = _d["Usine"].apply(lambda v: str(v).strip().upper()).to_numpy()
-                            _d = _d.iloc[_uu != "TOTAL"].copy()
-                        _d["Tonnes"] = _pd.to_numeric(_d["Tonnes"], errors="coerce").fillna(0)
-                        _d[dim_col] = _d[dim_col].apply(lambda v: str(v).strip().upper())
+                        _d = _get_clean_details(_df_yr)
+                        if dim_col not in _d.columns or _d.empty: continue
                         _g = _d.groupby(dim_col, as_index=False)["Tonnes"].sum()
                         _g["Année"] = int(_yr)
                         rows_all.append(_g)
@@ -4521,21 +4653,18 @@ with tab6:
                     return _piv
 
                 def _write_sheet(ws_title, pivot, dim_label):
-                    """Écrit un onglet coloré avec pivot + totaux + gradient."""
                     ws = _wb.create_sheet(ws_title)
                     if pivot.empty:
                         ws["A1"] = f"Aucune donnée pour {dim_label}"
                         return
-                    # Ordre colonnes = années triées
                     cols_yr = sorted(pivot.columns.tolist())
                     pivot = pivot[cols_yr].sort_values(cols_yr[-1] if cols_yr else pivot.columns[0],
                                                        ascending=False)
-                    # Titre
-                    ws["A1"] = f"Comparaison tonnage par {dim_label} — années {min(cols_yr)}→{max(cols_yr)}"
-                    ws["A1"].font = _Font(bold=True, size=14, color="1F4E78")
+                    ws["A1"] = f"Comparaison tonnage par {dim_label} — années {min(cols_yr)}→{max(cols_yr)} " \
+                               f"(hors HISTORIQUE / A CONFIRMER / NON RENSEIGNE / AUTRES)"
+                    ws["A1"].font = _Font(bold=True, size=13, color="1F4E78")
                     ws.merge_cells(start_row=1, start_column=1,
                                     end_row=1, end_column=len(cols_yr)+2)
-                    # Header
                     _hdr_row = 3
                     ws.cell(row=_hdr_row, column=1, value=dim_label).fill = _HEADER_FILL
                     ws.cell(row=_hdr_row, column=1).font = _HEADER_FONT
@@ -4548,7 +4677,6 @@ with tab6:
                     c = ws.cell(row=_hdr_row, column=len(cols_yr)+2, value="TOTAL")
                     c.fill = _HEADER_FILL; c.font = _HEADER_FONT
                     c.alignment = _CENTER; c.border = _BORDER
-                    # Data
                     for i, (idx, row) in enumerate(pivot.iterrows()):
                         r = _hdr_row + 1 + i
                         alt = (i % 2 == 1)
@@ -4562,13 +4690,11 @@ with tab6:
                             c.number_format = '#,##0'
                             c.alignment = _CENTER; c.border = _BORDER
                             if alt: c.fill = _ALT_FILL
-                        # Total ligne
                         tot = float(row.sum())
                         c = ws.cell(row=r, column=len(cols_yr)+2, value=round(tot))
                         c.number_format = '#,##0'; c.font = _Font(bold=True)
                         c.alignment = _CENTER; c.border = _BORDER
                         c.fill = _TOTAL_FILL
-                    # Total colonne
                     r_tot = _hdr_row + 1 + len(pivot)
                     c = ws.cell(row=r_tot, column=1, value="TOTAL")
                     c.font = _TOTAL_FONT; c.alignment = _CENTER; c.fill = _TOTAL_FILL
@@ -4582,79 +4708,123 @@ with tab6:
                                 value=round(pivot.values.sum()))
                     c.number_format = '#,##0'; c.font = _TOTAL_FONT
                     c.alignment = _CENTER; c.fill = _TOTAL_FILL; c.border = _BORDER
-                    # Gradient couleurs sur zone data (hors TOTAL)
-                    first_col = _get_col(2)
-                    last_col  = _get_col(len(cols_yr)+1)
+                    first_col = _get_col(2); last_col  = _get_col(len(cols_yr)+1)
                     rng = f"{first_col}{_hdr_row+1}:{last_col}{r_tot-1}"
                     if len(pivot) > 0:
                         rule = _CSR(start_type='min', start_color='FFFFFF',
                                      mid_type='percentile', mid_value=50, mid_color='FFE699',
                                      end_type='max', end_color='63BE7B')
                         ws.conditional_formatting.add(rng, rule)
-                    # Largeur colonnes
                     ws.column_dimensions['A'].width = 28
                     for j in range(2, len(cols_yr)+3):
                         ws.column_dimensions[_get_col(j)].width = 14
-                    # Filtre
                     ws.auto_filter.ref = f"A{_hdr_row}:{_get_col(len(cols_yr)+2)}{r_tot-1}"
                     ws.freeze_panes = f"B{_hdr_row+1}"
 
-                # ── Onglet Commercial × Année
-                piv_c = _build_pivot("Commercial")
-                _write_sheet("Par Commercial", piv_c, "Commercial")
-
-                # ── Onglet Région × Année
-                piv_r = _build_pivot("Region")
-                _write_sheet("Par Région", piv_r, "Région")
-
-                # ── Onglet Usine × Année
-                piv_u = _build_pivot("Usine")
-                _write_sheet("Par Usine", piv_u, "Usine")
-
-                # ── Onglet Total par Année (résumé)
-                ws_tot = _wb.create_sheet("Résumé Annuel", 0)
-                ws_tot["A1"] = "Résumé — Total tonnage par année"
+                # ── Onglet Résumé Annuel (affiche total ligne TOTAL vs total propre)
+                ws_tot = _wb.create_sheet("Résumé Annuel")
+                ws_tot["A1"] = "Résumé par année — total brut vs total nettoyé"
                 ws_tot["A1"].font = _Font(bold=True, size=14, color="1F4E78")
-                ws_tot.merge_cells("A1:C1")
-                ws_tot["A3"] = "Année"; ws_tot["B3"] = "Total (t)"; ws_tot["C3"] = "Δ vs précédente"
-                for c_addr in ["A3","B3","C3"]:
-                    ws_tot[c_addr].fill = _HEADER_FILL
-                    ws_tot[c_addr].font = _HEADER_FONT
-                    ws_tot[c_addr].alignment = _CENTER
-                    ws_tot[c_addr].border = _BORDER
-                _prev = None
+                ws_tot.merge_cells("A1:E1")
+                _hdrs = ["Année","Total brut (t)","Total nettoyé (t)","Non attribuable (t)","% orphelin"]
+                for j, _h in enumerate(_hdrs, start=1):
+                    c = ws_tot.cell(row=3, column=j, value=_h)
+                    c.fill = _HEADER_FILL; c.font = _HEADER_FONT
+                    c.alignment = _CENTER; c.border = _BORDER
                 for i, _yr in enumerate(_annees_sorted, start=4):
                     _df_yr = st.session_state.annees_data[_yr]
                     _dd = _df_yr.copy().reset_index(drop=True)
                     _dd = _dd.loc[:, ~_dd.columns.duplicated()]
+                    # Total brut = lignes TOTAL du fichier
                     if "Usine" in _dd.columns:
                         _uu = _dd["Usine"].apply(lambda v: str(v).strip().upper()).to_numpy()
-                        _dd_tot = _dd.iloc[_uu == "TOTAL"].copy()
+                        _dd_brut = _dd.iloc[_uu == "TOTAL"].copy()
                     else:
-                        _dd_tot = _dd
-                    _dd_tot["Tonnes"] = _pd.to_numeric(_dd_tot["Tonnes"], errors="coerce").fillna(0)
-                    _tot_y = float(_dd_tot["Tonnes"].sum())
+                        _dd_brut = _dd
+                    _dd_brut["Tonnes"] = _pd.to_numeric(_dd_brut["Tonnes"], errors="coerce").fillna(0)
+                    _brut = float(_dd_brut["Tonnes"].sum())
+                    # Total nettoyé = détail sans catégories parasites
+                    _clean = float(_get_clean_details(_df_yr)["Tonnes"].sum())
+                    _orph = _brut - _clean
+                    _pct = (_orph / _brut * 100) if _brut > 0 else 0
                     ws_tot.cell(row=i, column=1, value=int(_yr)).alignment = _CENTER
-                    ws_tot.cell(row=i, column=1).font = _Font(bold=True)
-                    ws_tot.cell(row=i, column=1).border = _BORDER
-                    c = ws_tot.cell(row=i, column=2, value=round(_tot_y))
+                    ws_tot.cell(row=i, column=1).font = _Font(bold=True); ws_tot.cell(row=i, column=1).border = _BORDER
+                    c = ws_tot.cell(row=i, column=2, value=round(_brut))
                     c.number_format = '#,##0'; c.alignment = _CENTER; c.border = _BORDER
-                    if _prev is not None:
-                        _delta = _tot_y - _prev
-                        _sig = "+" if _delta >= 0 else ""
-                        cc = ws_tot.cell(row=i, column=3, value=f"{_sig}{round(_delta):,} t")
-                        cc.alignment = _CENTER; cc.border = _BORDER
-                        cc.font = _Font(bold=True,
-                                         color="00B050" if _delta >= 0 else "C00000")
-                    else:
-                        ws_tot.cell(row=i, column=3, value="—").alignment = _CENTER
-                        ws_tot.cell(row=i, column=3).border = _BORDER
-                    _prev = _tot_y
-                ws_tot.column_dimensions['A'].width = 12
-                ws_tot.column_dimensions['B'].width = 16
-                ws_tot.column_dimensions['C'].width = 20
+                    c = ws_tot.cell(row=i, column=3, value=round(_clean))
+                    c.number_format = '#,##0'; c.alignment = _CENTER; c.border = _BORDER
+                    c.font = _Font(bold=True, color="00B050")
+                    c = ws_tot.cell(row=i, column=4, value=round(_orph))
+                    c.number_format = '#,##0'; c.alignment = _CENTER; c.border = _BORDER
+                    if _orph > 0: c.fill = _WARN_FILL
+                    c = ws_tot.cell(row=i, column=5, value=f"{_pct:.1f}%")
+                    c.alignment = _CENTER; c.border = _BORDER
+                    if _pct > 0: c.fill = _WARN_FILL
+                for j in range(1,6):
+                    ws_tot.column_dimensions[_get_col(j)].width = 22
 
-                # Sauvegarde en mémoire
+                # Onglets par dimension
+                piv_c = _build_pivot("Commercial")
+                _write_sheet("Par Commercial", piv_c, "Commercial")
+                piv_r = _build_pivot("Region")
+                _write_sheet("Par Région", piv_r, "Région")
+                piv_u = _build_pivot("Usine")
+                _write_sheet("Par Usine", piv_u, "Usine")
+
+                # Onglet Non attribuable (transparence)
+                ws_o = _wb.create_sheet("Non attribuable")
+                ws_o["A1"] = "Tonnages regroupés sous des catégories fourre-tout — non attribuables"
+                ws_o["A1"].font = _Font(bold=True, size=13, color="C00000")
+                ws_o.merge_cells("A1:E1")
+                ws_o["A2"] = "Ces lignes existent dans les fichiers sources mais n'ont pas de région/commercial/usine précis."
+                ws_o["A2"].font = _Font(italic=True, size=10, color="7F7F7F")
+                ws_o.merge_cells("A2:E2")
+                _hdrs_o = ["Année","Catégorie","Valeur","Tonnage (t)","% total année"]
+                for j, _h in enumerate(_hdrs_o, start=1):
+                    c = ws_o.cell(row=4, column=j, value=_h)
+                    c.fill = _HEADER_FILL; c.font = _HEADER_FONT
+                    c.alignment = _CENTER; c.border = _BORDER
+                _rr = 5
+                for _yr in _annees_sorted:
+                    _orph_df = _get_orphans(st.session_state.annees_data[_yr])
+                    _total_yr_brut = 0
+                    _df_yr = st.session_state.annees_data[_yr]
+                    _dd = _df_yr.copy()
+                    if "Usine" in _dd.columns:
+                        _uu = _dd["Usine"].apply(lambda v: str(v).strip().upper())
+                        _dd_b = _dd[_uu == "TOTAL"].copy()
+                        _dd_b["Tonnes"] = _pd.to_numeric(_dd_b["Tonnes"], errors="coerce").fillna(0)
+                        _total_yr_brut = float(_dd_b["Tonnes"].sum())
+                    # Par catégorie
+                    for _cat, _excl_set, _colname in [
+                        ("Commercial fourre-tout", _EXCL_COMM, "Commercial"),
+                        ("Région non déterminée", _EXCL_REGION, "Region"),
+                        ("Usine autre",           _EXCL_USINE, "Usine"),
+                    ]:
+                        if _colname not in _orph_df.columns: continue
+                        for _val in sorted(_excl_set):
+                            _sub = _orph_df[_orph_df[_colname] == _val]
+                            _t = float(_sub["Tonnes"].sum())
+                            if _t <= 0: continue
+                            _p = (_t / _total_yr_brut * 100) if _total_yr_brut > 0 else 0
+                            ws_o.cell(row=_rr, column=1, value=int(_yr)).alignment = _CENTER
+                            ws_o.cell(row=_rr, column=1).border = _BORDER
+                            ws_o.cell(row=_rr, column=2, value=_cat).alignment = _LEFT
+                            ws_o.cell(row=_rr, column=2).border = _BORDER
+                            ws_o.cell(row=_rr, column=3, value=_val).alignment = _LEFT
+                            ws_o.cell(row=_rr, column=3).border = _BORDER
+                            c = ws_o.cell(row=_rr, column=4, value=round(_t))
+                            c.number_format='#,##0'; c.alignment=_CENTER; c.border=_BORDER
+                            c.fill = _WARN_FILL
+                            c = ws_o.cell(row=_rr, column=5, value=f"{_p:.1f}%")
+                            c.alignment=_CENTER; c.border=_BORDER; c.fill=_WARN_FILL
+                            _rr += 1
+                ws_o.column_dimensions['A'].width = 10
+                ws_o.column_dimensions['B'].width = 26
+                ws_o.column_dimensions['C'].width = 22
+                ws_o.column_dimensions['D'].width = 16
+                ws_o.column_dimensions['E'].width = 16
+
                 _buf = _io_x.BytesIO()
                 _wb.save(_buf)
                 _buf.seek(0)
@@ -4665,209 +4835,57 @@ with tab6:
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="dl_comp_annees",
                 )
-                st.success("✅ Fichier généré — cliquez sur « Télécharger » ci-dessus.")
+                st.success("✅ Fichier généré — 5 onglets : Résumé, Commercial, Région, Usine, Non attribuable.")
             except Exception as _e_x:
                 st.error(f"❌ Erreur génération Excel : {_e_x}")
 
         # ══════════════════════════════════════════════════════════════════
-        # ── NOUVELLE SECTION : COMPARAISON AGRICULTEURS ENTRE ANNÉES ────
+        # ── SECTION : Explication des données manquantes ────────────────
+        # ══════════════════════════════════════════════════════════════════
+        st.markdown("---")
+        st.markdown("### 🔎 Pourquoi certaines catégories apparaissent-elles dans tes fichiers ?")
+        with st.expander("💡 Explication détaillée", expanded=False):
+            st.markdown("""
+Les 3 fichiers `DASHBOARD_XXXX_DAILY.xlsx` contiennent uniquement les colonnes :
+
+`Date | Tonnes | Usine | Commercial | Region | Zone`
+
+**Ils ne contiennent PAS de colonne « Agriculteur » ou « Nom ».** Zone contient des noms de villages
+(korba, sbikha, menzel hor…), pas de noms d'agriculteurs.
+
+Les catégories que tu vois apparaître viennent des **données sources** :
+
+| Catégorie | Signification | D'où vient le tonnage |
+|---|---|---|
+| Commercial `HISTORIQUE` | Commerciaux partis (ex-employés) | Livraisons passées de ces personnes |
+| Region `A CONFIRMER` | Villages homonymes non localisés | Chbika, Sbikha, etc. présents dans plusieurs gouvernorats |
+| Region `NON RENSEIGNE` | Lignes source sans région/agriculteur | Extractions incomplètes |
+| Usine `AUTRES` | Usines marginales / sous-traitants | SOCODAL et autres unités mineures |
+
+Ces tonnages **ne sont pas manquants** — ils existent dans tes fichiers, mais ils sont regroupés
+sous des étiquettes fourre-tout parce que la donnée précise (agriculteur exact, gouvernorat, unité)
+manquait à la source.
+
+**L'export Excel ci-dessus les isole dans l'onglet « Non attribuable »** pour transparence,
+et les 4 autres onglets affichent uniquement les vraies catégories.
+""")
+
+        # ══════════════════════════════════════════════════════════════════
+        # ── NOTE : Comparaison des agriculteurs — non générable ─────────
         # ══════════════════════════════════════════════════════════════════
         st.markdown("---")
         st.markdown("### 👥 Comparaison des agriculteurs entre années")
-        st.caption("⚠️ Les fichiers Dashboard journaliers ne contiennent PAS les noms d'agriculteurs. "
-                   "Importez ici un fichier Excel dédié avec la liste des agriculteurs par année "
-                   "(ex: `AGRICULTEURS_MASTER_3ans.xlsx`).")
-
-        _agri_file = st.file_uploader(
-            "📤 Fichier agriculteurs par année",
-            type=["xlsx","xls","csv"],
-            key="agri_multi_annees_uploader",
-            help="Formats acceptés :\n"
-                 "• Colonnes : `Nom` + `Année` (une ligne par (agriculteur, année))\n"
-                 "• OU une colonne `Nom` + colonnes années (2024, 2025, 2026) avec valeurs non vides"
+        st.error(
+            "❌ **Impossible de générer une liste d'agriculteurs à partir des 3 fichiers Dashboard.**\n\n"
+            "Les fichiers `DASHBOARD_2024_DAILY.xlsx`, `DASHBOARD_2025_DAILY.xlsx` et "
+            "`DASHBOARD_2026_DAILY.xlsx` ne contiennent **aucune colonne** avec les noms des agriculteurs. "
+            "Leurs colonnes sont : **Date, Tonnes, Usine, Commercial, Region, Zone** — "
+            "où *Zone* contient des noms de **villages** (korba, sbikha…), pas d'agriculteurs.\n\n"
+            "Générer des noms depuis ces fichiers reviendrait à inventer des données — "
+            "ce qui n'est pas acceptable.\n\n"
+            "➡️ Pour comparer les agriculteurs entre années, il faut fournir un **fichier séparé** "
+            "listant les noms par année (ex: `AGRICULTEURS_MASTER_3ans.xlsx`)."
         )
-
-        if _agri_file is not None:
-            try:
-                if _agri_file.name.lower().endswith(".csv"):
-                    _df_ag = _pd.read_csv(_agri_file)
-                else:
-                    _df_ag = _pd.read_excel(_agri_file)
-                _df_ag.columns = [str(c).strip() for c in _df_ag.columns]
-
-                # Détection format
-                _nom_col = None
-                for _c in _df_ag.columns:
-                    if str(_c).lower().strip() in ("nom","agriculteur","name","farmer"):
-                        _nom_col = _c; break
-                _annee_col = None
-                for _c in _df_ag.columns:
-                    if str(_c).lower().strip() in ("année","annee","year"):
-                        _annee_col = _c; break
-
-                # Construction dict {année: set(noms)}
-                _agri_by_year = {}
-                if _nom_col and _annee_col:
-                    # Format long : Nom | Année
-                    _df_ag[_nom_col]   = _df_ag[_nom_col].apply(lambda v: str(v).strip().upper())
-                    _df_ag[_annee_col] = _pd.to_numeric(_df_ag[_annee_col], errors="coerce")
-                    _df_ag = _df_ag.dropna(subset=[_annee_col])
-                    _df_ag = _df_ag[_df_ag[_nom_col].apply(lambda v: v not in ("", "NAN", "NONE"))]
-                    for _yr, _grp in _df_ag.groupby(_annee_col):
-                        _agri_by_year[int(_yr)] = set(_grp[_nom_col].tolist())
-                elif _nom_col:
-                    # Format large : Nom + colonnes années
-                    _year_cols = []
-                    for _c in _df_ag.columns:
-                        try:
-                            _yv = int(str(_c).strip())
-                            if 2000 <= _yv <= 2100:
-                                _year_cols.append((_c, _yv))
-                        except Exception:
-                            continue
-                    if _year_cols:
-                        _df_ag[_nom_col] = _df_ag[_nom_col].apply(lambda v: str(v).strip().upper())
-                        _df_ag = _df_ag[_df_ag[_nom_col].apply(lambda v: v not in ("", "NAN", "NONE"))]
-                        for _c, _yv in _year_cols:
-                            _mask_y = _df_ag[_c].apply(
-                                lambda v: str(v).strip().lower() not in ("", "nan", "none", "0", "false", "-", "non", "n"))
-                            _agri_by_year[_yv] = set(_df_ag.loc[_mask_y, _nom_col].tolist())
-
-                if not _agri_by_year:
-                    st.error("❌ Format non reconnu. Le fichier doit contenir soit "
-                             "(a) une colonne 'Nom' + colonne 'Année', "
-                             "soit (b) une colonne 'Nom' + colonnes '2024', '2025', '2026'.")
-                else:
-                    _yrs = sorted(_agri_by_year.keys())
-                    st.success(f"✅ Fichier chargé — {len(_yrs)} année(s) : "
-                               + " • ".join([f"{y}: {len(_agri_by_year[y])} agri" for y in _yrs]))
-
-                    # ── Calcul des différences pour chaque année
-                    st.markdown("#### 🔍 Agriculteurs présents dans UNE SEULE année")
-                    for _y_focus in _yrs:
-                        _other_years = [y for y in _yrs if y != _y_focus]
-                        _only_here = _agri_by_year[_y_focus].copy()
-                        for _yo in _other_years:
-                            _only_here -= _agri_by_year[_yo]
-                        _label = f"📌 Uniquement en **{_y_focus}** " \
-                                 f"(absents des années {', '.join(str(y) for y in _other_years)})"
-                        with st.expander(f"{_label} — **{len(_only_here)} agriculteur(s)**",
-                                          expanded=False):
-                            if _only_here:
-                                _df_only = _pd.DataFrame({
-                                    "N°": range(1, len(_only_here)+1),
-                                    "Agriculteur": sorted(_only_here),
-                                })
-                                st.dataframe(_df_only, use_container_width=True, hide_index=True)
-                            else:
-                                st.info("Aucun agriculteur dans ce cas.")
-
-                    # ── Matrice croisée
-                    st.markdown("#### 🔗 Vue synthétique (matrice de présence)")
-                    _all_names = set()
-                    for _s in _agri_by_year.values(): _all_names |= _s
-                    _rows_mat = []
-                    for _n in sorted(_all_names):
-                        _row = {"Agriculteur": _n}
-                        for _y in _yrs:
-                            _row[str(_y)] = "✅" if _n in _agri_by_year[_y] else "—"
-                        _rows_mat.append(_row)
-                    _df_mat = _pd.DataFrame(_rows_mat)
-                    st.dataframe(_df_mat, use_container_width=True, hide_index=True, height=400)
-
-                    # ── Bouton export Excel des agriculteurs
-                    try:
-                        import io as _io_ag
-                        from openpyxl import Workbook as _WB2
-                        from openpyxl.styles import Font as _F2, PatternFill as _PF2, \
-                                                     Alignment as _A2, Border as _B2, Side as _S2
-                        from openpyxl.utils import get_column_letter as _GC2
-
-                        _wb2 = _WB2()
-                        _wb2.remove(_wb2.active)
-                        _hdrf = _PF2("solid", fgColor="1F4E78")
-                        _hdft = _F2(bold=True, color="FFFFFF")
-                        _thin2 = _S2(border_style="thin", color="BFBFBF")
-                        _bd2 = _B2(left=_thin2, right=_thin2, top=_thin2, bottom=_thin2)
-                        _alt2 = _PF2("solid", fgColor="F2F2F2")
-                        _uniq_fill = _PF2("solid", fgColor="FFF2CC")
-                        _pres_fill = _PF2("solid", fgColor="E2EFDA")
-                        _abs_fill  = _PF2("solid", fgColor="FCE4D6")
-
-                        # Onglet: matrice de présence
-                        ws_m = _wb2.create_sheet("Matrice présence")
-                        ws_m["A1"] = "Matrice de présence des agriculteurs par année"
-                        ws_m["A1"].font = _F2(bold=True, size=14, color="1F4E78")
-                        ws_m.merge_cells(start_row=1, start_column=1,
-                                          end_row=1, end_column=len(_yrs)+1)
-                        _cols_names = ["Agriculteur"] + [str(y) for y in _yrs]
-                        for j, _cn in enumerate(_cols_names, start=1):
-                            c = ws_m.cell(row=3, column=j, value=_cn)
-                            c.fill = _hdrf; c.font = _hdft
-                            c.alignment = _A2(horizontal="center", vertical="center")
-                            c.border = _bd2
-                        for i, _n in enumerate(sorted(_all_names)):
-                            r = 4 + i
-                            alt = (i % 2 == 1)
-                            c = ws_m.cell(row=r, column=1, value=_n)
-                            c.font = _F2(bold=True); c.border = _bd2
-                            c.alignment = _A2(horizontal="left", vertical="center")
-                            if alt: c.fill = _alt2
-                            for j, _y in enumerate(_yrs, start=2):
-                                present = _n in _agri_by_year[_y]
-                                c = ws_m.cell(row=r, column=j, value="✅" if present else "—")
-                                c.alignment = _A2(horizontal="center", vertical="center")
-                                c.border = _bd2
-                                c.fill = _pres_fill if present else _abs_fill
-                        ws_m.column_dimensions['A'].width = 35
-                        for j in range(2, len(_yrs)+2):
-                            ws_m.column_dimensions[_GC2(j)].width = 10
-                        ws_m.freeze_panes = "B4"
-                        ws_m.auto_filter.ref = f"A3:{_GC2(len(_yrs)+1)}{3+len(_all_names)}"
-
-                        # Onglet par cas "uniquement en YYYY"
-                        for _y_focus in _yrs:
-                            _others = [y for y in _yrs if y != _y_focus]
-                            _uniq = _agri_by_year[_y_focus].copy()
-                            for _yo in _others: _uniq -= _agri_by_year[_yo]
-                            ws_u = _wb2.create_sheet(f"Uniquement {_y_focus}")
-                            ws_u["A1"] = f"Agriculteurs présents UNIQUEMENT en {_y_focus} " \
-                                          f"(absents en {', '.join(str(y) for y in _others)})"
-                            ws_u["A1"].font = _F2(bold=True, size=14, color="1F4E78")
-                            ws_u.merge_cells("A1:B1")
-                            ws_u["A3"] = "N°"; ws_u["B3"] = "Agriculteur"
-                            for a in ["A3","B3"]:
-                                ws_u[a].fill = _hdrf; ws_u[a].font = _hdft
-                                ws_u[a].alignment = _A2(horizontal="center", vertical="center")
-                                ws_u[a].border = _bd2
-                            for i, _n in enumerate(sorted(_uniq), start=1):
-                                r = 3 + i
-                                alt = (i % 2 == 0)
-                                c1 = ws_u.cell(row=r, column=1, value=i)
-                                c2 = ws_u.cell(row=r, column=2, value=_n)
-                                c1.alignment = _A2(horizontal="center", vertical="center")
-                                c2.alignment = _A2(horizontal="left", vertical="center")
-                                c1.border = _bd2; c2.border = _bd2
-                                if alt: c1.fill = _alt2; c2.fill = _alt2
-                                else:   c1.fill = _uniq_fill; c2.fill = _uniq_fill
-                            ws_u.column_dimensions['A'].width = 6
-                            ws_u.column_dimensions['B'].width = 40
-                            ws_u.freeze_panes = "A4"
-
-                        _buf2 = _io_ag.BytesIO()
-                        _wb2.save(_buf2)
-                        _buf2.seek(0)
-                        st.download_button(
-                            label="⬇️ Télécharger la comparaison agriculteurs (Excel)",
-                            data=_buf2,
-                            file_name="COMPARAISON_AGRICULTEURS_MULTI_ANNEES.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="dl_comp_agri",
-                        )
-                    except Exception as _e_ag_x:
-                        st.warning(f"⚠️ Export Excel non disponible : {_e_ag_x}")
-            except Exception as _e_ag:
-                st.error(f"❌ Erreur lecture fichier agriculteurs : {_e_ag}")
 
     else:
         st.info("💡 Importez des fichiers dans la section « Importer / Gérer les années » "
