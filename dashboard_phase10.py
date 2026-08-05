@@ -3958,6 +3958,18 @@ with tab6:
         except Exception:
             return None
 
+    def _save_one_year_to_supabase(annee, df):
+        """Sauve UNE SEULE année dans Supabase (rapide, 1 seul appel réseau)."""
+        try:
+            get_supabase().table(_SB_TABLE).upsert({
+                "annee": int(annee),
+                "data_json": _df_to_json(df),
+            }).execute()
+            return True
+        except Exception as _e:
+            st.warning(f"⚠️ Sauvegarde Supabase échouée : {_e}")
+            return False
+
     def _save_annees_to_supabase():
         """Upsert chaque année en base Supabase."""
         try:
@@ -3983,8 +3995,14 @@ with tab6:
             st.warning(f"⚠️ Sauvegarde Supabase échouée : {_e}")
             return False
 
-    def _load_annees_from_supabase():
-        """Charge toutes les années depuis Supabase."""
+    @st.cache_data(ttl=300, show_spinner=False)
+    def _load_annees_from_supabase_cached(_cache_key):
+        """Version cachée du chargement Supabase (5 min TTL).
+        _cache_key permet d'invalider explicitement le cache via change de clé."""
+        return _load_annees_from_supabase_uncached()
+
+    def _load_annees_from_supabase_uncached():
+        """Charge toutes les années depuis Supabase (sans cache)."""
         try:
             _sb = get_supabase()
             _resp = _sb.table(_SB_TABLE).select("annee, data_json").execute()
@@ -3992,14 +4010,19 @@ with tab6:
             for _row in (_resp.data or []):
                 _df = _json_to_df(_row["data_json"])
                 if _df is not None and isinstance(_df, _pd.DataFrame):
-                    # Auto-nettoyage colonnes dupliquées
                     if _df.columns.duplicated().any():
                         _df = _df.loc[:, ~_df.columns.duplicated()]
                     _out[int(_row["annee"])] = _df
             return _out
-        except Exception as _e:
-            # Table pas encore créée ou pas de connexion → fallback silencieux
+        except Exception:
             return {}
+
+    def _load_annees_from_supabase():
+        """Wrapper qui utilise le cache avec une clé stable par session."""
+        if "_sb_cache_key" not in st.session_state:
+            import time as _t
+            st.session_state._sb_cache_key = str(int(_t.time()))
+        return _load_annees_from_supabase_cached(st.session_state._sb_cache_key)
 
     def _delete_annee_from_supabase(annee):
         try:
@@ -4081,6 +4104,14 @@ with tab6:
             # Vider session
             st.session_state.annees_data  = {}
             st.session_state.annees_apply = False
+            # Nettoyer les signatures de fichiers traités
+            for _k in list(st.session_state.keys()):
+                if str(_k).startswith("_last_processed_sig_"):
+                    st.session_state.pop(_k, None)
+            # Invalider cache Supabase
+            st.session_state.pop("_sb_cache_key", None)
+            try: _load_annees_from_supabase_cached.clear()
+            except Exception: pass
             st.rerun()
 
     with st.expander("📤 Importer / Gérer les années", expanded=False):
@@ -4102,46 +4133,60 @@ with tab6:
             f"Fichier pour {_annee_new}", type=["xlsx","xls","csv"], key=f"annee_up_{_annee_new}"
         )
         if _file_annee is not None:
-            try:
-                _df_up = _pd.read_excel(_file_annee) if _file_annee.name.lower().endswith(("xlsx","xls")) \
-                         else _pd.read_csv(_file_annee)
-                _df_up.columns = [str(c).strip() for c in _df_up.columns]
-                # ✅ FIX : ne renommer "zone" en "Region" QUE si la vraie colonne Region est absente
-                _has_region_col = any(str(c).lower().strip() in ("region","région")
-                                       for c in _df_up.columns)
-                _mp = {}
-                for c in _df_up.columns:
-                    lc = str(c).lower().strip()
-                    if lc in ("date","jour","day"):        _mp[c] = "Date"
-                    elif lc in ("tonnes","tonnage","t/jour","tonnes/jour"): _mp[c] = "Tonnes"
-                    elif lc in ("usine","factory","site"): _mp[c] = "Usine"
-                    elif lc in ("commercial","responsable","commerciale","commerciaux"): _mp[c] = "Commercial"
-                    elif lc in ("region","région"):        _mp[c] = "Region"
-                    elif lc in ("zone","gouvernorat"):
-                        # Zone reste Zone si Region existe déjà (évite doublon)
-                        if not _has_region_col: _mp[c] = "Region"
-                _df_up = _df_up.rename(columns=_mp)
-                # ✅ Garde-fou : supprimer toute colonne dupliquée résiduelle
-                _df_up = _df_up.loc[:, ~_df_up.columns.duplicated()]
-                if "Date" in _df_up.columns and "Tonnes" in _df_up.columns:
-                    _df_up["Tonnes"] = _pd.to_numeric(_df_up["Tonnes"], errors="coerce").fillna(0)
-                    _df_up["_couleur"] = _annee_couleur
-                    _df_up["_style"] = _annee_style
-                    _df_up["_annee"] = int(_annee_new)
-                    st.session_state.annees_data[int(_annee_new)] = _df_up
-                    _save_annees_everywhere()
-                    # ── FIX: afficher le vrai total (lignes TOTAL uniquement si Usine présente) ──
-                    if "Usine" in _df_up.columns:
-                        _mask_total = _df_up["Usine"].apply(lambda v: str(v).strip().upper()) == "TOTAL"
-                        _tot_verif = _df_up.loc[_mask_total, "Tonnes"].sum() if _mask_total.any() \
-                                     else _df_up["Tonnes"].sum()
+            # ✅ FIX BOUCLE RERUN : ne retraiter le fichier que s'il a changé
+            _file_sig = f"{_annee_new}::{_file_annee.name}::{_file_annee.size}"
+            _last_sig_key = f"_last_processed_sig_{_annee_new}"
+            if st.session_state.get(_last_sig_key) == _file_sig:
+                # Même fichier, déjà traité → on ne refait RIEN
+                if int(_annee_new) in st.session_state.annees_data:
+                    _df_prev = st.session_state.annees_data[int(_annee_new)]
+                    _tot_prev = _df_prev["Tonnes"].sum() if "Tonnes" in _df_prev.columns else 0
+                    st.info(f"✅ Fichier déjà chargé — Année {_annee_new} : {len(_df_prev)} lignes • {_tot_prev:,.0f} t")
+            else:
+                try:
+                    _df_up = _pd.read_excel(_file_annee) if _file_annee.name.lower().endswith(("xlsx","xls")) \
+                             else _pd.read_csv(_file_annee)
+                    _df_up.columns = [str(c).strip() for c in _df_up.columns]
+                    # ✅ FIX : ne renommer "zone" en "Region" QUE si la vraie colonne Region est absente
+                    _has_region_col = any(str(c).lower().strip() in ("region","région")
+                                           for c in _df_up.columns)
+                    _mp = {}
+                    for c in _df_up.columns:
+                        lc = str(c).lower().strip()
+                        if lc in ("date","jour","day"):        _mp[c] = "Date"
+                        elif lc in ("tonnes","tonnage","t/jour","tonnes/jour"): _mp[c] = "Tonnes"
+                        elif lc in ("usine","factory","site"): _mp[c] = "Usine"
+                        elif lc in ("commercial","responsable","commerciale","commerciaux"): _mp[c] = "Commercial"
+                        elif lc in ("region","région"):        _mp[c] = "Region"
+                        elif lc in ("zone","gouvernorat"):
+                            # Zone reste Zone si Region existe déjà (évite doublon)
+                            if not _has_region_col: _mp[c] = "Region"
+                    _df_up = _df_up.rename(columns=_mp)
+                    # ✅ Garde-fou : supprimer toute colonne dupliquée résiduelle
+                    _df_up = _df_up.loc[:, ~_df_up.columns.duplicated()]
+                    if "Date" in _df_up.columns and "Tonnes" in _df_up.columns:
+                        _df_up["Tonnes"] = _pd.to_numeric(_df_up["Tonnes"], errors="coerce").fillna(0)
+                        _df_up["_couleur"] = _annee_couleur
+                        _df_up["_style"] = _annee_style
+                        _df_up["_annee"] = int(_annee_new)
+                        st.session_state.annees_data[int(_annee_new)] = _df_up
+                        # ✅ Sauver UNIQUEMENT cette année (pas toutes) — beaucoup plus rapide
+                        _save_one_year_to_supabase(int(_annee_new), _df_up)
+                        _save_annees_to_disk()
+                        # Marquer ce fichier comme traité pour éviter les reruns en boucle
+                        st.session_state[_last_sig_key] = _file_sig
+                        # ── FIX: afficher le vrai total (lignes TOTAL uniquement si Usine présente) ──
+                        if "Usine" in _df_up.columns:
+                            _mask_total = _df_up["Usine"].apply(lambda v: str(v).strip().upper()) == "TOTAL"
+                            _tot_verif = _df_up.loc[_mask_total, "Tonnes"].sum() if _mask_total.any() \
+                                         else _df_up["Tonnes"].sum()
+                        else:
+                            _tot_verif = _df_up["Tonnes"].sum()
+                        st.success(f"✅ Année {_annee_new} chargée — {len(_df_up)} lignes • Total : **{_tot_verif:,.0f} t**")
                     else:
-                        _tot_verif = _df_up["Tonnes"].sum()
-                    st.success(f"✅ Année {_annee_new} chargée — {len(_df_up)} lignes • Total : **{_tot_verif:,.0f} t**")
-                else:
-                    st.error("❌ Le fichier doit contenir au minimum les colonnes **Date** et **Tonnes**")
-            except Exception as _e:
-                st.error(f"❌ Erreur lecture : {_e}")
+                        st.error("❌ Le fichier doit contenir au minimum les colonnes **Date** et **Tonnes**")
+                except Exception as _e:
+                    st.error(f"❌ Erreur lecture : {_e}")
 
         if st.session_state.annees_data:
             st.markdown("**Années chargées :**")
@@ -4157,7 +4202,11 @@ with tab6:
                     st.markdown(f"**{_an}** — {_t:,.0f} t")
                     if st.button(f"🗑️ Retirer {_an}", key=f"del_annee_{_an}"):
                         del st.session_state.annees_data[_an]
-                        _save_annees_everywhere()
+                        _delete_annee_from_supabase(int(_an))
+                        _save_annees_to_disk()
+                        # Invalider le cache Supabase
+                        st.session_state.pop("_sb_cache_key", None)
+                        _load_annees_from_supabase_cached.clear()
                         st.rerun()
 
         st.markdown("---")
@@ -4166,13 +4215,20 @@ with tab6:
             if st.button("✅ Appliquer", type="primary", use_container_width=True,
                          disabled=not st.session_state.annees_data):
                 st.session_state.annees_apply = True
-                _save_annees_everywhere()
+                # Le "Appliquer" ne touche pas aux données → pas besoin de re-sauver Supabase
+                _save_annees_to_disk()
                 st.success("Graphique mis à jour")
         with cB:
             if st.button("🔄 Réinitialiser aux données par défaut", use_container_width=True):
-                st.session_state.annees_data = {}
+                # Supprimer toutes les années dans Supabase
+                for _yr_r in list(st.session_state.annees_data.keys()):
+                    _delete_annee_from_supabase(int(_yr_r))
+                st.session_state.annees_data  = {}
                 st.session_state.annees_apply = False
-                _save_annees_everywhere()
+                _save_annees_to_disk()
+                # Invalider cache
+                st.session_state.pop("_sb_cache_key", None)
+                _load_annees_from_supabase_cached.clear()
                 st.rerun()
 
     st.markdown("---")
