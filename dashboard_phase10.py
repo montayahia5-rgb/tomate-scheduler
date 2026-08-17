@@ -4927,21 +4927,113 @@ et les 4 autres onglets affichent uniquement les vraies catégories.
 """)
 
         # ══════════════════════════════════════════════════════════════════
-        # ── NOTE : Comparaison des agriculteurs — non générable ─────────
+        # ── SECTION : Comparaison des agriculteurs entre années ─────────
         # ══════════════════════════════════════════════════════════════════
         st.markdown("---")
         st.markdown("### 👥 Comparaison des agriculteurs entre années")
-        st.error(
-            "❌ **Impossible de générer une liste d'agriculteurs à partir des 3 fichiers Dashboard.**\n\n"
-            "Les fichiers `DASHBOARD_2024_DAILY.xlsx`, `DASHBOARD_2025_DAILY.xlsx` et "
-            "`DASHBOARD_2026_DAILY.xlsx` ne contiennent **aucune colonne** avec les noms des agriculteurs. "
-            "Leurs colonnes sont : **Date, Tonnes, Usine, Commercial, Region, Zone** — "
-            "où *Zone* contient des noms de **villages** (korba, sbikha…), pas d'agriculteurs.\n\n"
-            "Générer des noms depuis ces fichiers reviendrait à inventer des données — "
-            "ce qui n'est pas acceptable.\n\n"
-            "➡️ Pour comparer les agriculteurs entre années, il faut fournir un **fichier séparé** "
-            "listant les noms par année (ex: `AGRICULTEURS_MASTER_3ans.xlsx`)."
-        )
+
+        # Vérifier si les fichiers contiennent la colonne Agriculteur
+        _years_with_agri = []
+        _years_without_agri = []
+        for _an_ag, _df_ag in st.session_state.annees_data.items():
+            if "Agriculteur" in _df_ag.columns:
+                _years_with_agri.append(_an_ag)
+            else:
+                _years_without_agri.append(_an_ag)
+
+        if not _years_with_agri:
+            st.error(
+                "❌ **Aucun des fichiers importés ne contient de colonne « Agriculteur ».**\n\n"
+                "Pour comparer les agriculteurs, importe des fichiers `DAILY_XXXX_IMPORT.xlsx` "
+                "qui contiennent les colonnes : **Date, Tonnes, Usine, Commercial, Region, Agriculteur, Superficie_Ha**."
+            )
+        else:
+            if _years_without_agri:
+                st.warning(
+                    f"⚠️ Les années **{', '.join(str(y) for y in sorted(_years_without_agri))}** "
+                    f"ne contiennent pas de colonne Agriculteur — seules **{', '.join(str(y) for y in sorted(_years_with_agri))}** "
+                    "sont incluses dans la comparaison."
+                )
+
+            # Construire dictionnaire agri → {année: tonnage}
+            _agri_map = {}
+            for _an_ag in sorted(_years_with_agri):
+                _df_ag = st.session_state.annees_data[_an_ag].copy()
+                _df_ag["Agriculteur"] = _df_ag["Agriculteur"].apply(lambda v: str(v).strip())
+                _df_ag = _df_ag[_df_ag["Agriculteur"] != ""].copy()
+                _df_ag["Tonnes"] = _pd.to_numeric(_df_ag["Tonnes"], errors="coerce").fillna(0)
+                _agg = _df_ag.groupby("Agriculteur").agg(
+                    Tonnage=("Tonnes","sum"),
+                    Commercial=("Commercial", lambda x: x.mode().iloc[0] if len(x.mode())>0 else ""),
+                    Region=("Region", lambda x: x.mode().iloc[0] if len(x.mode())>0 else ""),
+                    Usine=("Usine", lambda x: x.mode().iloc[0] if len(x.mode())>0 else ""),
+                ).reset_index()
+                for _, _r in _agg.iterrows():
+                    _nom = _r["Agriculteur"]
+                    if _nom not in _agri_map:
+                        _agri_map[_nom] = {"Commercial": _r["Commercial"], "Region": _r["Region"], "Usine": _r["Usine"]}
+                    _agri_map[_nom][int(_an_ag)] = float(_r["Tonnage"])
+
+            # Statistiques globales
+            _c1, _c2, _c3, _c4 = st.columns(4)
+            _c1.metric("Total agriculteurs uniques", f"{len(_agri_map):,}")
+            _c2.metric("Années comparées", f"{len(_years_with_agri)}")
+            _nb_recur = sum(1 for a in _agri_map.values() if sum(1 for y in _years_with_agri if y in a) >= 2)
+            _c3.metric("Récurrents (≥2 ans)", f"{_nb_recur:,}")
+            _nb_all = sum(1 for a in _agri_map.values() if all(y in a for y in _years_with_agri))
+            _c4.metric(f"Présents toutes années", f"{_nb_all:,}")
+
+            # Construire DataFrame comparatif
+            _rows_cmp = []
+            for _nom, _dt in _agri_map.items():
+                _row = {"Agriculteur": _nom, "Commercial": _dt.get("Commercial",""),
+                        "Region": _dt.get("Region",""), "Usine": _dt.get("Usine","")}
+                for _y in sorted(_years_with_agri):
+                    _row[f"{_y} (t)"] = round(_dt.get(int(_y), 0), 1)
+                _row["Total (t)"] = round(sum(_dt.get(int(_y), 0) for _y in _years_with_agri), 1)
+                _row["Nb années"] = sum(1 for _y in _years_with_agri if _y in _dt and _dt[_y] > 0)
+                _rows_cmp.append(_row)
+            _df_cmp = _pd.DataFrame(_rows_cmp).sort_values("Total (t)", ascending=False)
+
+            # Filtres
+            _fc1, _fc2, _fc3 = st.columns(3)
+            with _fc1:
+                _comms_list = ["Tous"] + sorted([c for c in _df_cmp["Commercial"].unique() if c])
+                _f_comm = st.selectbox("Commercial", _comms_list, key="cmp_agri_comm")
+            with _fc2:
+                _regs_list = ["Toutes"] + sorted([r for r in _df_cmp["Region"].unique() if r])
+                _f_reg = st.selectbox("Région", _regs_list, key="cmp_agri_reg")
+            with _fc3:
+                _f_prez = st.selectbox("Présence", ["Tous","Récurrents (≥2 ans)",
+                                                    f"Toutes années ({len(_years_with_agri)})",
+                                                    "Nouveaux (1 seule année)"], key="cmp_agri_prez")
+
+            _df_show = _df_cmp.copy()
+            if _f_comm != "Tous":
+                _df_show = _df_show[_df_show["Commercial"] == _f_comm]
+            if _f_reg != "Toutes":
+                _df_show = _df_show[_df_show["Region"] == _f_reg]
+            if _f_prez == "Récurrents (≥2 ans)":
+                _df_show = _df_show[_df_show["Nb années"] >= 2]
+            elif _f_prez == f"Toutes années ({len(_years_with_agri)})":
+                _df_show = _df_show[_df_show["Nb années"] == len(_years_with_agri)]
+            elif _f_prez == "Nouveaux (1 seule année)":
+                _df_show = _df_show[_df_show["Nb années"] == 1]
+
+            st.caption(f"**{len(_df_show):,} agriculteurs** affichés • Total : **{_df_show['Total (t)'].sum():,.0f} t**")
+            st.dataframe(_df_show, use_container_width=True, height=500)
+
+            # Export
+            try:
+                _buf_a = _io_x.BytesIO()
+                _df_show.to_excel(_buf_a, index=False, sheet_name="Agriculteurs")
+                _buf_a.seek(0)
+                st.download_button("⬇️ Télécharger la comparaison Excel",
+                                   data=_buf_a,
+                                   file_name="COMPARAISON_AGRICULTEURS_MULTI_ANNEES.xlsx",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                   key="dl_cmp_agri")
+            except Exception: pass
 
     else:
         st.info("💡 Importez des fichiers dans la section « Importer / Gérer les années » "
