@@ -4230,6 +4230,35 @@ with tab6:
                 _save_annees_to_disk()
                 st.success("Graphique mis à jour")
         with cB:
+            if st.button("🧹 Nettoyer les doublons (filtrer TOTAL)", use_container_width=True,
+                         help="Retire les lignes 'TOTAL/TOTAUX' des données déjà chargées pour corriger les doublements"):
+                import pandas as _pd_c
+                _cleaned = 0
+                for _yr_c in list(st.session_state.annees_data.keys()):
+                    _dfc = st.session_state.annees_data[_yr_c].copy()
+                    _mask_c = _pd_c.Series([False] * len(_dfc))
+                    for _cc in ["Usine","Commercial","Region","Agriculteur","Date"]:
+                        if _cc in _dfc.columns:
+                            _mask_c = _mask_c | _dfc[_cc].astype(str).str.upper().str.contains(
+                                "TOTAL|TOTAUX|SOUS-TOTAL|JOURNALIERS", na=False, regex=True)
+                    _before = len(_dfc)
+                    _dfc = _dfc[~_mask_c].copy()
+                    _dfc["Tonnes"] = _pd_c.to_numeric(_dfc["Tonnes"], errors="coerce").fillna(0)
+                    _dfc = _dfc[_dfc["Tonnes"] > 0].copy()
+                    _removed = _before - len(_dfc)
+                    if _removed > 0:
+                        st.session_state.annees_data[_yr_c] = _dfc
+                        _save_one_year_to_supabase(int(_yr_c), _dfc)
+                        _cleaned += _removed
+                        st.info(f"✅ {_yr_c} : {_removed} ligne(s) supprimées → nouveau total {_dfc['Tonnes'].sum():,.0f} t")
+                _save_annees_to_disk()
+                if _cleaned == 0:
+                    st.success("✅ Aucune ligne à nettoyer — vos données sont propres.")
+                else:
+                    st.success(f"🧹 {_cleaned} ligne(s) de sous-totaux supprimées au total.")
+
+        _cC, _cD = st.columns(2)
+        with _cC:
             if st.button("🔄 Réinitialiser aux données par défaut", use_container_width=True):
                 # Supprimer toutes les années dans Supabase
                 for _yr_r in list(st.session_state.annees_data.keys()):
@@ -5375,9 +5404,7 @@ with tab8:
     import plotly.graph_objects as go
     import pickle as _pkl
     import os as _os
-    st.subheader("📊 Prévision vs Réalisé — Multi-années")
-    st.caption("Importez UNIQUEMENT les fichiers PRÉVISION par année. "
-               "Les réalisés sont lus automatiquement depuis la tab « Comparaison par années ».")
+    st.subheader("📊 Prévision vs Réalisé")
 
     # ══════════════════════════════════════════════════════════════════
     #  PERSISTANCE
@@ -5413,11 +5440,73 @@ with tab8:
     if "prev_apply" not in st.session_state:
         st.session_state.prev_apply = False
 
+    def _filter_total_lines(_df_in):
+        """Retire les lignes TOTAL/TOTAUX pour éviter doublement + lignes vides."""
+        _mask = _pd.Series([False] * len(_df_in))
+        for _cc in ["Usine","Commercial","Region","Agriculteur","Date"]:
+            if _cc in _df_in.columns:
+                _mask = _mask | _df_in[_cc].astype(str).str.upper().str.contains(
+                    "TOTAL|TOTAUX|SOUS-TOTAL|JOURNALIERS", na=False, regex=True)
+        _out = _df_in[~_mask].copy()
+        if "Tonnes" in _out.columns:
+            _out["Tonnes"] = _pd.to_numeric(_out["Tonnes"], errors="coerce").fillna(0)
+            _out = _out[_out["Tonnes"] > 0].copy()
+        return _out
+
+    def _add_total_row(_df_tab):
+        """Ajoute une ligne TOTAL en bas d'un DataFrame de tableau."""
+        _total = {}
+        for _cn in _df_tab.columns:
+            if _cn == _df_tab.columns[0]:
+                _total[_cn] = "TOTAL"
+            else:
+                # Essayer de sommer les valeurs numériques (en enlevant , et espaces)
+                try:
+                    _vals = _df_tab[_cn].astype(str).str.replace(",","").str.replace(" ","").str.replace("+","")
+                    _num = _pd.to_numeric(_vals, errors="coerce").fillna(0)
+                    _s = _num.sum()
+                    if "%" in _cn:
+                        _total[_cn] = "—"
+                    else:
+                        _total[_cn] = f"{_s:,.0f}"
+                except Exception:
+                    _total[_cn] = ""
+        return _pd.concat([_df_tab, _pd.DataFrame([_total])], ignore_index=True)
+
+    def _smooth_prev_dates(_df_prev, _df_real):
+        """Si la prévision n'a que 1-2 dates uniques, distribue le total selon le profil du réalisé."""
+        _df_prev = _df_prev.copy()
+        _df_prev["Date"] = _pd.to_datetime(_df_prev["Date"], errors="coerce")
+        _df_prev["Tonnes"] = _pd.to_numeric(_df_prev["Tonnes"], errors="coerce").fillna(0)
+        _n_dates = _df_prev["Date"].nunique()
+        if _n_dates >= 5:
+            return _df_prev  # déjà granulaire, rien à faire
+        _df_real = _df_real.copy()
+        _df_real["Date"] = _pd.to_datetime(_df_real["Date"], errors="coerce")
+        _df_real["Tonnes"] = _pd.to_numeric(_df_real["Tonnes"], errors="coerce").fillna(0)
+        _profile = _df_real.dropna(subset=["Date"]).groupby("Date")["Tonnes"].sum().sort_index()
+        if len(_profile) == 0:
+            return _df_prev
+        _prof_sum = _profile.sum()
+        if _prof_sum == 0:
+            return _df_prev
+        # Redistribuer chaque ligne prev sur les dates du réalisé, proportionnellement
+        _new_rows = []
+        for _, _row in _df_prev.iterrows():
+            _t = float(_row["Tonnes"])
+            for _d, _pv in _profile.items():
+                _share = _pv / _prof_sum
+                _nr = dict(_row)
+                _nr["Date"] = _d
+                _nr["Tonnes"] = round(_t * _share, 3)
+                _new_rows.append(_nr)
+        return _pd.DataFrame(_new_rows)
+
     # ══════════════════════════════════════════════════════════════════
-    #  BLOC IMPORT PRÉVISIONS
+    #  BLOC IMPORT
     # ══════════════════════════════════════════════════════════════════
-    with st.expander("📤 Importer les fichiers PRÉVISION", expanded=not bool(st.session_state.prev_data)):
-        st.caption("Format attendu : colonnes **Date, Tonnes, Commercial, Region, Agriculteur** (Usine et Superficie_Ha optionnels)")
+    with st.expander("📤 Importer / Gérer les prévisions", expanded=not bool(st.session_state.prev_data)):
+        st.caption("Colonnes attendues : **Date, Tonnes, Commercial, Region, Agriculteur** (Usine optionnelle)")
         _cP1, _cP2 = st.columns([1,3])
         with _cP1:
             _prev_annee = st.number_input("Année", min_value=2020, max_value=2035,
@@ -5431,7 +5520,6 @@ with tab8:
             try:
                 _df_prev = _pd.read_excel(_file_prev) if _file_prev.name.lower().endswith(("xlsx","xls")) else _pd.read_csv(_file_prev)
                 _df_prev.columns = [str(c).strip() for c in _df_prev.columns]
-                # Renommage colonnes
                 _rn = {}
                 for c in _df_prev.columns:
                     _lc = str(c).lower().strip()
@@ -5441,19 +5529,14 @@ with tab8:
                 if "Tonnes" not in _df_prev.columns:
                     st.error("❌ Le fichier doit contenir au moins une colonne **Tonnes** (ou Tonnage).")
                 else:
-                    # Filtrer lignes TOTAL
-                    _mt = _pd.Series([False] * len(_df_prev))
-                    for _cc in ["Usine","Commercial","Region","Agriculteur"]:
-                        if _cc in _df_prev.columns:
-                            _mt = _mt | _df_prev[_cc].astype(str).str.upper().str.contains("TOTAL|TOTAUX", na=False, regex=True)
-                    if _mt.any():
-                        _df_prev = _df_prev[~_mt].copy()
-                        st.info(f"ℹ️ {int(_mt.sum())} lignes de sous-totaux filtrées.")
-                    _df_prev["Tonnes"] = _pd.to_numeric(_df_prev["Tonnes"], errors="coerce").fillna(0)
-                    _df_prev = _df_prev[_df_prev["Tonnes"] > 0].copy()
+                    _before = len(_df_prev)
+                    _df_prev = _filter_total_lines(_df_prev)
+                    _removed = _before - len(_df_prev)
+                    if _removed > 0:
+                        st.info(f"ℹ️ {_removed} ligne(s) de sous-totaux filtrées.")
                     st.session_state.prev_data[int(_prev_annee)] = _df_prev
                     _save_prev_to_disk()
-                    st.success(f"✅ Prévision {_prev_annee} chargée : {len(_df_prev):,} lignes • Total **{_df_prev['Tonnes'].sum():,.0f} t**")
+                    st.success(f"✅ Prévision {_prev_annee} chargée : {len(_df_prev):,} lignes • **{_df_prev['Tonnes'].sum():,.0f} t**")
             except Exception as _e:
                 st.error(f"❌ Erreur : {_e}")
 
@@ -5468,13 +5551,29 @@ with tab8:
                         del st.session_state.prev_data[_an]
                         _save_prev_to_disk(); st.rerun()
 
-            _cA, _cB = st.columns([1,3])
+            _cA, _cB, _cC = st.columns([1,1,2])
             with _cA:
                 if st.button("✅ Appliquer", type="primary", use_container_width=True, key="btn_apply_prev"):
                     st.session_state.prev_apply = True
                     _save_prev_to_disk(); st.rerun()
             with _cB:
-                if st.button("🔄 Tout réinitialiser", use_container_width=True, key="btn_reset_prev"):
+                if st.button("🧹 Nettoyer doublons", use_container_width=True, key="btn_clean_prev"):
+                    _cleaned_total = 0
+                    for _an_c in list(st.session_state.prev_data.keys()):
+                        _dfc = st.session_state.prev_data[_an_c].copy()
+                        _before_c = len(_dfc)
+                        _dfc = _filter_total_lines(_dfc)
+                        _rem_c = _before_c - len(_dfc)
+                        if _rem_c > 0:
+                            st.session_state.prev_data[_an_c] = _dfc
+                            _cleaned_total += _rem_c
+                    _save_prev_to_disk()
+                    if _cleaned_total > 0:
+                        st.success(f"🧹 {_cleaned_total} ligne(s) filtrées."); st.rerun()
+                    else:
+                        st.info("Aucune ligne à nettoyer.")
+            with _cC:
+                if st.button("🔄 Réinitialiser tout", use_container_width=True, key="btn_reset_prev"):
                     st.session_state.prev_data = {}
                     st.session_state.prev_apply = False
                     _save_prev_to_disk(); st.rerun()
@@ -5482,115 +5581,93 @@ with tab8:
     st.markdown("---")
 
     # ══════════════════════════════════════════════════════════════════
-    #  AFFICHAGE COMPARAISON
+    #  AFFICHAGE — SÉLECTEUR D'ANNÉE UNIQUE
     # ══════════════════════════════════════════════════════════════════
     _realise_data = st.session_state.get("annees_data", {})
 
     if not st.session_state.prev_apply or not st.session_state.prev_data:
         st.info("💡 Importez au moins une prévision puis cliquez **Appliquer**.")
     elif not _realise_data:
-        st.warning("⚠️ Aucun réalisé disponible. Importez d'abord les daily dans la tab « Comparaison par années ».")
+        st.warning("⚠️ Aucun réalisé disponible. Importez d'abord les daily dans « Comparaison par années ».")
     else:
-        _years_common = sorted(set(st.session_state.prev_data.keys()) & set(_realise_data.keys()))
-        _only_prev = sorted(set(st.session_state.prev_data.keys()) - set(_realise_data.keys()))
-        _only_real = sorted(set(_realise_data.keys()) - set(st.session_state.prev_data.keys()))
+        # Sécurité : nettoyer les données réalisées à la volée
+        _real_clean = {int(k): _filter_total_lines(v) for k, v in _realise_data.items()}
+        _prev_clean = {int(k): _filter_total_lines(v) for k, v in st.session_state.prev_data.items()}
 
-        if _only_prev:
-            st.warning(f"⚠️ Prévisions sans réalisé : {_only_prev}")
-        if _only_real:
-            st.caption(f"ℹ️ Réalisés sans prévision : {_only_real}")
+        _years_common = sorted(set(_prev_clean.keys()) & set(_real_clean.keys()))
 
         if not _years_common:
             st.error("❌ Aucune année avec Prévision + Réalisé disponibles.")
+            _only_prev = sorted(set(_prev_clean.keys()) - set(_real_clean.keys()))
+            _only_real = sorted(set(_real_clean.keys()) - set(_prev_clean.keys()))
+            if _only_prev: st.warning(f"Prévisions sans réalisé : {_only_prev}")
+            if _only_real: st.warning(f"Réalisés sans prévision : {_only_real}")
         else:
             # ┌─────────────────────────────────────────┐
-            # │  KPI RÉCAP — cartes en haut             │
+            # │  RÉCAP KPI MULTI-ANNÉES (en haut)        │
             # └─────────────────────────────────────────┘
-            st.markdown("### 🎯 Récapitulatif global")
-            _kpis = []
-            for _an in _years_common:
-                _prev = float(st.session_state.prev_data[_an]["Tonnes"].sum())
-                _real = float(_pd.to_numeric(_realise_data[_an]["Tonnes"], errors="coerce").fillna(0).sum())
-                _kpis.append((_an, _prev, _real))
+            st.markdown("### 🎯 Vue d'ensemble multi-années")
             _cols_kpi = st.columns(len(_years_common))
-            for _idx, (_an, _prev, _real) in enumerate(_kpis):
-                _pct = (_real/_prev*100) if _prev > 0 else 0
-                _delta = _real - _prev
+            for _idx, _an in enumerate(_years_common):
+                _prev_t = float(_prev_clean[_an]["Tonnes"].sum())
+                _real_t = float(_real_clean[_an]["Tonnes"].sum())
+                _pct = (_real_t/_prev_t*100) if _prev_t > 0 else 0
+                _delta = _real_t - _prev_t
                 with _cols_kpi[_idx]:
                     st.metric(
                         label=f"**{_an}**",
-                        value=f"{_real:,.0f} t réalisé",
-                        delta=f"{_delta:+,.0f} t vs {_prev:,.0f} t prévu ({_pct:.0f}%)",
+                        value=f"{_real_t:,.0f} t",
+                        delta=f"{_pct:.0f}% de {_prev_t:,.0f} t prévu",
                         delta_color="normal" if _pct >= 90 else "off",
                     )
 
-            # ┌─────────────────────────────────────────┐
-            # │  TABLEAU GLOBAL                          │
-            # └─────────────────────────────────────────┘
-            st.markdown("### 📋 Tableau global")
-            _rows_g = []
-            for _an, _prev, _real in _kpis:
-                _pct = (_real/_prev*100) if _prev > 0 else 0
-                _rows_g.append({
-                    "Année": _an,
-                    "Prévu (t)": f"{_prev:,.0f}",
-                    "Réalisé (t)": f"{_real:,.0f}",
-                    "Écart (t)": f"{_real - _prev:+,.0f}",
-                    "% Réalisation": f"{_pct:.1f}%",
-                })
-            st.dataframe(_pd.DataFrame(_rows_g), use_container_width=True, hide_index=True)
+            st.markdown("---")
 
             # ┌─────────────────────────────────────────┐
-            # │  BAR CHART GLOBAL                        │
+            # │  SÉLECTEUR D'ANNÉE                       │
             # └─────────────────────────────────────────┘
-            _fig_g = go.Figure()
-            _fig_g.add_trace(go.Bar(
-                name="Prévu", x=[str(a) for a in _years_common],
-                y=[p for _, p, _ in _kpis],
-                marker_color="#94a3b8",
-                text=[f"{p:,.0f}" for _, p, _ in _kpis],
-                textposition="outside",
-            ))
-            _fig_g.add_trace(go.Bar(
-                name="Réalisé", x=[str(a) for a in _years_common],
-                y=[r for _, _, r in _kpis],
-                marker_color="#3B82F6",
-                text=[f"{r:,.0f}" for _, _, r in _kpis],
-                textposition="outside",
-            ))
-            _fig_g.update_layout(
-                barmode="group", template="plotly_dark",
-                paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
-                height=420, yaxis_title="Tonnes",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                margin=dict(l=40, r=20, t=20, b=40),
+            _yr_sel = st.selectbox(
+                "📅 **Choisir l'année à analyser**",
+                _years_common,
+                index=len(_years_common)-1,
+                key="tab8_year_select",
+                format_func=lambda x: f"Année {x}",
             )
-            st.plotly_chart(_fig_g, use_container_width=True)
+            st.markdown(f"## 📅 Analyse détaillée — Année {_yr_sel}")
+
+            _dfp = _prev_clean[_yr_sel]
+            _dfr = _real_clean[_yr_sel]
+            _prev_tot = float(_dfp["Tonnes"].sum())
+            _real_tot = float(_dfr["Tonnes"].sum())
+            _pct_tot = (_real_tot/_prev_tot*100) if _prev_tot > 0 else 0
 
             # ┌─────────────────────────────────────────┐
-            # │  COURBE JOURNALIÈRE — cumul prev vs réel │
+            # │  MÉTRIQUES POUR L'ANNÉE SÉLECTIONNÉE     │
             # └─────────────────────────────────────────┘
-            st.markdown("### 📈 Évolution journalière cumulée (Prévu vs Réalisé)")
-            _yr_pick = st.selectbox("Choisir l'année à visualiser", _years_common,
-                                     key="cmp_year_pick", index=len(_years_common)-1)
-            _dfp = st.session_state.prev_data[_yr_pick].copy()
-            _dfr = _realise_data[_yr_pick].copy()
+            _m1, _m2, _m3, _m4 = st.columns(4)
+            _m1.metric("Prévu", f"{_prev_tot:,.0f} t")
+            _m2.metric("Réalisé", f"{_real_tot:,.0f} t")
+            _m3.metric("Écart", f"{_real_tot - _prev_tot:+,.0f} t")
+            _m4.metric("% Réalisation", f"{_pct_tot:.1f}%")
+
+            # ┌─────────────────────────────────────────┐
+            # │  COURBE JOURNALIÈRE CUMULÉE              │
+            # └─────────────────────────────────────────┘
+            st.markdown("### 📈 Évolution journalière cumulée")
             if "Date" not in _dfp.columns or "Date" not in _dfr.columns:
-                st.warning("⚠️ Colonne Date manquante — impossible d'afficher la courbe journalière.")
+                st.warning("Colonne Date manquante — impossible d'afficher la courbe.")
             else:
-                _dfp["Date"] = _pd.to_datetime(_dfp["Date"], errors="coerce")
-                _dfr["Date"] = _pd.to_datetime(_dfr["Date"], errors="coerce")
-                _dfp["Tonnes"] = _pd.to_numeric(_dfp["Tonnes"], errors="coerce").fillna(0)
-                _dfr["Tonnes"] = _pd.to_numeric(_dfr["Tonnes"], errors="coerce").fillna(0)
-                _dp = _dfp.dropna(subset=["Date"]).groupby("Date")["Tonnes"].sum().sort_index()
-                _dr = _dfr.dropna(subset=["Date"]).groupby("Date")["Tonnes"].sum().sort_index()
-                _dp_cum = _dp.cumsum()
-                _dr_cum = _dr.cumsum()
+                _dfp_s = _smooth_prev_dates(_dfp, _dfr)
+                _dfp_s["Date"] = _pd.to_datetime(_dfp_s["Date"], errors="coerce")
+                _dfr2 = _dfr.copy()
+                _dfr2["Date"] = _pd.to_datetime(_dfr2["Date"], errors="coerce")
+                _dp = _dfp_s.dropna(subset=["Date"]).groupby("Date")["Tonnes"].sum().sort_index()
+                _dr = _dfr2.dropna(subset=["Date"]).groupby("Date")["Tonnes"].sum().sort_index()
 
                 _fig_j = go.Figure()
                 if len(_dp) > 0:
                     _fig_j.add_trace(go.Scatter(
-                        x=_dp_cum.index, y=_dp_cum.values,
+                        x=_dp.index, y=_dp.cumsum().values,
                         name=f"Prévu cumulé ({_dp.sum():,.0f} t)",
                         line=dict(color="#94a3b8", width=2.5, dash="dot", shape="spline"),
                         mode="lines",
@@ -5598,7 +5675,7 @@ with tab8:
                     ))
                 if len(_dr) > 0:
                     _fig_j.add_trace(go.Scatter(
-                        x=_dr_cum.index, y=_dr_cum.values,
+                        x=_dr.index, y=_dr.cumsum().values,
                         name=f"Réalisé cumulé ({_dr.sum():,.0f} t)",
                         line=dict(color="#3B82F6", width=3, shape="spline"),
                         mode="lines",
@@ -5614,65 +5691,57 @@ with tab8:
                 st.plotly_chart(_fig_j, use_container_width=True)
 
             # ┌─────────────────────────────────────────┐
-            # │  PAR COMMERCIAL — courbes en grille      │
+            # │  TABLEAU + BAR PAR COMMERCIAL            │
             # └─────────────────────────────────────────┘
             st.markdown("### 👤 Par Commercial")
-            _COMMS = ["FEDI","MAKKI BEN SALAH","KHALIL","ACHREF AJLANI","JILANI OBAY"]
-            for _an in _years_common:
-                st.markdown(f"#### 📅 Année {_an}")
-                _dfp = st.session_state.prev_data[_an].copy()
-                _dfr = _realise_data[_an].copy()
-                _dfp["Tonnes"] = _pd.to_numeric(_dfp["Tonnes"], errors="coerce").fillna(0)
-                _dfr["Tonnes"] = _pd.to_numeric(_dfr["Tonnes"], errors="coerce").fillna(0)
-                if "Commercial" not in _dfp.columns or "Commercial" not in _dfr.columns:
-                    st.warning(f"Colonne Commercial manquante pour {_an}")
-                    continue
+            if "Commercial" in _dfp.columns and "Commercial" in _dfr.columns:
+                _COMMS = ["FEDI","MAKKI BEN SALAH","KHALIL","ACHREF AJLANI","JILANI OBAY"]
                 _p_by = _dfp.groupby("Commercial")["Tonnes"].sum()
                 _r_by = _dfr.groupby("Commercial")["Tonnes"].sum()
                 _all_c = [c for c in _COMMS if c in _p_by.index or c in _r_by.index]
-                _all_c += sorted([c for c in set(list(_p_by.index) + list(_r_by.index)) if c and c not in _COMMS and str(c).strip()])
+                _all_c += sorted([c for c in set(list(_p_by.index) + list(_r_by.index))
+                                  if c and c not in _COMMS and str(c).strip()])
                 _rows_c = []
                 for _c in _all_c:
                     _p = float(_p_by.get(_c, 0)); _r = float(_r_by.get(_c, 0))
+                    if _p == 0 and _r == 0: continue
                     _pct = (_r/_p*100) if _p > 0 else 0
                     _rows_c.append({"Commercial": _c,
                                     "Prévu (t)": f"{_p:,.0f}",
                                     "Réalisé (t)": f"{_r:,.0f}",
                                     "Écart (t)": f"{_r-_p:+,.0f}",
                                     "% Réal.": f"{_pct:.0f}%"})
-                st.dataframe(_pd.DataFrame(_rows_c), use_container_width=True, hide_index=True)
-                # Bar chart
-                _fig_c = go.Figure()
-                _xs = [r["Commercial"] for r in _rows_c]
-                _fig_c.add_trace(go.Bar(name="Prévu", x=_xs,
-                                         y=[float(str(r["Prévu (t)"]).replace(",","")) for r in _rows_c],
-                                         marker_color="#94a3b8",
-                                         text=[r["Prévu (t)"] for r in _rows_c], textposition="outside"))
-                _fig_c.add_trace(go.Bar(name="Réalisé", x=_xs,
-                                         y=[float(str(r["Réalisé (t)"]).replace(",","")) for r in _rows_c],
-                                         marker_color="#3B82F6",
-                                         text=[r["Réalisé (t)"] for r in _rows_c], textposition="outside"))
-                _fig_c.update_layout(barmode="group", template="plotly_dark", height=320,
-                                      paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
-                                      yaxis_title="Tonnes",
-                                      legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                                      margin=dict(l=40, r=20, t=20, b=40))
-                st.plotly_chart(_fig_c, use_container_width=True)
+                if _rows_c:
+                    _df_c = _pd.DataFrame(_rows_c)
+                    _df_c = _add_total_row(_df_c)
+                    st.dataframe(_df_c, use_container_width=True, hide_index=True)
+                    _fig_c = go.Figure()
+                    _xs = [r["Commercial"] for r in _rows_c]
+                    _fig_c.add_trace(go.Bar(name="Prévu", x=_xs,
+                                             y=[float(r["Prévu (t)"].replace(",","")) for r in _rows_c],
+                                             marker_color="#94a3b8",
+                                             text=[r["Prévu (t)"] for r in _rows_c], textposition="outside"))
+                    _fig_c.add_trace(go.Bar(name="Réalisé", x=_xs,
+                                             y=[float(r["Réalisé (t)"].replace(",","")) for r in _rows_c],
+                                             marker_color="#3B82F6",
+                                             text=[r["Réalisé (t)"] for r in _rows_c], textposition="outside"))
+                    _fig_c.update_layout(barmode="group", template="plotly_dark", height=380,
+                                          paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+                                          yaxis_title="Tonnes",
+                                          legend=dict(orientation="h", yanchor="bottom", y=1.02),
+                                          margin=dict(l=40, r=20, t=20, b=40))
+                    st.plotly_chart(_fig_c, use_container_width=True)
+                else:
+                    st.info("Aucune donnée par commercial disponible.")
+            else:
+                st.warning("Colonne Commercial manquante.")
 
             # ┌─────────────────────────────────────────┐
-            # │  PAR RÉGION — courbes en grille          │
+            # │  TABLEAU + BAR PAR RÉGION                │
             # └─────────────────────────────────────────┘
             st.markdown("### 📍 Par Région")
-            _REGS = ["CAP BON","NORD","KAIROUAN","SIDI BOUZID","GAFSA/KASSRINE","BOUFICHA"]
-            for _an in _years_common:
-                st.markdown(f"#### 📅 Année {_an}")
-                _dfp = st.session_state.prev_data[_an].copy()
-                _dfr = _realise_data[_an].copy()
-                _dfp["Tonnes"] = _pd.to_numeric(_dfp["Tonnes"], errors="coerce").fillna(0)
-                _dfr["Tonnes"] = _pd.to_numeric(_dfr["Tonnes"], errors="coerce").fillna(0)
-                if "Region" not in _dfp.columns or "Region" not in _dfr.columns:
-                    st.warning(f"Colonne Region manquante pour {_an}")
-                    continue
+            if "Region" in _dfp.columns and "Region" in _dfr.columns:
+                _REGS = ["CAP BON","NORD","KAIROUAN","SIDI BOUZID","GAFSA/KASSRINE","BOUFICHA"]
                 _p_by = _dfp[_dfp["Region"].astype(str).str.strip() != ""].groupby("Region")["Tonnes"].sum()
                 _r_by = _dfr[_dfr["Region"].astype(str).str.strip() != ""].groupby("Region")["Tonnes"].sum()
                 _all_r = [r for r in _REGS if r in _p_by.index or r in _r_by.index]
@@ -5688,54 +5757,76 @@ with tab8:
                                     "Réalisé (t)": f"{_r:,.0f}",
                                     "Écart (t)": f"{_r-_p:+,.0f}",
                                     "% Réal.": f"{_pct:.0f}%"})
-                if not _rows_r: continue
-                st.dataframe(_pd.DataFrame(_rows_r), use_container_width=True, hide_index=True)
-                _fig_r = go.Figure()
-                _xs = [r["Région"] for r in _rows_r]
-                _fig_r.add_trace(go.Bar(name="Prévu", x=_xs,
-                                         y=[float(str(r["Prévu (t)"]).replace(",","")) for r in _rows_r],
-                                         marker_color="#94a3b8",
-                                         text=[r["Prévu (t)"] for r in _rows_r], textposition="outside"))
-                _fig_r.add_trace(go.Bar(name="Réalisé", x=_xs,
-                                         y=[float(str(r["Réalisé (t)"]).replace(",","")) for r in _rows_r],
-                                         marker_color="#3B82F6",
-                                         text=[r["Réalisé (t)"] for r in _rows_r], textposition="outside"))
-                _fig_r.update_layout(barmode="group", template="plotly_dark", height=320,
-                                      paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
-                                      yaxis_title="Tonnes",
-                                      legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                                      margin=dict(l=40, r=20, t=20, b=40))
-                st.plotly_chart(_fig_r, use_container_width=True)
+                if _rows_r:
+                    _df_r = _pd.DataFrame(_rows_r)
+                    _df_r = _add_total_row(_df_r)
+                    st.dataframe(_df_r, use_container_width=True, hide_index=True)
+                    _fig_r = go.Figure()
+                    _xs = [r["Région"] for r in _rows_r]
+                    _fig_r.add_trace(go.Bar(name="Prévu", x=_xs,
+                                             y=[float(r["Prévu (t)"].replace(",","")) for r in _rows_r],
+                                             marker_color="#94a3b8",
+                                             text=[r["Prévu (t)"] for r in _rows_r], textposition="outside"))
+                    _fig_r.add_trace(go.Bar(name="Réalisé", x=_xs,
+                                             y=[float(r["Réalisé (t)"].replace(",","")) for r in _rows_r],
+                                             marker_color="#3B82F6",
+                                             text=[r["Réalisé (t)"] for r in _rows_r], textposition="outside"))
+                    _fig_r.update_layout(barmode="group", template="plotly_dark", height=380,
+                                          paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+                                          yaxis_title="Tonnes",
+                                          legend=dict(orientation="h", yanchor="bottom", y=1.02),
+                                          margin=dict(l=40, r=20, t=20, b=40))
+                    st.plotly_chart(_fig_r, use_container_width=True)
+                else:
+                    st.info("Aucune donnée par région disponible.")
+            else:
+                st.warning("Colonne Region manquante.")
 
             # ┌─────────────────────────────────────────┐
-            # │  PAR USINE — si dispo                    │
+            # │  TABLEAU + BAR PAR USINE                 │
             # └─────────────────────────────────────────┘
-            _has_us = all("Usine" in st.session_state.prev_data[_an].columns and
-                          "Usine" in _realise_data[_an].columns for _an in _years_common)
-            if _has_us:
-                st.markdown("### 🏭 Par Usine")
+            st.markdown("### 🏭 Par Usine")
+            if "Usine" in _dfp.columns and "Usine" in _dfr.columns:
                 _USINES = ["SICAM","TUCAL","COMOCAP","ABIDA","ELFALLEH"]
-                for _an in _years_common:
-                    st.markdown(f"#### 📅 Année {_an}")
-                    _dfp = st.session_state.prev_data[_an].copy()
-                    _dfr = _realise_data[_an].copy()
-                    _dfp["Tonnes"] = _pd.to_numeric(_dfp["Tonnes"], errors="coerce").fillna(0)
-                    _dfr["Tonnes"] = _pd.to_numeric(_dfr["Tonnes"], errors="coerce").fillna(0)
-                    _p_by = _dfp[_dfp["Usine"].astype(str).str.strip() != ""].groupby("Usine")["Tonnes"].sum()
-                    _r_by = _dfr[_dfr["Usine"].astype(str).str.strip() != ""].groupby("Usine")["Tonnes"].sum()
-                    _all_u = [u for u in _USINES if u in _p_by.index or u in _r_by.index]
-                    _rows_u = []
-                    for _u in _all_u:
-                        _p = float(_p_by.get(_u, 0)); _r = float(_r_by.get(_u, 0))
-                        if _p == 0 and _r == 0: continue
-                        _pct = (_r/_p*100) if _p > 0 else 0
-                        _rows_u.append({"Usine": _u,
-                                        "Prévu (t)": f"{_p:,.0f}",
-                                        "Réalisé (t)": f"{_r:,.0f}",
-                                        "Écart (t)": f"{_r-_p:+,.0f}",
-                                        "% Réal.": f"{_pct:.0f}%"})
-                    if not _rows_u: continue
-                    st.dataframe(_pd.DataFrame(_rows_u), use_container_width=True, hide_index=True)
+                _p_by = _dfp[_dfp["Usine"].astype(str).str.strip() != ""].groupby("Usine")["Tonnes"].sum()
+                _r_by = _dfr[_dfr["Usine"].astype(str).str.strip() != ""].groupby("Usine")["Tonnes"].sum()
+                _all_u = [u for u in _USINES if u in _p_by.index or u in _r_by.index]
+                _all_u += sorted([u for u in set(list(_p_by.index) + list(_r_by.index))
+                                  if u and str(u).strip() and u not in _USINES])
+                _rows_u = []
+                for _u in _all_u:
+                    _p = float(_p_by.get(_u, 0)); _r = float(_r_by.get(_u, 0))
+                    if _p == 0 and _r == 0: continue
+                    _pct = (_r/_p*100) if _p > 0 else 0
+                    _rows_u.append({"Usine": _u,
+                                    "Prévu (t)": f"{_p:,.0f}",
+                                    "Réalisé (t)": f"{_r:,.0f}",
+                                    "Écart (t)": f"{_r-_p:+,.0f}",
+                                    "% Réal.": f"{_pct:.0f}%"})
+                if _rows_u:
+                    _df_u = _pd.DataFrame(_rows_u)
+                    _df_u = _add_total_row(_df_u)
+                    st.dataframe(_df_u, use_container_width=True, hide_index=True)
+                    _fig_u = go.Figure()
+                    _xs = [r["Usine"] for r in _rows_u]
+                    _fig_u.add_trace(go.Bar(name="Prévu", x=_xs,
+                                             y=[float(r["Prévu (t)"].replace(",","")) for r in _rows_u],
+                                             marker_color="#94a3b8",
+                                             text=[r["Prévu (t)"] for r in _rows_u], textposition="outside"))
+                    _fig_u.add_trace(go.Bar(name="Réalisé", x=_xs,
+                                             y=[float(r["Réalisé (t)"].replace(",","")) for r in _rows_u],
+                                             marker_color="#3B82F6",
+                                             text=[r["Réalisé (t)"] for r in _rows_u], textposition="outside"))
+                    _fig_u.update_layout(barmode="group", template="plotly_dark", height=380,
+                                          paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+                                          yaxis_title="Tonnes",
+                                          legend=dict(orientation="h", yanchor="bottom", y=1.02),
+                                          margin=dict(l=40, r=20, t=20, b=40))
+                    st.plotly_chart(_fig_u, use_container_width=True)
+                else:
+                    st.info("Aucune donnée par usine disponible.")
+            else:
+                st.warning("Colonne Usine manquante pour cette année.")
 
 # ── TAB 9: GESTION AGRICULTEURS ──────────────────────────────
 with tab9:
