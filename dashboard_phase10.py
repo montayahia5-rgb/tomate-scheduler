@@ -5828,6 +5828,165 @@ with tab8:
             else:
                 st.warning("Colonne Usine manquante pour cette année.")
 
+
+            # ┌─────────────────────────────────────────┐
+            # │  COMPARAISON AGRICULTEURS PREV vs REAL   │
+            # └─────────────────────────────────────────┘
+            st.markdown("### 👥 Comparaison des agriculteurs — Prévu vs Réalisé")
+            st.caption("Vérifiez quels agriculteurs étaient prévus mais absents du réalisé, et inversement.")
+
+            if "Agriculteur" not in _dfp.columns or "Agriculteur" not in _dfr.columns:
+                st.warning("Colonne Agriculteur manquante — impossible de comparer les listes.")
+            else:
+                import re as _re_ag
+                import unicodedata as _ud_ag
+                def _norm_agri(_n):
+                    _s = str(_n).strip().upper()
+                    _s = _re_ag.sub(r"\([^)]*\)", "", _s)
+                    _s = "".join(_c for _c in _ud_ag.normalize("NFD", _s) if _ud_ag.category(_c) != "Mn")
+                    _s = _re_ag.sub(r"[^A-Z0-9 ]", " ", _s)
+                    return _re_ag.sub(r"\s+", " ", _s).strip()
+
+                # Agrégation par agriculteur pour prévu et réalisé
+                _dfp_ag = _dfp.copy()
+                _dfp_ag["_agri_norm"] = _dfp_ag["Agriculteur"].apply(_norm_agri)
+                _prev_by = _dfp_ag[_dfp_ag["_agri_norm"] != ""].groupby("_agri_norm").agg(
+                    Nom=("Agriculteur", "first"),
+                    Commercial=("Commercial", lambda x: x.mode().iloc[0] if len(x.mode())>0 else ""),
+                    Region=("Region", lambda x: x.mode().iloc[0] if len(x.mode())>0 else ""),
+                    Usine=("Usine", lambda x: x.mode().iloc[0] if len(x.mode())>0 else "") if "Usine" in _dfp_ag.columns else ("Agriculteur","first"),
+                    Tonnage=("Tonnes","sum"),
+                )
+
+                _dfr_ag = _dfr.copy()
+                _dfr_ag["_agri_norm"] = _dfr_ag["Agriculteur"].apply(_norm_agri)
+                _real_by = _dfr_ag[_dfr_ag["_agri_norm"] != ""].groupby("_agri_norm").agg(
+                    Nom=("Agriculteur", "first"),
+                    Commercial=("Commercial", lambda x: x.mode().iloc[0] if len(x.mode())>0 else ""),
+                    Region=("Region", lambda x: x.mode().iloc[0] if len(x.mode())>0 else ""),
+                    Usine=("Usine", lambda x: x.mode().iloc[0] if len(x.mode())>0 else "") if "Usine" in _dfr_ag.columns else ("Agriculteur","first"),
+                    Tonnage=("Tonnes","sum"),
+                )
+
+                _prev_set = set(_prev_by.index)
+                _real_set = set(_real_by.index)
+
+                _common = _prev_set & _real_set
+                _only_prev = _prev_set - _real_set
+                _only_real = _real_set - _prev_set
+
+                # KPI
+                _k1, _k2, _k3, _k4 = st.columns(4)
+                _k1.metric("Agri prévus", f"{len(_prev_set):,}")
+                _k2.metric("Agri réalisés", f"{len(_real_set):,}")
+                _k3.metric("✅ Communs", f"{len(_common):,}")
+                _k4.metric("⚠️ Différences", f"{len(_only_prev) + len(_only_real):,}")
+
+                # 3 tabs pour les catégories
+                _tab_common, _tab_only_p, _tab_only_r = st.tabs([
+                    f"✅ Communs ({len(_common)})",
+                    f"🔴 Prévu mais NON réalisé ({len(_only_prev)})",
+                    f"🟢 Réalisé mais NON prévu ({len(_only_real)})",
+                ])
+
+                # ── Communs
+                with _tab_common:
+                    if _common:
+                        _rows_cm = []
+                        for _n in _common:
+                            _p = _prev_by.loc[_n]
+                            _r = _real_by.loc[_n]
+                            _tp = float(_p["Tonnage"])
+                            _tr = float(_r["Tonnage"])
+                            _pct = (_tr/_tp*100) if _tp > 0 else 0
+                            _rows_cm.append({
+                                "Agriculteur": _p["Nom"],
+                                "Commercial": _p["Commercial"] or _r["Commercial"],
+                                "Région": _p["Region"] or _r["Region"],
+                                "Usine": (_p["Usine"] if "Usine" in _p.index else "") or (_r["Usine"] if "Usine" in _r.index else ""),
+                                "Prévu (t)": f"{_tp:,.0f}",
+                                "Réalisé (t)": f"{_tr:,.0f}",
+                                "Écart (t)": f"{_tr-_tp:+,.0f}",
+                                "% Réal.": f"{_pct:.0f}%",
+                            })
+                        _df_cm = _pd.DataFrame(_rows_cm).sort_values("Réalisé (t)",
+                                    key=lambda s: s.astype(str).str.replace(",","").astype(float), ascending=False)
+                        st.dataframe(_df_cm, use_container_width=True, hide_index=True)
+                        try:
+                            import io as _io_ag
+                            _buf_cm = _io_ag.BytesIO()
+                            _df_cm.to_excel(_buf_cm, index=False, sheet_name="Communs")
+                            _buf_cm.seek(0)
+                            st.download_button("⬇️ Télécharger", data=_buf_cm,
+                                file_name=f"AGRI_COMMUNS_{_yr_sel}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=f"dl_common_{_yr_sel}")
+                        except Exception: pass
+                    else:
+                        st.info("Aucun agriculteur commun.")
+
+                # ── Prévu mais non réalisé
+                with _tab_only_p:
+                    if _only_prev:
+                        _rows_op = []
+                        for _n in _only_prev:
+                            _p = _prev_by.loc[_n]
+                            _rows_op.append({
+                                "Agriculteur": _p["Nom"],
+                                "Commercial": _p["Commercial"],
+                                "Région": _p["Region"],
+                                "Usine prévue": _p["Usine"] if "Usine" in _p.index else "",
+                                "Tonnage prévu (t)": f"{float(_p['Tonnage']):,.0f}",
+                            })
+                        _df_op = _pd.DataFrame(_rows_op).sort_values("Tonnage prévu (t)",
+                                    key=lambda s: s.astype(str).str.replace(",","").astype(float), ascending=False)
+                        _tot_op = sum(float(_p["Tonnage"]) for _p in [_prev_by.loc[_n] for _n in _only_prev])
+                        st.warning(f"🔴 **{len(_only_prev)} agriculteurs** prévus mais qui n'ont **PAS** livré — Tonnage prévu total : **{_tot_op:,.0f} t**")
+                        st.dataframe(_df_op, use_container_width=True, hide_index=True)
+                        try:
+                            import io as _io_ag2
+                            _buf_op = _io_ag2.BytesIO()
+                            _df_op.to_excel(_buf_op, index=False, sheet_name="PrevSansReel")
+                            _buf_op.seek(0)
+                            st.download_button("⬇️ Télécharger", data=_buf_op,
+                                file_name=f"AGRI_PREVU_SANS_REEL_{_yr_sel}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=f"dl_only_p_{_yr_sel}")
+                        except Exception: pass
+                    else:
+                        st.success("✅ Tous les agriculteurs prévus ont livré.")
+
+                # ── Réalisé mais non prévu
+                with _tab_only_r:
+                    if _only_real:
+                        _rows_or = []
+                        for _n in _only_real:
+                            _r = _real_by.loc[_n]
+                            _rows_or.append({
+                                "Agriculteur": _r["Nom"],
+                                "Commercial": _r["Commercial"],
+                                "Région": _r["Region"],
+                                "Usine réelle": _r["Usine"] if "Usine" in _r.index else "",
+                                "Tonnage réalisé (t)": f"{float(_r['Tonnage']):,.0f}",
+                            })
+                        _df_or = _pd.DataFrame(_rows_or).sort_values("Tonnage réalisé (t)",
+                                    key=lambda s: s.astype(str).str.replace(",","").astype(float), ascending=False)
+                        _tot_or = sum(float(_r["Tonnage"]) for _r in [_real_by.loc[_n] for _n in _only_real])
+                        st.info(f"🟢 **{len(_only_real)} agriculteurs** ont livré mais n'étaient **PAS** prévus — Tonnage réalisé total : **{_tot_or:,.0f} t**")
+                        st.dataframe(_df_or, use_container_width=True, hide_index=True)
+                        try:
+                            import io as _io_ag3
+                            _buf_or = _io_ag3.BytesIO()
+                            _df_or.to_excel(_buf_or, index=False, sheet_name="ReelSansPrev")
+                            _buf_or.seek(0)
+                            st.download_button("⬇️ Télécharger", data=_buf_or,
+                                file_name=f"AGRI_REEL_SANS_PREVU_{_yr_sel}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=f"dl_only_r_{_yr_sel}")
+                        except Exception: pass
+                    else:
+                        st.success("✅ Tous les agriculteurs réalisés étaient prévus.")
+
 # ── TAB 9: GESTION AGRICULTEURS ──────────────────────────────
 with tab9:
 
