@@ -1,26 +1,26 @@
 # -*- coding: utf-8 -*-
 """
-agroeco_dashboard.py v2 Ã¢â‚¬â€ Dashboard AgroÃƒÂ©conomique Tomate 2026
+agroeco_dashboard.py v2 — Dashboard Agroéconomique Tomate 2026
 ===============================================================
 CORRECTIONS v2 :
-  Ã¢Å“â€¦ Tous les fichiers entrÃƒÂ©e = "centre" + "client" obligatoires
-  Ã¢Å“â€¦ Royal : date_debut_repiquage Ã¢â€ â€™ date_debut_livraison
-  Ã¢Å“â€¦ Caisses vides : condition = date_debut_RECOLTE (fichier rectifiÃƒÂ© Supabase)
-     1ÃƒÂ¨re affectation = date_debut_recolte < 10 juillet  Ã¢â€ â€™ avec caisses
-     2ÃƒÂ¨me affectation = date_debut_recolte Ã¢â€°Â¥ 10 juillet  Ã¢â€ â€™ sans caisses
+  ✅ Tous les fichiers entrée = "centre" + "client" obligatoires
+  ✅ Royal : date_debut_repiquage → date_debut_livraison
+  ✅ Caisses vides : condition = date_debut_RECOLTE (fichier rectifié Supabase)
+     1ère affectation = date_debut_recolte < 10 juillet  → avec caisses
+     2ème affectation = date_debut_recolte ≥ 10 juillet  → sans caisses
 """
 
 import streamlit as st
 
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-# DONNÃƒâ€°ES RÃƒâ€°ELLES 2026 Ã¢â‚¬â€ FICHIERS ORGANISÃƒâ€°S + DETAIL_VENTE SOTUSFA
-# 220/220 Ha rÃƒÂ©els | 101 intrants rÃƒÂ©els | 119 estimÃƒÂ©s | STE 428 = 0
+# ═════════════════════════════════
+# DONNÉES RÉELLES 2026 — FICHIERS ORGANISÉS + DETAIL_VENTE SOTUSFA
+# 220/220 Ha réels | 101 intrants réels | 119 estimés | STE 428 = 0
 # STE BACCARA=SOCIETE BACCARA ET FILS (30,260 DT)
 # STE KERKOUANE=STE COMPTOIR MS DU CAP BON (56,341 DT)
 # STE 428 = 0 (Sotusfa non disponible)
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+# ═════════════════════════════════
 _INTRANTS_2026 = {
-    # Valeurs rÃƒÂ©elles Ã¢â‚¬â€ 5 DETAIL_VENTE + distribution ACHREF
+    # Valeurs réelles — 5 DETAIL_VENTE + distribution ACHREF
     'ABDELFATEH BEN SLIMEN': 3295.119, 'ABDELHAKIM MEJRI': 2417.350,
     'ABDELKADER KALBOUSI': 2912.624, 'ABDELKARIM TRABELSSI': 17203.843,
     'ABDELMALAK NAJJAR': 6362.049, 'ABEDLAZIZ LAYARI': 19611.604,
@@ -99,7 +99,7 @@ _INTRANTS_2026 = {
     'TAREK EL BAHRI': 5690.425, 'ZOUHAIR BAICH': 22268.364,
     'ZOUHAIR BEN ECHIK': 20549.127,
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Ajouts ACHREF (distribution Ha) + FEDI manquants Ã¢â€â‚¬Ã¢â€â‚¬
+    # ══ Ajouts ACHREF (distribution Ha) + FEDI manquants ══
     'ABDELKADER OMRANI': 14704.061,
     'ABDELKARIM SAAD': 9802.707,
     'ABDELRAOUF BOUALEGUE': 10782.978,
@@ -164,7 +164,7 @@ _INTRANTS_2026 = {
     'YASIN MNASRI': 85773.687,
     'YASIN TLILI': 6135.021,
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Estimations Ha Ãƒâ€” taux commercial (clients absents DETAIL_VENTE) Ã¢â€â‚¬Ã¢â€â‚¬
+    # ══ Estimations Ha × taux commercial (clients absents DETAIL_VENTE) ══
     'ABDELKADER MANNA': 2218.0,
     'ABDELKADER YEDES': 61250.0,
     'ABDESLEM BEN SOUISSI': 4436.0,
@@ -192,10 +192,10 @@ _INTRANTS_2026 = {
     'STE AGROBEST': 41650.0,
 }
 
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-# AVANCES ET REPORTS RÃƒâ€°ELS 2026 Ã¢â‚¬â€ source RECAP El Bourak
-# 163 entrÃƒÂ©es avances | 61 entrÃƒÂ©es reports
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+# ═════════════════════════════════
+# AVANCES ET REPORTS RÉELS 2026 — source RECAP El Bourak
+# 163 entrées avances | 61 entrées reports
+# ═════════════════════════════════
 _AVANCES_2026 = {
     'ABDELFATEH BEN SLIMEN': 900.00, 'ABDELHAMID ELMESSAI': 6702.50,
     'ABDELKADER KALBOUSI': 784.00, 'ABDELKARIM TRABELSSI': 3572.00,
@@ -521,19 +521,19 @@ import plotly.graph_objects as go
 import io
 from datetime import date
 
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+# ═══════════════════════════════
 # CONSTANTES
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+# ═══════════════════════════════
 DATE_CAISSE_LIMITE = date(2026, 7, 10)
 
-# ParamÃƒÂ¨tres caisses vides PAR USINE (modifiables dans l'UI)
+# Paramètres caisses vides PAR USINE (modifiables dans l'UI)
 # Format : {usine: {"nb_ha": nb_caisses/ha, "prix": DT/caisse, "type": description}}
 CAISSES_USINE_DEFAULTS = {
     "SICAM":    {"nb_ha": 80,  "prix": 3.0,  "type": "Caisse plastique 25kg",  "cap_kg": 25},
     "TUCAL":    {"nb_ha": 80,  "prix": 3.0,  "type": "Caisse plastique 25kg",  "cap_kg": 25},
     "COMOCAP":  {"nb_ha": 60,  "prix": 2.5,  "type": "Bac tracteur (forfait)", "cap_kg": 30},
     "ABIDA":    {"nb_ha": 60,  "prix": 2.5,  "type": "Caisse plastique 25kg",  "cap_kg": 25},
-    "ELFALLEH": {"nb_ha": 50,  "prix": 2.0,  "type": "Caisse mÃƒÂ©tal 20kg",      "cap_kg": 20},
+    "ELFALLEH": {"nb_ha": 50,  "prix": 2.0,  "type": "Caisse métal 20kg",      "cap_kg": 20},
 }
 MO_TONNE_DEFAULT   = 50.0
 DENSITE_STD = {
@@ -548,31 +548,31 @@ FAM_NORM_MAP = {
     "irrigations ":"Irrigation","irrigations":"Irrigation",
     "irrigations turk":"Irrigation","irrigation":"Irrigation","irrigation ":"Irrigation",
     "herbicide":"Herbicide","divers":"Divers","divers ":"Divers",
-    "materiel":"MatÃƒÂ©riel","traitement":"Traitement",
+    "materiel":"Matériel","traitement":"Traitement",
 }
 
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+# ═══════════════════════════════
 # HELPERS
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+# ═══════════════════════════════
 def _norm(c):
     return (str(c).strip().lower()
-            .replace("ÃƒÂ©","e").replace("ÃƒÂ¨","e").replace("ÃƒÂª","e")
-            .replace("ÃƒÂ¢","a").replace("ÃƒÂ´","o").replace("ÃƒÂ®","i")
-            .replace("ÃƒÂ»","u").replace(" ","_").replace("/","_")
-            .replace("(","").replace(")","").replace("Ã‚Â°","")
+            .replace("é","e").replace("è","e").replace("ê","e")
+            .replace("â","a").replace("ô","o").replace("î","i")
+            .replace("û","u").replace(" ","_").replace("/","_")
+            .replace("(","").replace(")","").replace("°","")
             .replace("'",""))
 
 def _find_header(raw, keywords, max_rows=8):
     """
     Trouve la ligne header en cherchant celle qui contient
-    Ã¢â€°Â¥2 mots-clÃƒÂ©s dans des CELLULES SÃƒâ€°PARÃƒâ€°ES (ÃƒÂ©vite les faux positifs sur
+    ≥2 mots-clés dans des CELLULES SÉPARÉES (évite les faux positifs sur
     les lignes titre qui contiennent tout en une seule cellule).
     """
     for i in range(min(max_rows, len(raw))):
         # Filtrer : seulement les cellules courtes (< 60 chars) = vraies colonnes
         cells = [_norm(str(v)) for v in raw.iloc[i].values
                  if pd.notna(v) and len(str(v).strip()) < 60]
-        # Compter les mots-clÃƒÂ©s dans des CELLULES DIFFÃƒâ€°RENTES
+        # Compter les mots-clés dans des CELLULES DIFFÉRENTES
         kw_cells = {kw: any(kw in c for c in cells) for kw in keywords}
         n_match = sum(kw_cells.values())
         if n_match >= 2:
@@ -599,10 +599,10 @@ def _find_col(df, cands):
     return None
 
 def _check_required(df, source_name, required=["centre","client"]):
-    """VÃƒÂ©rifie que les colonnes obligatoires sont prÃƒÂ©sentes."""
+    """Vérifie que les colonnes obligatoires sont présentes."""
     missing = [c for c in required if c not in df.columns]
     if missing:
-        return False, f"Ã¢Å¡Â Ã¯Â¸Â {source_name} Ã¢â‚¬â€ colonnes manquantes : {missing}"
+        return False, f"⚠️ {source_name} — colonnes manquantes : {missing}"
     return True, ""
 
 def _metric(label, value, color="#f0f6fc", delta=None, delta_label=""):
@@ -616,18 +616,18 @@ padding:12px 16px;border-top:3px solid {color}'>
 <div style='font-size:.7rem;color:#8b949e;text-transform:uppercase;letter-spacing:.05em'>{label}</div>
 <div style='font-size:1.4rem;font-weight:700;color:#f0f6fc'>{value}</div>{dh}</div>"""
 
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-# SUPABASE Ã¢â‚¬â€ Date dÃƒÂ©but rÃƒÂ©colte par agriculteur
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+# ═══════════════════════════════
+# SUPABASE — Date début récolte par agriculteur
+# ═══════════════════════════════
 @st.cache_data(ttl=300, show_spinner=False)
 def load_date_debut_recolte(_sb):
     sb = _sb
     """
     Charge depuis Supabase (plan_rectifie_detail) la date MIN de livraison
-    par agriculteur = date dÃƒÂ©but rÃƒÂ©colte.
-    C'est cette date qui dÃƒÂ©termine l'affectation des caisses vides :
-      < 10 juillet  Ã¢â€ â€™ 1ÃƒÂ¨re affectation (avec caisses vides)
-      Ã¢â€°Â¥ 10 juillet  Ã¢â€ â€™ 2ÃƒÂ¨me affectation (sans caisses vides)
+    par agriculteur = date début récolte.
+    C'est cette date qui détermine l'affectation des caisses vides :
+      < 10 juillet  → 1ère affectation (avec caisses vides)
+      ≥ 10 juillet  → 2ème affectation (sans caisses vides)
     """
     if sb is None:
         return pd.DataFrame()
@@ -647,21 +647,21 @@ def load_date_debut_recolte(_sb):
         df = pd.DataFrame(data)
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
         df = df.dropna(subset=["date"])
-        # Min date = date dÃƒÂ©but rÃƒÂ©colte par agriculteur
+        # Min date = date début récolte par agriculteur
         result = df.groupby("agriculteur")["date"].min().reset_index()
         result.columns = ["agriculteur","date_debut_recolte"]
         result["agriculteur"] = result["agriculteur"].astype(str).str.strip().str.upper()
-        # DÃƒÂ©duire l'affectation
+        # Déduire l'affectation
         result["affectation_caisse"] = result["date_debut_recolte"].apply(
-            lambda d: "1ÃƒÂ¨re (avec caisses)" if pd.notna(d) and d.date() < DATE_CAISSE_LIMITE
-                      else "2ÃƒÂ¨me (sans caisses)")
+            lambda d: "1ère (avec caisses)" if pd.notna(d) and d.date() < DATE_CAISSE_LIMITE
+                      else "2ème (sans caisses)")
         return result
     except Exception as e:
         return pd.DataFrame()
 
 
 def load_prevision_juin(sb):
-    """Tonnage prÃƒÂ©vu Juin depuis plan_rectifie_detail (somme par agriculteur)."""
+    """Tonnage prévu Juin depuis plan_rectifie_detail (somme par agriculteur)."""
     if sb is None:
         return pd.DataFrame()
     try:
@@ -687,16 +687,16 @@ def load_prevision_juin(sb):
         return pd.DataFrame()
 
 
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-# PARSERS Ã¢â‚¬â€ "centre" et "client" obligatoires dans tous les fichiers
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+# ═══════════════════════════════
+# PARSERS — "centre" et "client" obligatoires dans tous les fichiers
+# ═══════════════════════════════
 
 def parse_bourak(file_obj):
     """
-    BOURAK Ã¢â‚¬â€ Financement & Transport
-    Colonnes OBLIGATOIRES : client (agriculteur) Ã‚Â· centre
-    Colonnes attendues    : commercial Ã‚Â· ingenieur Ã‚Â· region Ã‚Â·
-                            hectares Ã‚Â· avance Ã‚Â· report
+    BOURAK — Financement & Transport
+    Colonnes OBLIGATOIRES : client (agriculteur) · centre
+    Colonnes attendues    : commercial · ingenieur · region ·
+                            hectares · avance · report
     """
     df = _read_auto(file_obj,
          ["client","responsable","ingenieur","centre","avance","report"])
@@ -725,26 +725,26 @@ def parse_bourak(file_obj):
                 rename[c] = tgt; break
     df = df.rename(columns=rename)
 
-    # VÃƒÂ©rification colonnes obligatoires
+    # Vérification colonnes obligatoires
     if "client" not in df.columns:
-        return None, "BOURAK Ã¢â‚¬â€ colonne client manquante"
+        return None, "BOURAK — colonne client manquante"
     if "centre" not in df.columns:
         df["centre"] = ""
 
     for c in ["hectares","avance","report","plt_livres","plt_retour","plt_perdus"]:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-    # Calculer plt_perdus si colonnes prÃƒÂ©sentes
+    # Calculer plt_perdus si colonnes présentes
     if "plt_livres" in df.columns and "plt_retour" in df.columns:
         if "plt_perdus" not in df.columns or df["plt_perdus"].sum() == 0:
             df["plt_perdus"] = df["plt_livres"] - df["plt_retour"]
     df["client"] = df["client"].astype(str).str.strip()
-    # Filtrer : vides, TOTAL, et sÃƒÂ©parateurs "Ã¢â€â‚¬Ã¢â€â‚¬ COMM Ã¢â€â‚¬Ã¢â€â‚¬" gÃƒÂ©nÃƒÂ©rÃƒÂ©s par les fichiers test
+    # Filtrer : vides, TOTAL, et séparateurs "══ COMM ══" générés par les fichiers test
     df = df[~df["client"].str.upper().isin(["","NAN","TOTAL","SOUS-TOTAL"])]
-    df = df[~df["client"].str.startswith("Ã¢â€â‚¬Ã¢â€â‚¬")]
+    df = df[~df["client"].str.startswith("══")]
     df = df[~df["client"].str.startswith("--")]
     df = df[df["client"].str.len() > 2]
-    # S'assurer que commercial est bien prÃƒÂ©sent (depuis "responsable" ou "ingenieur")
+    # S'assurer que commercial est bien présent (depuis "responsable" ou "ingenieur")
     if "commercial" not in df.columns:
         for _try_col in ["responsable","ingenieur","Responsable","Commercial"]:
             if _try_col in df.columns:
@@ -757,14 +757,14 @@ def parse_bourak(file_obj):
 
 def parse_royal(file_obj):
     """
-    ROYAL Ã¢â‚¬â€ Plants livrÃƒÂ©s (PÃƒÂ©piniÃƒÂ¨re)
-    Colonnes OBLIGATOIRES : client Ã‚Â· centre
-    Colonnes attendues    : zone Ã‚Â· variete Ã‚Â· qte_livree Ã‚Â· valeur Ã‚Â·
-                            date_debut_livraison Ã‚Â· date_fin_livraison Ã‚Â·
-                            type_plateau Ã‚Â· nb_plateaux
+    ROYAL — Plants livrés (Pépinière)
+    Colonnes OBLIGATOIRES : client · centre
+    Colonnes attendues    : zone · variete · qte_livree · valeur ·
+                            date_debut_livraison · date_fin_livraison ·
+                            type_plateau · nb_plateaux
 
-    NOTE : date_debut_livraison = date de la 1ÃƒÂ¨re livraison de plants
-           (Ã¢â€°Â  date dÃƒÂ©but rÃƒÂ©colte Ã¢â‚¬â€ celle-ci vient du fichier rectifiÃƒÂ©)
+    NOTE : date_debut_livraison = date de la 1ère livraison de plants
+           (≠ date début récolte — celle-ci vient du fichier rectifié)
     """
     df = _read_auto(file_obj,
          ["client","centre","variete","quantite","date","livraison"])
@@ -781,7 +781,7 @@ def parse_royal(file_obj):
         "date_fin_livraison":   ["date_fin_livraison","date_fin","fin_livraison","fin"],
         "type_plateau":         ["type_plateau","unite","plateau"],
         "nb_plateaux":          ["nb_plateaux","plateaux","qte_plateaux"],
-        # Ã¢â€â‚¬Ã¢â€â‚¬ FIX: capture Ha par variÃƒÂ©tÃƒÂ© depuis Royal Ã¢â€â‚¬Ã¢â€â‚¬
+        # ══ FIX: capture Ha par variété depuis Royal ══
         "ha_royal":             ["ha","hectares","surface","ha_reels","nb_hectares"],
     }
     rename = {}
@@ -792,7 +792,7 @@ def parse_royal(file_obj):
     df = df.rename(columns=rename)
 
     if "client" not in df.columns:
-        return None, "ROYAL Ã¢â‚¬â€ colonne client manquante"
+        return None, "ROYAL — colonne client manquante"
     if "centre" not in df.columns:
         df["centre"] = ""
 
@@ -805,7 +805,7 @@ def parse_royal(file_obj):
 
     df["client"] = df["client"].astype(str).str.strip()
     df = df[~df["client"].str.upper().isin(["","NAN","TOTAL","CLIENT","AGRICULTEUR"])]
-    df = df[~df["client"].str.startswith("Ã¢â€â‚¬Ã¢â€â‚¬")]
+    df = df[~df["client"].str.startswith("══")]
     df = df[~df["client"].str.startswith("--")]
     df = df[df["client"].str.len() > 2]
     return df, ""
@@ -813,9 +813,9 @@ def parse_royal(file_obj):
 
 def parse_sotusfa(file_obj):
     """
-    SOTUSFA Ã¢â‚¬â€ Engrais & Pesticides
-    Colonnes OBLIGATOIRES : client Ã‚Â· centre
-    Colonnes attendues    : famille Ã‚Â· article Ã‚Â· qte Ã‚Â· valeur
+    SOTUSFA — Engrais & Pesticides
+    Colonnes OBLIGATOIRES : client · centre
+    Colonnes attendues    : famille · article · qte · valeur
     """
     df = _read_auto(file_obj,
          ["client","agriculteur","centre","famille","article","valeur"])
@@ -837,7 +837,7 @@ def parse_sotusfa(file_obj):
     df = df.rename(columns=rename)
 
     if "client" not in df.columns:
-        return None, None, "SOTUSFA Ã¢â‚¬â€ colonne client/agriculteur manquante"
+        return None, None, "SOTUSFA — colonne client/agriculteur manquante"
     if "centre" not in df.columns:
         df["centre"] = ""
 
@@ -852,7 +852,7 @@ def parse_sotusfa(file_obj):
         df["famille_norm"] = df["famille"].astype(str).str.strip().str.lower()\
                              .map(FAM_NORM_MAP).fillna("Autre")
 
-    # Pivot par (client + centre) + famille Ã¢â€ â€™ une ligne par client
+    # Pivot par (client + centre) + famille → une ligne par client
     if "famille_norm" in df.columns and "valeur" in df.columns:
         grp_cols = ["client"]
         if "centre" in df.columns:
@@ -876,10 +876,10 @@ def parse_sotusfa(file_obj):
 
 def parse_quantite(file_obj):
     """
-    TABLEAU QUANTITÃƒâ€° Ã¢â‚¬â€ Plan livrÃƒÂ© / actif / extra
-    Colonnes OBLIGATOIRES : client Ã‚Â· centre
-    Colonnes attendues    : qte_livree Ã‚Â· qte_actif Ã‚Â· qte_extra Ã‚Â·
-                            tonnage_livre Ã‚Â· prix_vente
+    TABLEAU QUANTITÉ — Plan livré / actif / extra
+    Colonnes OBLIGATOIRES : client · centre
+    Colonnes attendues    : qte_livree · qte_actif · qte_extra ·
+                            tonnage_livre · prix_vente
     """
     df = _read_auto(file_obj,
          ["client","centre","livree","actif","extra","quantite","tonnage"])
@@ -897,7 +897,7 @@ def parse_quantite(file_obj):
         "prix_vente":   ["prix_vente","prix","prix_unitaire_vente",
                           "prix_vente_dt","prix_t","prix_tonne"],
         "commercial":   ["commercial","responsable","comm","ing"],
-        # NOTE: hectares vient du Bourak Ã¢â‚¬â€ PAS de Quantite (ÃƒÂ©viter conflit de merge)
+        # NOTE: hectares vient du Bourak — PAS de Quantite (éviter conflit de merge)
     }
     rename = {}
     for tgt, cands in MAP.items():
@@ -907,7 +907,7 @@ def parse_quantite(file_obj):
     df = df.rename(columns=rename)
 
     if "client" not in df.columns:
-        return None, "TABLEAU QUANTITÃƒâ€° Ã¢â‚¬â€ colonne client manquante"
+        return None, "TABLEAU QUANTITÉ — colonne client manquante"
     if "centre" not in df.columns:
         df["centre"] = ""
 
@@ -923,8 +923,8 @@ def parse_quantite(file_obj):
 
 def parse_prevision(file_obj, col_name):
     """
-    PrÃƒÂ©vision DÃƒÂ©c ou Mai.
-    Accepte le format rÃƒÂ©el (responsable rÃƒÂ©gion / AGRICULTEUR / TONNAGE)
+    Prévision Déc ou Mai.
+    Accepte le format réel (responsable région / AGRICULTEUR / TONNAGE)
     centre est OPTIONNEL dans ce fichier.
     """
     try:
@@ -949,7 +949,7 @@ def parse_prevision(file_obj, col_name):
 
         # client obligatoire
         if "client" not in df.columns:
-            return None, f"PRÃƒâ€°VISION ({col_name}) Ã¢â‚¬â€ colonne client/AGRICULTEUR manquante"
+            return None, f"PRÉVISION ({col_name}) — colonne client/AGRICULTEUR manquante"
 
         df[col_name] = pd.to_numeric(df.get(col_name, 0), errors="coerce").fillna(0)
         df["client"] = df["client"].astype(str).str.strip()
@@ -961,7 +961,7 @@ def parse_prevision(file_obj, col_name):
              "TOTAL ACHREF AJLANI","TOTAL JILANI OBAY","SOUS-TOTAL"])]
         df = df[df[col_name] > 0]
 
-        # centre optionnel Ã¢â‚¬â€ crÃƒÂ©er vide si absent
+        # centre optionnel — créer vide si absent
         if "centre" not in df.columns:
             df["centre"] = ""
 
@@ -970,19 +970,19 @@ def parse_prevision(file_obj, col_name):
             if extra in df.columns:
                 keep.append(extra)
         df = df[keep]
-        # Ã¢â€ Â CLEF : sommer par client pour ÃƒÂ©viter double comptage
-        # (un agriculteur qui livre ÃƒÂ  2 usines = 2 lignes dans le fichier Ã¢â€ â€™ 1 aprÃƒÂ¨s sum)
+        # — CLEF : sommer par client pour éviter double comptage
+        # (un agriculteur qui livre à 2 usines = 2 lignes dans le fichier → 1 après sum)
         num_cols = [col_name]
         df = df.groupby("client", as_index=False)[num_cols].sum()
-        df["centre"] = ""  # centre non disponible aprÃƒÂ¨s groupby
+        df["centre"] = ""  # centre non disponible après groupby
         return df, ""
     except Exception as e:
         return None, str(e)
 
 
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+# ═══════════════════════════════
 # FUSION ET CALCULS
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+# ═══════════════════════════════
 
 def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
                         df_sotusfa_pivot, df_quantite,
@@ -991,13 +991,13 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     """
     Fusionne les 4 sources sur (client + centre) et calcule tous les indicateurs.
 
-    ClÃƒÂ© de jointure : client + centre (prÃƒÂ©sents dans tous les fichiers)
+    Clé de jointure : client + centre (présents dans tous les fichiers)
 
     df_dates_recolte : DataFrame(agriculteur, date_debut_recolte, affectation_caisse)
                        issu de Supabase plan_rectifie_detail
-                       Ã¢â€¡â€™ dÃƒÂ©termine 1ÃƒÂ¨re/2ÃƒÂ¨me affectation caisses vides
+                       ⇒ détermine 1ère/2ème affectation caisses vides
     """
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Base = BOURAK Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ════════════════════════════════════════ Base = BOURAK ════════════════════════════════════════
     if df_bourak is not None and not df_bourak.empty:
         base = df_bourak.copy()
     elif df_quantite is not None and not df_quantite.empty:
@@ -1018,32 +1018,32 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     if "commercial" not in base.columns:
         base["commercial"] = ""
     base["commercial"] = base["commercial"].fillna("").astype(str).str.strip()
-    # AprÃƒÂ¨s chaque merge outer, prÃƒÂ©server commercial depuis le cÃƒÂ´tÃƒÂ© gauche
+    # Après chaque merge outer, préserver commercial depuis le côté gauche
     _comm_series = base.set_index("client")["commercial"].to_dict() if "client" in base.columns else {}
     # Plateaux depuis Bourak
     for _pc in ["plt_livres","plt_retour","plt_perdus"]:
         if _pc not in base.columns: base[_pc] = 0
         base[_pc] = pd.to_numeric(base[_pc], errors="coerce").fillna(0)
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Merge ROYAL Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ══════════════════════════════════════════ Merge ROYAL ══════════════════════════════════════════
     if df_royal is not None and not df_royal.empty:
         r = _upper(df_royal.copy(), KEY)
-        # Groupby Royal dÃƒÂ©fensif Ã¢â‚¬â€ vÃƒÂ©rifier colonnes avant agg
+        # Groupby Royal défensif — vérifier colonnes avant agg
         _ragg = {}
         if "qte_livree"          in r.columns: _ragg["qte_livree"]          = "sum"
         if "valeur_plants"       in r.columns: _ragg["valeur_plants"]       = "sum"
-        # Ã¢â€â‚¬Ã¢â€â‚¬ FIX: sommer Ha par variÃƒÂ©tÃƒÂ© + nb_plateaux depuis Royal Ã¢â€â‚¬Ã¢â€â‚¬
+        # ══ FIX: sommer Ha par variété + nb_plateaux depuis Royal ══
         if "ha_royal"            in r.columns: _ragg["ha_royal"]            = "sum"
         if "nb_plateaux"         in r.columns: _ragg["nb_plateaux"]         = "sum"
         if "date_debut_livraison"in r.columns: _ragg["date_debut_livraison"]= "min"
         if "date_fin_livraison"  in r.columns: _ragg["date_fin_livraison"]  = "max"
         r_grp_base = r.groupby(KEY).agg(_ragg).reset_index()
-        # Colonnes mode (variete, zone) sÃƒÂ©parÃƒÂ©ment
+        # Colonnes mode (variete, zone) séparément
         for _mc in ["variete","zone"]:
             if _mc in r.columns:
                 _mv = r.groupby(KEY)[_mc].agg(lambda x: x.mode().iloc[0] if len(x.mode())>0 else "").reset_index()
                 r_grp_base = r_grp_base.merge(_mv, on=KEY, how="left")
-        # Renommer pour compatibilitÃƒÂ©
+        # Renommer pour compatibilité
         _rename_r = {"qte_livree":"qte_royal","date_debut_livraison":"date_debut_liv",
                      "date_fin_livraison":"date_fin_liv"}
         r_grp = r_grp_base.rename(columns={k:v for k,v in _rename_r.items() if k in r_grp_base.columns})
@@ -1059,7 +1059,7 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         else:
             r_grp["consigne_plateau"] = 0
         base = base.merge(r_grp, on=KEY, how="outer", suffixes=("","_r"))
-        # RÃƒÂ©soudre conflits _r
+        # Résoudre conflits _r
         for _col_r in [c for c in base.columns if c.endswith("_r")]:
             _col_orig = _col_r[:-2]
             if _col_orig in base.columns:
@@ -1074,8 +1074,8 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         elif _comm_series:
             base["commercial"] = base["client"].map(_comm_series).fillna("")
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Merge dates rÃƒÂ©colte (Supabase) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    # Ã¢Å¡Â Ã¯Â¸Â  La condition caisses vides = date_debut_RECOLTE (pas livraison)
+    # ═══════════════════════ Merge dates récolte (Supabase) ═══════════════════════
+    # ⚠️  La condition caisses vides = date_debut_RECOLTE (pas livraison)
     if df_dates_recolte is not None and not df_dates_recolte.empty:
         dr = df_dates_recolte.copy()
         dr["client"] = dr["agriculteur"].astype(str).str.strip().str.upper()
@@ -1083,21 +1083,21 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             dr[["client","date_debut_recolte","affectation_caisse"]],
             on="client", how="left")
         base["affectation_caisse"] = base["affectation_caisse"].fillna(
-            "2ÃƒÂ¨me (sans caisses)")
+            "2ème (sans caisses)")
     else:
-        base["affectation_caisse"] = "2ÃƒÂ¨me (sans caisses)"
+        base["affectation_caisse"] = "2ème (sans caisses)"
         base["date_debut_recolte"] = pd.NaT
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Merge SOTUSFA Ã¢â‚¬â€ donnÃƒÂ©es rÃƒÂ©elles 2026 en prioritÃƒÂ© Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ════════════ Merge SOTUSFA — données réelles 2026 en priorité ════════════
     def _sot_merge(df_raw, df_pivot, base_df):
         """
-        PrioritÃƒÂ© 1 : Constante _INTRANTS_2026 (donnÃƒÂ©es rÃƒÂ©elles + estimÃƒÂ©es confirmÃƒÂ©es)
-        PrioritÃƒÂ© 2 : Fichier Sotusfa uploadÃƒÂ© (mapping direct + fuzzy)
-        PrioritÃƒÂ© 3 : Distribution ACHREF groupes
+        Priorité 1 : Constante _INTRANTS_2026 (données réelles + estimées confirmées)
+        Priorité 2 : Fichier Sotusfa uploadé (mapping direct + fuzzy)
+        Priorité 3 : Distribution ACHREF groupes
         """
         """
-        1. Map exact client Ã¢â€ â€™ total_intrants depuis Sotusfa
-        2. Fuzzy matching pour les noms lÃƒÂ©gÃƒÂ¨rement diffÃƒÂ©rents
+        1. Map exact client → total_intrants depuis Sotusfa
+        2. Fuzzy matching pour les noms légèrement différents
         3. Distribution proportionnelle pour ACHREF sous-membres
         """
         import re as _re, unicodedata as _uc
@@ -1118,7 +1118,7 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             sc = sum(1 for w in sh if any(lw.startswith(w[:4]) for lw in lo) and len(w) > 2) / max(len(sh), 1) * 0.85
             return max(sj, sc)
 
-        # Groupes ACHREF Ã¢â‚¬â€ noms Sotusfa Ã¢â€ â€™ membres rÃƒÂ©fÃƒÂ©rence (avec tonnages rÃƒÂ©els)
+        # Groupes ACHREF — noms Sotusfa → membres référence (avec tonnages réels)
         ACHREF_GROUPES = {
             _cn("HAFEDH MESBEH"): [
                 "HAFEDH MOSBEH","HAFEDH MOSBEH (ABDELSATER)"],
@@ -1137,7 +1137,7 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
                 "BILEL GHA 1","BILEL GHA 2","BILEL GHA 3","BILEL GHA 4","BILEL KEHIL"],
             _cn("SOUHAIL BOUZENA"): ["SOUHAIL BOUZANA"],
         }
-        # Distribution prÃƒÂ©-calculÃƒÂ©e depuis tonnages rÃƒÂ©els rÃƒÂ©fÃƒÂ©rence ACHREF
+        # Distribution pré-calculée depuis tonnages réels référence ACHREF
         _ACHREF_DIST_PRECOMPUTED = {
             "HAFEDH MOSBEH":                153812,
             "HAFEDH MOSBEH (ABDELSATER)":   235845,
@@ -1177,10 +1177,10 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             src = df_pivot
 
         if src is None:
-            # Pas de Sotusfa uploadÃƒÂ© Ã¢â€ â€™ utiliser uniquement _INTRANTS_2026
+            # Pas de Sotusfa uploadé → utiliser uniquement _INTRANTS_2026
             base_df["total_intrants"] = base_df["client"].apply(
                 lambda x: _INTRANTS_2026.get(_cn(str(x).strip()), 0.0))
-            # Fuzzy fallback pour les non-trouvÃƒÂ©s
+            # Fuzzy fallback pour les non-trouvés
             _int2_keys = list(_INTRANTS_2026.keys())
             def _fuzz_int(x):
                 ck = _cn(str(x).strip())
@@ -1200,7 +1200,7 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         src[_val] = pd.to_numeric(src[_val], errors="coerce").fillna(0)
         sot_agg = src.groupby(_cli)[_val].sum().to_dict()
 
-        # Dict nettoyÃƒÂ©
+        # Dict nettoyé
         sot_clean = {_cn(k): v for k, v in sot_agg.items()}
         sot_keys  = list(sot_clean.keys())
 
@@ -1216,28 +1216,28 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             client_raw = str(row.get("client","")).strip()
             ck = _cn(client_raw)
 
-            # 0. PRIORITÃƒâ€° ABSOLUE : donnÃƒÂ©es rÃƒÂ©elles/estimÃƒÂ©es confirmÃƒÂ©es 2026
+            # 0. PRIORITÉ ABSOLUE : données réelles/estimées confirmées 2026
             if ck in _INTRANTS_2026:
                 result[client_raw] = _INTRANTS_2026[ck]
                 continue
 
-            # 1. Fuzzy sur _INTRANTS_2026 (seuil ÃƒÂ©levÃƒÂ© = confiance)
+            # 1. Fuzzy sur _INTRANTS_2026 (seuil élevé = confiance)
             best_pre = max(_INTRANTS_2026.keys(), key=lambda k: _sco(ck,k), default=None)
             if best_pre and _sco(ck, best_pre) >= 0.70:
                 result[client_raw] = _INTRANTS_2026[best_pre]
                 continue
 
-            # 2. Exact match Sotusfa uploadÃƒÂ©
+            # 2. Exact match Sotusfa uploadé
             if ck in sot_clean:
                 result[client_raw] = sot_clean[ck]
                 continue
 
-            # 2. ACHREF : appartient ÃƒÂ  un groupe Ã¢â€ â€™ distribution proportionnelle
+            # 2. ACHREF : appartient à un groupe → distribution proportionnelle
             assigned = False
             for grp_k, membres in ACHREF_GROUPES.items():
                 membres_cn = [_cn(m) for m in membres]
                 if ck in membres_cn:
-                    # 1. Distribution prÃƒÂ©-calculÃƒÂ©e (basÃƒÂ©e sur tonnages rÃƒÂ©fÃƒÂ©rence ACHREF)
+                    # 1. Distribution pré-calculée (basée sur tonnages référence ACHREF)
                     if ck in _ACHREF_DIST_CN:
                         result[client_raw] = _ACHREF_DIST_CN[ck]
                         assigned = True
@@ -1257,14 +1257,14 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             # 3. Fuzzy match (seuil 0.55)
             best_k = max(sot_keys, key=lambda k: _sco(ck, k), default=None)
             if best_k and _sco(ck, best_k) >= 0.65:
-                # VÃƒÂ©rification supplÃƒÂ©mentaire : les noms sont vraiment proches
+                # Vérification supplémentaire : les noms sont vraiment proches
                 result[client_raw] = sot_clean[best_k]
                 continue
 
-            # 4. Pas trouvÃƒÂ© Ã¢â€ â€™ 0
+            # 4. Pas trouvé → 0
             result[client_raw] = 0.0
 
-        # Ã¢â€â‚¬Ã¢â€â‚¬ Assigner les intrants Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+        # ════════════════════════════════════════ Assigner les intrants ════════════════════════════════════════
         base_df["total_intrants"] = base_df["client"].apply(
             lambda x: result.get(str(x).strip(), 0.0))
 
@@ -1272,7 +1272,7 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
 
     base = _sot_merge(df_sotusfa_raw, df_sotusfa_pivot, base)
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Merge QUANTITÃƒâ€° Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ═══════════════════════════════════════ Merge QUANTITÉ ═══════════════════════════════════════
     if df_quantite is not None and not df_quantite.empty:
         q = _upper(df_quantite.copy(), KEY)
         # Garder seulement les colonnes utiles de Quantite (pas hectares qui vient de Bourak)
@@ -1280,7 +1280,7 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
                    "tonnage_livre","prix_vente","commercial"]
         q = q[[c for c in _q_keep if c in q.columns]]
         base = base.merge(q, on=KEY, how="left", suffixes=("","_q"))
-        # RÃƒÂ©soudre conflits _q (garder valeur Bourak si prÃƒÂ©sente)
+        # Résoudre conflits _q (garder valeur Bourak si présente)
         for _col_q in [c for c in base.columns if c.endswith("_q")]:
             _col_orig = _col_q[:-2]
             if _col_orig in base.columns:
@@ -1289,13 +1289,13 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             else:
                 base = base.rename(columns={_col_q: _col_orig})
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Merge PRÃƒâ€°VISIONS (concordance + fuzzy matching) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ══════ Merge PRÉVISIONS (concordance + fuzzy matching) ══════
     for df_p, col in [(df_prev_dec,"prevision_dec"),
                       (df_prev_mai,"prevision_mai"),
                       (df_prev_juin,"prevision_juin")]:
         if df_p is not None and not df_p.empty and col in df_p.columns:
             p = df_p.copy()
-            # Appliquer concordance sur les noms du fichier prÃƒÂ©vision
+            # Appliquer concordance sur les noms du fichier prévision
             if "client" in p.columns:
                 p["client"] = p["client"].apply(
                     lambda x: _get_concordance_key(x) or x)
@@ -1307,12 +1307,12 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             else:
                 base[col] = np.nan
 
-    # Ã¢â€¢ÂÃ¢â€¢Â CALCULS Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    # ══════════════════════ CALCULS ══════════════════════—
     df = base.copy()
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Plt Retour = Plt LivrÃƒÂ©s par dÃƒÂ©faut Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    # Si plt_retour = 0 (pas encore saisi), on considÃƒÂ¨re
-    # que tous les plateaux ont ÃƒÂ©tÃƒÂ© retournÃƒÂ©s (pertes = 0)
+    # ═════════════════════════ Plt Retour = Plt Livrés par défaut ═════════════════════════
+    # Si plt_retour = 0 (pas encore saisi), on considère
+    # que tous les plateaux ont été retournés (pertes = 0)
     if "plt_livres" in df.columns:
         _plt_l_mc = pd.to_numeric(df["plt_livres"], errors="coerce").fillna(0)
         _plt_r_mc = pd.to_numeric(df.get("plt_retour", 0), errors="coerce").fillna(0)
@@ -1320,7 +1320,7 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         df["plt_perdus"]  = (_plt_l_mc - df["plt_retour"]).clip(lower=0)
 
     def g(col, d=0):
-        """Getter sÃƒÂ©curisÃƒÂ© : retourne toujours une Series, jamais un scalaire."""
+        """Getter sécurisé : retourne toujours une Series, jamais un scalaire."""
         if col in df.columns:
             return pd.to_numeric(df[col], errors="coerce").fillna(d)
         return pd.Series([d] * len(df), index=df.index, dtype=float)
@@ -1342,20 +1342,20 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             df["avance_bourak"].fillna(0) > 0, _av_fb)
     except Exception: pass
     # Charge totale = plants (Royal) + intrants (Sotusfa) + avance (Bourak)
-    # RÃƒË†GLE : ne comptabiliser QUE les donnÃƒÂ©es rÃƒÂ©ellement fournies
+    # RÈGLE : ne comptabiliser QUE les données réellement fournies
     df["charge_totale"] = (
         df["charge_plants"].fillna(0)       # Plants depuis Royal (0 si non fourni)
-        + df["charge_intrants"].fillna(0)   # Intrants depuis Sotusfa (rÃƒÂ©el ou estimÃƒÂ© confirmÃƒÂ©)
+        + df["charge_intrants"].fillna(0)   # Intrants depuis Sotusfa (réel ou estimé confirmé)
         + df["avance_bourak"].fillna(0)     # Avance depuis RECAP (0 si non fourni)
     )
     # Assurer charge_intrants visible en DT dans l'export
     df["intrants_dt"] = df["charge_intrants"].fillna(0)
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ commercial : rÃƒÂ©cupÃƒÂ©rÃƒÂ© depuis Bourak (base) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ═════════════ commercial : récupéré depuis Bourak (base) ═════════════
     # La colonne "commercial" vient de parse_bourak (colonne "responsable")
-    # Elle est dÃƒÂ©jÃƒÂ  dans base depuis le dÃƒÂ©but Ã¢â‚¬â€ on la normalise juste
+    # Elle est déjà dans base depuis le début — on la normalise juste
     if "commercial" not in df.columns:
-        # Pas dans df Ã¢â€ â€™ chercher dans les sources sans merge supplÃƒÂ©mentaire
+        # Pas dans df → chercher dans les sources sans merge supplémentaire
         for _src in [df_bourak, df_quantite]:
             if _src is not None and not _src.empty and "commercial" in _src.columns:
                 _comm_map = (
@@ -1374,17 +1374,17 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         df["commercial"] = ""
     df["commercial"] = df["commercial"].fillna("").astype(str).str.strip()
 
-    # Consigne caisse Ã¢â‚¬â€ PAR USINE (1ÃƒÂ¨re affectation uniquement)
+    # Consigne caisse — PAR USINE (1ère affectation uniquement)
     caisses_par_usine = params.get("caisses_par_usine", {})
     # Fallback global si pas de config par usine
     _px_global  = params.get("prix_caisse", 3.0)
     _nb_global  = params.get("nb_caisses_ha", 80.0)
 
     def _calc_caisse(row):
-        if not str(row.get("affectation_caisse","")).startswith("1ÃƒÂ¨re"):
+        if not str(row.get("affectation_caisse","")).startswith("1ère"):
             return 0.0
         ha = float(row.get("hectares", 0) or 0)
-        # DÃƒÂ©terminer l'usine de l'agriculteur
+        # Déterminer l'usine de l'agriculteur
         usine = str(row.get("usine", row.get("usine_livraison", ""))).upper().strip()
         # Chercher dans les usines connues
         cfg = None
@@ -1399,10 +1399,10 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
 
     df["consigne_caisse"] = df.apply(_calc_caisse, axis=1)
 
-    # DÃƒÂ©tail par usine pour affichage
+    # Détail par usine pour affichage
     def _detail_caisse(row):
-        if not str(row.get("affectation_caisse","")).startswith("1ÃƒÂ¨re"):
-            return "2ÃƒÂ¨me Ã¢â‚¬â€ 0 DT"
+        if not str(row.get("affectation_caisse","")).startswith("1ère"):
+            return "2ème — 0 DT"
         ha = float(row.get("hectares", 0) or 0)
         usine = str(row.get("usine", "")).upper().strip()
         for u_key, cfg in caisses_par_usine.items():
@@ -1410,24 +1410,24 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
                 nb = cfg["nb_ha"]; px = cfg["prix"]
                 total = round(ha * nb * px, 0)
                 nb_caisses = int(ha*nb) if (ha==ha and nb==nb and ha is not None and nb is not None) else 0
-            return f"1ÃƒÂ¨re Ã¢â‚¬â€ {nb_caisses} caisses x {px} DT = {total:,.0f} DT"
+            return f"1ère — {nb_caisses} caisses x {px} DT = {total:,.0f} DT"
         nb = _nb_global; px = _px_global
-        return f"1ÃƒÂ¨re Ã¢â‚¬â€ {int(ha*nb)} caisses Ãƒâ€” {px} DT = {round(ha*nb*px):,.0f} DT"
+        return f"1ère — {int(ha*nb)} caisses × {px} DT = {round(ha*nb*px):,.0f} DT"
 
     df["detail_caisse"] = df.apply(_detail_caisse, axis=1)
 
-    # Ã¢Å“â€¦ FIX: Consigne Plateau TOUJOURS = 0 tant que les retours rÃƒÂ©els
+    # ✅ FIX: Consigne Plateau TOUJOURS = 0 tant que les retours réels
     # ne sont pas saisis (ignore tout cache Supabase)
     df["consigne_plateau"] = pd.Series([0.0]*len(df), index=df.index)
-    # Consigne caisse : 1ÃƒÂ¨re affectation = ha Ãƒâ€” nb_caisses/ha Ãƒâ€” prix_caisse
+    # Consigne caisse : 1ère affectation = ha × nb_caisses/ha × prix_caisse
     # Plants (calcul complet dans la section ci-dessous)
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Plants et Ha (en premier car tout dÃƒÂ©pend de Ha) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    # Ã¢Å“â€¦ FIX: Ha prioritÃƒÂ© ROYAL (somme des Ha par variÃƒÂ©tÃƒÂ©),
+    # ════════════ Plants et Ha (en premier car tout dépend de Ha) ════════════
+    # ✅ FIX: Ha priorité ROYAL (somme des Ha par variété),
     # fallback BOURAK si Royal manquant
     _ha_bourak_v = g("hectares")
     _ha_royal_v  = g("ha_royal") if "ha_royal" in df.columns else pd.Series([0.0]*len(df), index=df.index)
     df["hectares"]        = _ha_royal_v.where(_ha_royal_v > 0, _ha_bourak_v)
-    df["ha_par_variete"]  = _ha_royal_v      # dÃƒÂ©tail Ha par variÃƒÂ©tÃƒÂ© (pour audit)
+    df["ha_par_variete"]  = _ha_royal_v      # détail Ha par variété (pour audit)
     # Enrichir Ha + variete + accessibilite + usine + zone depuis _PREVISION_2026
     # si absent ou 0 dans le fichier Bourak
     if "_ha_from_prev_done" not in dir():
@@ -1464,66 +1464,66 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         if _col_df not in df.columns or df[_col_df].astype(str).str.strip().isin(["","nan"]).all():
             df[_col_df] = df["client"].apply(
                 lambda x: _PREVISION_2026.get(_cn_local(str(x)),{}).get(_col_prev,""))
-    df["qte_livree"]  = g("qte_livree")    # Plants livrÃƒÂ©s
+    df["qte_livree"]  = g("qte_livree")    # Plants livrés
     df["qte_actif"]   = g("qte_actif")     # Plants actifs (pris racine)
     df["qte_extra"]   = g("qte_extra")     # Plants perdus
     df["qte_royal"]   = df["qte_livree"]   # alias
 
     _ha   = df["hectares"].fillna(0)
     _pl   = df["qte_livree"].fillna(0)
-    _ha_s = _ha.where(_ha > 0, np.nan)    # NaN si ha=0 Ã¢â€ â€™ rÃƒÂ©sultats NaNÃ¢â€ â€™0
+    _ha_s = _ha.where(_ha > 0, np.nan)    # NaN si ha=0 → résultats NaN→0
     _pl_s = _pl.where(_pl > 0, np.nan)
 
-    # Taux prise et densitÃƒÂ©
+    # Taux prise et densité
     df["taux_prise"] = np.where(df["qte_livree"]>0,
                          (df["qte_actif"]/df["qte_livree"]*100).round(1), 0)
     df["densite_ha"] = (_pl / _ha_s).fillna(0).round(0)   # plants/ha
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Prix vente Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ══════════════════════════════════════════════════ Prix vente ══════════════════════════════════════════════════
     df["prix_vente"] = g("prix_vente")
     df["prix_vente"] = df["prix_vente"].where(df["prix_vente"]>0,
                         params.get("prix_vente_global", 270))
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Tonnage livrÃƒÂ© et MO rÃƒÂ©colte Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ═════════════════════════════════ Tonnage livré et MO récolte ═════════════════════════════════
     df["tonnage_livre"] = g("tonnage_livre")
     mo = params.get("mo_tonne", MO_TONNE_DEFAULT)
     df["mo_recolte"]    = (df["tonnage_livre"] * mo).round(0)
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Consigne caisse + Caisses Vides Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ════════════════════════════ Consigne caisse + Caisses Vides ════════════════════════════
     _usine = params.get("usine_active", "SICAM")
     _pc = CAISSES_USINE_DEFAULTS.get(_usine, CAISSES_USINE_DEFAULTS.get("SICAM", {}))
     _nb_ha_c   = _pc.get("nb_ha", 80)     # caisses par hectare
     _prix_c    = _pc.get("prix", 3.0)     # prix consigne par caisse
-    _is_1ere   = df["affectation_caisse"].astype(str).str.startswith("1ÃƒÂ¨re")
-    # Nb caisses vides nÃƒÂ©cessaires (pour la rÃƒÂ©colte)
+    _is_1ere   = df["affectation_caisse"].astype(str).str.startswith("1ère")
+    # Nb caisses vides nécessaires (pour la récolte)
     df["nb_caisses_vides"] = np.where(_is_1ere,
         (_ha * _nb_ha_c).round(0), 0)
-    # Consigne caisse = nb_caisses Ãƒâ€” prix_consigne
+    # Consigne caisse = nb_caisses × prix_consigne
     df["consigne_caisse"] = (df["nb_caisses_vides"] * _prix_c).round(0)
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Charges totales Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ═════════════════════════════════════════════ Charges totales ═════════════════════════════════════════════
     charges_totales = (df["charge_totale"].fillna(0)
                      + df["consigne_plateau"].fillna(0)
                      + df["consigne_caisse"].fillna(0)
                      + df["mo_recolte"].fillna(0))
     df["charges_totales"] = charges_totales
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Recouvrement Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ════════════════════════════════════════════════ Recouvrement ════════════════════════════════════════════════
     df["tonnage_recouvrement"] = np.where(df["prix_vente"]>0,
                                   (charges_totales / df["prix_vente"]).round(2), 0)
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Charges ÃƒÂ  recouvrir (= tout ce que l'agri doit rÃƒÂ©cupÃƒÂ©rer) Ã¢â€â‚¬
+    # ══ Charges à recouvrir (= tout ce que l'agri doit récupérer) ═
     df["charge_a_recouvrir"] = (charges_totales + df["report"].fillna(0)).round(0)
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Indicateurs /ha Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ═════════════════════════════════════════════ Indicateurs /ha ═════════════════════════════════════════════
     df["recouvrement_ha"]   = (df["tonnage_recouvrement"] / _ha_s).fillna(0).round(2)
     df["rendement_ha_reel"] = (df["tonnage_livre"]        / _ha_s).fillna(0).round(1)
     df["cout_ha"]           = (df["charge_totale"].fillna(0) / _ha_s).fillna(0).round(0)
     df["cout_plant"]        = (df["charge_totale"].fillna(0) / _pl_s).fillna(0).round(4)
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ PrÃƒÂ©vision Mai Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ═══════════════════════════════════════════════ Prévision Mai ═══════════════════════════════════════════════
     df["prevision_mai"]     = g("prevision_mai")
-    # Fallback PrÃƒÂ©v. Mai: si valeur uploadÃƒÂ©e = 0, utiliser _PREVISION_2026["ton"]
+    # Fallback Prév. Mai: si valeur uploadée = 0, utiliser _PREVISION_2026["ton"]
     _pm_fb = {str(k).strip().upper(): float((v or {}).get("ton", 0) or 0)
               for k, v in _PREVISION_2026.items()}
     _mask_zero = df["prevision_mai"].fillna(0) == 0
@@ -1534,14 +1534,14 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     df["prevision_dec"]     = g("prevision_dec")
     df["prevision_juin"]    = g("prevision_juin")
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Solde et valeur Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ═════════════════════════════════════════════ Solde et valeur ═════════════════════════════════════════════
     df["valeur_livree"] = (df["tonnage_livre"] * df["prix_vente"]).round(0)
     df["ecart_tonnage"] = (df["tonnage_livre"] - df["tonnage_recouvrement"]).round(2)
     df["solde_final"]   = (df["valeur_livree"] - charges_totales
                           - df["report"].fillna(0)).round(0)
     df["report"]        = g("report")
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ IngÃƒÂ©nieur auto si absent Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ════════════════════════════════════ Ingénieur auto si absent ════════════════════════════════════
     if "ingenieur" not in df.columns or df["ingenieur"].fillna("").astype(str).eq("").all():
         df["ingenieur"] = ("ING. " + df["commercial"].astype(str).str[:8]).str.upper()
 
@@ -1555,34 +1555,34 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         recouvr    = row.get("tonnage_recouvrement", 0) or 0
 
         if ecart < -5:
-            return "Ã°Å¸â€Â´ DÃƒâ€°FICIT RECOUVREMENT"
+            return "🔴 DÉFICIT RECOUVREMENT"
         if taux < 85:
-            return "Ã°Å¸â€Â´ PRISE FAIBLE"
+            return "🟡 PRISE FAIBLE"
         if report_v > charge * 0.5:
-            return "Ã°Å¸â€Â´ RISQUE FINANCIER"
+            return "🔴 RISQUE FINANCIER"
         if recouvr > 0 and prev_mai > 0:
             ratio = prev_mai / recouvr
-            if ratio < 0.90: return "Ã°Å¸â€Â´ PRÃƒâ€°VISION INSUFFISANTE"
-            if ratio < 1.00: return "Ã°Å¸Å¸Â¡ ATTENTION"
+            if ratio < 0.90: return "🔴 PRÉVISION INSUFFISANTE"
+            if ratio < 1.00: return "🟡 ATTENTION"
         if ecart >= 0:
-            return "Ã°Å¸Å¸Â¢ OK"
-        return "Ã°Å¸Å¸Â¡ ATTENTION"
+            return "🟢 OK"
+        return "🟡 ATTENTION"
 
     df["alerte"] = df.apply(_alerte, axis=1)
 
-    # Renommer client Ã¢â€ â€™ agriculteur pour affichage
+    # Renommer client → agriculteur pour affichage
     df = df.rename(columns={"client":"agriculteur"})
     return df
 
 
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+# ═══════════════════════════════
 # EXPORT EXCEL
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+# ═══════════════════════════════
 
 def export_excel(df, df_sotusfa_raw=None):
     """
-    Export Excel exact Ã¢â‚¬â€ structure tirÃƒÂ©e du fichier de rÃƒÂ©fÃƒÂ©rence :
-    35 colonnes Ã‚Â· 7 groupes Ã‚Â· 4 feuilles
+    Export Excel exact — structure tirée du fichier de référence :
+    35 colonnes · 7 groupes · 4 feuilles
     """
     from openpyxl import Workbook
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
@@ -1590,7 +1590,7 @@ def export_excel(df, df_sotusfa_raw=None):
     from openpyxl.formatting.rule import ColorScaleRule
     import io as _io, numpy as _np
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ═══════════════════════════════════════════════════ helpers ═══════════════════════════════════════════════════
     def hf(h): return PatternFill("solid", start_color=h, end_color=h)
     def bf(bold=True, white=False, size=10, color="000000"):
         return Font(bold=bold, name="Calibri", size=size,
@@ -1602,32 +1602,32 @@ def export_excel(df, df_sotusfa_raw=None):
     CTR = Alignment(horizontal="center", vertical="center", wrap_text=True)
     LFT = Alignment(horizontal="left",   vertical="center")
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Mapping : nom interne Ã¢â€ â€™ nom affichÃƒÂ© Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    # Ordre : colonnes multiples possibles (prend la premiÃƒÂ¨re trouvÃƒÂ©e)
+    # ═══════════════════════ Mapping : nom interne → nom affiché ═══════════════════════
+    # Ordre : colonnes multiples possibles (prend la première trouvée)
     COL_MAP = {
-        # Nom affichÃƒÂ©          : [noms internes possibles]
+        # Nom affiché          : [noms internes possibles]
         "Agriculteur"         : ["Agriculteur","agriculteur","client"],
         "Commercial"          : ["Commercial","commercial"],
-        "IngÃƒÂ©nieur"           : ["IngÃƒÂ©nieur","ingenieur"],
+        "Ingénieur"           : ["Ingénieur","ingenieur"],
         "Centre"              : ["Centre","centre"],
-        "RÃƒÂ©gion"              : ["RÃƒÂ©gion","region"],
-        "VariÃƒÂ©tÃƒÂ©"             : ["VariÃƒÂ©tÃƒÂ©","variete","variete_prev"],
-        "AccessibilitÃƒÂ©"       : ["AccessibilitÃƒÂ©","acces","accessibilite"],
+        "Région"              : ["Région","region"],
+        "Variété"             : ["Variété","variete","variete_prev"],
+        "Accessibilité"       : ["Accessibilité","acces","accessibilite"],
         "Usine"               : ["Usine","usine","usine_prev"],
         "Zone"                : ["Zone","zone"],
         "Ha"                  : ["Ha","hectares"],
-        "Ha par variÃƒÂ©tÃƒÂ©"      : ["Ha par variÃƒÂ©tÃƒÂ©","ha_par_variete","ha_royal"],
-        "Plants LivrÃƒÂ©s"       : ["Plants LivrÃƒÂ©s","qte_royal"],
+        "Ha par variété"      : ["Ha par variété","ha_par_variete","ha_royal"],
+        "Plants Livrés"       : ["Plants Livrés","qte_royal"],
         "Plants Actifs"       : ["Plants Actifs","qte_actif"],
         "Extra (pertes)"      : ["Extra (pertes)","qte_extra"],
         "Taux prise %"        : ["Taux prise %","taux_prise"],
-        "DensitÃƒÂ©/ha"          : ["DensitÃƒÂ©/ha","densite_ha"],
-        "Plt LivrÃƒÂ©s"          : ["Plt LivrÃƒÂ©s","plt_livres","nb_plateaux"],
+        "Densité/ha"          : ["Densité/ha","densite_ha"],
+        "Plt Livrés"          : ["Plt Livrés","plt_livres","nb_plateaux"],
         "Plt Retour"          : ["Plt Retour","plt_retour"],
         "Plt Perdus"          : ["Plt Perdus","plt_perdus"],
         "Caisses Vides"       : ["Caisses Vides","nb_caisses_vides","nb_caisses","caisses_vides"],
         "Affectation"         : ["Affectation","affectation_caisse"],
-        "DÃƒÂ©b. RÃƒÂ©colte"        : ["DÃƒÂ©b. RÃƒÂ©colte","date_debut_recolte"],
+        "Déb. Récolte"        : ["Déb. Récolte","date_debut_recolte"],
         "Plants (DT)"         : ["Plants (DT)","charge_plants","valeur_plants"],
         "Intrants (DT)"       : ["Intrants (DT)","charge_intrants","total_intrants",
                                "intrants_dt","intrants"],
@@ -1636,44 +1636,44 @@ def export_excel(df, df_sotusfa_raw=None):
         "Consigne Plateau"    : ["Consigne Plateau","consigne_plateau"],
         "Report (DT)"         : ["Report (DT)","report"],
         "Consigne Caisse"     : ["Consigne Caisse","consigne_caisse"],
-        "MO RÃƒÂ©colte (DT)"     : ["MO RÃƒÂ©colte (DT)","mo_recolte"],
-        "Charges ÃƒÂ  recouvrir" : ["Charges ÃƒÂ  recouvrir","charge_a_recouvrir"],
-        "PrÃƒÂ©v. Mai (T)"       : ["PrÃƒÂ©v. Mai (T)","prevision_mai"],
-        "LivrÃƒÂ© (T)"           : ["LivrÃƒÂ© (T)","tonnage_livre"],
+        "MO Récolte (DT)"     : ["MO Récolte (DT)","mo_recolte"],
+        "Charges à recouvrir" : ["Charges à recouvrir","charge_a_recouvrir"],
+        "Prév. Mai (T)"       : ["Prév. Mai (T)","prevision_mai"],
+        "Livré (T)"           : ["Livré (T)","tonnage_livre"],
         "Prix Vente"          : ["Prix Vente","prix_vente"],
         "RECOUVREMENT (T)"    : ["RECOUVREMENT (T)","tonnage_recouvrement"],
         "Recouv./ha"          : ["Recouv./ha","recouvrement_ha"],
-        "Ãƒâ€°cart (T)"           : ["Ãƒâ€°cart (T)","ecart_tonnage"],
-        "T/ha rÃƒÂ©alisÃƒÂ©"        : ["T/ha rÃƒÂ©alisÃƒÂ©","rendement_ha_reel"],
-        "CoÃƒÂ»t/ha"             : ["CoÃƒÂ»t/ha","cout_ha"],
-        "CoÃƒÂ»t/plant"          : ["CoÃƒÂ»t/plant","cout_plant"],
-        "Valeur LivrÃƒÂ©e"       : ["Valeur LivrÃƒÂ©e","valeur_livree"],
+        "Écart (T)"           : ["Écart (T)","ecart_tonnage"],
+        "T/ha réalisé"        : ["T/ha réalisé","rendement_ha_reel"],
+        "Coût/ha"             : ["Coût/ha","cout_ha"],
+        "Coût/plant"          : ["Coût/plant","cout_plant"],
+        "Valeur Livrée"       : ["Valeur Livrée","valeur_livree"],
         "Solde Final"         : ["Solde Final","solde_final"],
         "Alerte"              : ["Alerte","alerte"],
     }
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ Structure EXACTE (groupes Ã¢â€ â€™ colonnes dans l'ordre) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ════════ Structure EXACTE (groupes → colonnes dans l'ordre) ════════
     GROUPES = {
         "IDENTIFICATION": [
-            "Agriculteur","Commercial","IngÃƒÂ©nieur","Centre","RÃƒÂ©gion"],
+            "Agriculteur","Commercial","Ingénieur","Centre","Région"],
         "PLANT": [
-            "VariÃƒÂ©tÃƒÂ©","Ha","Ha par variÃƒÂ©tÃƒÂ©","Plants LivrÃƒÂ©s","Plants Actifs",
-            "Extra (pertes)","Taux prise %","DensitÃƒÂ©/ha"],
+            "Variété","Ha","Ha par variété","Plants Livrés","Plants Actifs",
+            "Extra (pertes)","Taux prise %","Densité/ha"],
         "PLATEAUX": [
-            "Plt LivrÃƒÂ©s","Plt Retour"],
+            "Plt Livrés","Plt Retour"],
         "AFFECTATION CAISSES VIDES": [
-            "Caisses Vides","Affectation","DÃƒÂ©b. RÃƒÂ©colte"],
+            "Caisses Vides","Affectation","Déb. Récolte"],
         "CHARGES (DT)": [
             "Plants (DT)","Intrants (DT)","Avance Bourak (DT)",
             "Charge Totale (DT)","Consigne Plateau","Report (DT)",
-            "Consigne Caisse","MO RÃƒÂ©colte (DT)","Charges ÃƒÂ  recouvrir"],
-        "PRÃƒâ€°VISIONS (T)": [
-            "PrÃƒÂ©v. Mai (T)","LivrÃƒÂ© (T)"],
+            "Consigne Caisse","MO Récolte (DT)","Charges à recouvrir"],
+        "PRÉVISIONS (T)": [
+            "Prév. Mai (T)","Livré (T)"],
         "RECOUVREMENT": [
-            "Prix Vente","RECOUVREMENT (T)","Recouv./ha","Ãƒâ€°cart (T)"],
-        "RÃƒâ€°SULTAT": [
-            "T/ha rÃƒÂ©alisÃƒÂ©","CoÃƒÂ»t/ha","CoÃƒÂ»t/plant",
-            "Valeur LivrÃƒÂ©e","Solde Final","Alerte"],
+            "Prix Vente","RECOUVREMENT (T)","Recouv./ha","Écart (T)"],
+        "RÉSULTAT": [
+            "T/ha réalisé","Coût/ha","Coût/plant",
+            "Valeur Livrée","Solde Final","Alerte"],
     }
     GRP_COLORS = {
         "IDENTIFICATION":            "1F3864",
@@ -1681,26 +1681,26 @@ def export_excel(df, df_sotusfa_raw=None):
         "PLATEAUX":                  "0B4F6C",
         "AFFECTATION CAISSES VIDES": "7B3F00",
         "CHARGES (DT)":              "8B0000",
-        "PRÃƒâ€°VISIONS (T)":            "4A235A",
+        "PRÉVISIONS (T)":            "4A235A",
         "RECOUVREMENT":              "0B3954",
-        "RÃƒâ€°SULTAT":                  "1B4332",
+        "RÉSULTAT":                  "1B4332",
     }
-    # Couleurs spÃƒÂ©ciales par colonne
+    # Couleurs spéciales par colonne
     COL_SUBCOLORS = {
         "Taux prise %": "2D6A4F",
-        "DensitÃƒÂ©/ha":   "1A5C2A",
+        "Densité/ha":   "1A5C2A",
         "Report (DT)":  "6B1212",
     }
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ RÃƒÂ©soudre les valeurs depuis df Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    # Pour chaque nom affichÃƒÂ©, trouver la colonne dans df
+    # ════════════════════════════ Résoudre les valeurs depuis df ════════════════════════════
+    # Pour chaque nom affiché, trouver la colonne dans df
     def resolve(df_, display_name):
         for internal in COL_MAP.get(display_name, [display_name]):
             if internal in df_.columns:
                 return df_[internal]
         return pd.Series([""] * len(df_), index=df_.index)
 
-    # Construire la liste ordonnÃƒÂ©e finale de colonnes ÃƒÂ  afficher
+    # Construire la liste ordonnée finale de colonnes à afficher
     all_display = []
     for grp_cols in GROUPES.values():
         for col_display in grp_cols:
@@ -1708,24 +1708,24 @@ def export_excel(df, df_sotusfa_raw=None):
 
     wb = Workbook()
 
-    # Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-    # FEUILLE 1 Ã¢â‚¬â€ Ã°Å¸â€œÅ  Dashboard
-    # Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    # ══════════════════════════════
+    # FEUILLE 1 — 📊 Dashboard
+    # ══════════════════════════════
     ws = wb.active
-    ws.title = "Ã°Å¸â€œÅ  Dashboard"
+    ws.title = "📊 Dashboard"
     ws.sheet_view.showGridLines = False
 
     ncols = len(all_display)
 
     # Ligne 1 : titre principal
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
-    ws["A1"] = "Ã°Å¸â€œÅ  DASHBOARD AGROÃƒâ€°CONOMIQUE TOMATE 2026 Ã¢â‚¬â€ v2"
+    ws["A1"] = "📊 DASHBOARD AGROÉCONOMIQUE TOMATE 2026 — v2"
     ws["A1"].font = bf(True, True, 13)
     ws["A1"].fill = hf("0a1628")
     ws["A1"].alignment = CTR
     ws.row_dimensions[1].height = 32
 
-    # Ligne 2 : groupes (cellules fusionnÃƒÂ©es)
+    # Ligne 2 : groupes (cellules fusionnées)
     # Ligne 3 : noms colonnes
     col_cursor = 1
     for grp_name, grp_cols in GROUPES.items():
@@ -1740,30 +1740,30 @@ def export_excel(df, df_sotusfa_raw=None):
         g.alignment = CTR; g.border = BDM
 
         for col_display in grp_cols:
-            # Sous-couleur si dÃƒÂ©finie, sinon couleur du groupe
+            # Sous-couleur si définie, sinon couleur du groupe
             sub_c = COL_SUBCOLORS.get(col_display, gc)
             h = ws.cell(3, col_cursor, value=col_display)
             h.font = bf(True, True, 9)
             h.fill = hf(sub_c)
             h.alignment = CTR
             h.border = BD
-            # Largeur colonne adaptÃƒÂ©e
+            # Largeur colonne adaptée
             _w = max(12, len(col_display) + 3)
             if col_display in ("Agriculteur",): _w = 30
-            elif col_display in ("Commercial","IngÃƒÂ©nieur","Centre"): _w = 18
+            elif col_display in ("Commercial","Ingénieur","Centre"): _w = 18
             elif col_display in ("Plants (DT)","Intrants (DT)","Avance Bourak (DT)",
-                                  "Charge Totale (DT)","Charges ÃƒÂ  recouvrir",
-                                  "Consigne Plateau","Consigne Caisse","MO RÃƒÂ©colte (DT)",
+                                  "Charge Totale (DT)","Charges à recouvrir",
+                                  "Consigne Plateau","Consigne Caisse","MO Récolte (DT)",
                                   "Report (DT)"): _w = 17
-            elif col_display in ("RECOUVREMENT (T)","Valeur LivrÃƒÂ©e","Solde Final"): _w = 16
+            elif col_display in ("RECOUVREMENT (T)","Valeur Livrée","Solde Final"): _w = 16
             ws.column_dimensions[get_column_letter(col_cursor)].width = _w
             col_cursor += 1
 
     ws.row_dimensions[2].height = 22
     ws.row_dimensions[3].height = 30
 
-    # Lignes donnÃƒÂ©es
-    ALT_BG = {"Ã°Å¸â€Â´": "FFCDD2", "Ã°Å¸Å¸Â¡": "FFF9C4", "Ã°Å¸Å¸Â¢": "E8F5E9"}
+    # Lignes données
+    ALT_BG = {"🔴": "FFCDD2", "🟡": "FFF9C4", "🟢": "E8F5E9"}
     for ri, (_, row) in enumerate(df.iterrows()):
         r = ri + 4
         alerte_raw = str(resolve(df, "Alerte").iloc[ri] if ri < len(df) else "")
@@ -1780,11 +1780,11 @@ def export_excel(df, df_sotusfa_raw=None):
             c.alignment = LFT if col_display == "Agriculteur" else CTR
             c.font = bf(col_display == "Agriculteur", size=9)
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Style par colonne Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ════════════════════════════════ Style par colonne ════════════════════════════════
             if col_display == "Alerte":
                 c.fill = hf(ALT_BG.get(emoji, row_bg))
                 c.font = bf(True, size=9, color={
-                    "Ã°Å¸â€Â´":"C0392B","Ã°Å¸Å¸Â¡":"D4AC0D","Ã°Å¸Å¸Â¢":"1E8449"}.get(emoji,"000000"))
+                    "🔴":"C0392B","🟡":"D4AC0D","🟢":"1E8449"}.get(emoji,"000000"))
             elif col_display == "Solde Final":
                 try:
                     fv = float(val) if val != "" else 0
@@ -1792,7 +1792,7 @@ def export_excel(df, df_sotusfa_raw=None):
                     c.font = bf(True, size=9, color="1E8449" if fv >= 0 else "C0392B")
                     c.number_format = '+#,##0 "DT";-#,##0 "DT";0'
                 except: c.fill = hf(row_bg)
-            elif col_display == "Ãƒâ€°cart (T)":
+            elif col_display == "Écart (T)":
                 try:
                     fv = float(val) if val != "" else 0
                     c.fill = hf("E8F5E9") if fv >= 0 else hf("FFEBEE")
@@ -1809,12 +1809,12 @@ def export_excel(df, df_sotusfa_raw=None):
                 c.number_format = "0.0"
             else:
                 c.fill = hf(row_bg)
-                # Formats numÃƒÂ©riques
+                # Formats numériques
                 if isinstance(val, (int, float)) and val != "" and not _np.isnan(float(val) if isinstance(val,float) else 0):
-                    if col_display in ("Ha","T/ha rÃƒÂ©alisÃƒÂ©","Recouv./ha","CoÃƒÂ»t/plant"):
+                    if col_display in ("Ha","T/ha réalisé","Recouv./ha","Coût/plant"):
                         c.number_format = "0.00"
-                    elif col_display in ("Plants LivrÃƒÂ©s","Plants Actifs","Extra (pertes)",
-                                          "DensitÃƒÂ©/ha"):
+                    elif col_display in ("Plants Livrés","Plants Actifs","Extra (pertes)",
+                                          "Densité/ha"):
                         c.number_format = "#,##0"
                     elif col_display in ("Prix Vente",):
                         c.number_format = "#,##0.0"
@@ -1825,12 +1825,12 @@ def export_excel(df, df_sotusfa_raw=None):
 
     # Ligne TOTAL
     tr = len(df) + 4
-    SUM_COLS = {"Ha","Plants LivrÃƒÂ©s","Plants Actifs","Extra (pertes)",
+    SUM_COLS = {"Ha","Plants Livrés","Plants Actifs","Extra (pertes)",
                 "Plants (DT)","Intrants (DT)","Avance Bourak (DT)",
                 "Charge Totale (DT)","Consigne Plateau","Report (DT)",
-                "Consigne Caisse","MO RÃƒÂ©colte (DT)","Charges ÃƒÂ  recouvrir",
-                "PrÃƒÂ©v. Mai (T)","LivrÃƒÂ© (T)","RECOUVREMENT (T)",
-                "Ãƒâ€°cart (T)","Valeur LivrÃƒÂ©e","Solde Final"}
+                "Consigne Caisse","MO Récolte (DT)","Charges à recouvrir",
+                "Prév. Mai (T)","Livré (T)","RECOUVREMENT (T)",
+                "Écart (T)","Valeur Livrée","Solde Final"}
     for ci, col_display in enumerate(all_display, 1):
         c = ws.cell(tr, ci)
         c.fill = hf("1F3864"); c.font = bf(True, True, 9)
@@ -1853,24 +1853,24 @@ def export_excel(df, df_sotusfa_raw=None):
                            mid_type="num",   mid_value=90, mid_color="FFF9C4",
                            end_type="num",   end_color="C8E6C9", end_value=97))
     ws.freeze_panes = "A4"
-    # Ã¢Å“â€¦ FIX: filtre automatique sur la ligne d'entÃƒÂªtes
+    # ✅ FIX: filtre automatique sur la ligne d'entêtes
     try:
         _last_col_letter = get_column_letter(len(all_display))
         ws.auto_filter.ref = f"A3:{_last_col_letter}{tr-1}"
     except Exception: pass
 
-    # Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-    # FEUILLE 2 Ã¢â‚¬â€ Ã°Å¸â€˜Â¤ Par IngÃƒÂ©nieur
-    # Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-    ws2 = wb.create_sheet("Ã°Å¸â€˜Â¤ Par IngÃƒÂ©nieur")
+    # ══════════════════════════════
+    # FEUILLE 2 — 👤 Par Ingénieur
+    # ══════════════════════════════
+    ws2 = wb.create_sheet("👤 Par Ingénieur")
     ws2.sheet_view.showGridLines = False
 
-    _ic = next((c for c in ["IngÃƒÂ©nieur","ingenieur"] if c in df.columns), None)
+    _ic = next((c for c in ["Ingénieur","ingenieur"] if c in df.columns), None)
     _cc = next((c for c in ["Centre","centre"]       if c in df.columns), None)
     _ac = next((c for c in ["Agriculteur","agriculteur","client"] if c in df.columns), None)
 
     ws2.merge_cells("A1:L1")
-    ws2["A1"] = "Ã°Å¸â€˜Â¤ SYNTHÃƒË†SE PAR INGÃƒâ€°NIEUR / CENTRE"
+    ws2["A1"] = "👤 SYNTHÈSE PAR INGÉNIEUR / CENTRE"
     ws2["A1"].font = bf(True, True, 12); ws2["A1"].fill = hf("0B4F6C")
     ws2["A1"].alignment = CTR; ws2.row_dimensions[1].height = 30
 
@@ -1879,18 +1879,18 @@ def export_excel(df, df_sotusfa_raw=None):
         _agg = {}
         if _ac: _agg["Agriculteurs"] = (_ac, "count")
         for _nc, _fc in [
-            ("Ha","hectares"),("Plants LivrÃƒÂ©s","qte_royal"),
+            ("Ha","hectares"),("Plants Livrés","qte_royal"),
             ("Plants Actifs","qte_actif"),("Taux prise %","taux_prise"),
-            ("Charge Totale (DT)","charge_totale"),("LivrÃƒÂ© (T)","tonnage_livre"),
-            ("RECOUVREMENT (T)","tonnage_recouvrement"),("Ãƒâ€°cart (T)","ecart_tonnage"),
+            ("Charge Totale (DT)","charge_totale"),("Livré (T)","tonnage_livre"),
+            ("RECOUVREMENT (T)","tonnage_recouvrement"),("Écart (T)","ecart_tonnage"),
         ]:
             _fc_found = next((c for c in [_fc, _nc] if c in df.columns), None)
             if _fc_found:
                 _agg[_nc] = (_fc_found, "mean" if _nc == "Taux prise %" else "sum")
         if "alerte" in df.columns:
-            _agg["Alertes Ã°Å¸â€Â´"] = ("alerte", lambda x: x.str.contains("Ã°Å¸â€Â´", na=False).sum())
+            _agg["Alertes 🔴"] = ("alerte", lambda x: x.str.contains("🔴", na=False).sum())
         elif "Alerte" in df.columns:
-            _agg["Alertes Ã°Å¸â€Â´"] = ("Alerte", lambda x: x.str.contains("Ã°Å¸â€Â´", na=False).sum())
+            _agg["Alertes 🔴"] = ("Alerte", lambda x: x.str.contains("🔴", na=False).sum())
         try:
             _gi = df.groupby(_gk, as_index=False).agg(**_agg).round(1)
         except Exception:
@@ -1915,26 +1915,26 @@ def export_excel(df, df_sotusfa_raw=None):
                     if isinstance(val, (int, float)) and val != "":
                         c.number_format = "0.0" if list(_gi.columns)[ci-1] == "Taux prise %" else "#,##0"
     ws2.freeze_panes = "A3"
-    # Ã¢Å“â€¦ FIX: filtre automatique
+    # ✅ FIX: filtre automatique
     try:
         if not _gi.empty:
             _lcw2 = get_column_letter(len(_gi.columns))
             ws2.auto_filter.ref = f"A2:{_lcw2}{len(_gi)+2}"
     except Exception: pass
 
-    # Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-    # FEUILLE 3 Ã¢â‚¬â€ Ã°Å¸â€œÂ¦ Caisses Vides
-    # Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-    ws3 = wb.create_sheet("Ã°Å¸â€œÂ¦ Caisses Vides")
+    # ══════════════════════════════
+    # FEUILLE 3 — 📦 Caisses Vides
+    # ══════════════════════════════
+    ws3 = wb.create_sheet("📦 Caisses Vides")
     ws3.sheet_view.showGridLines = False
 
     _cv_src = [
         ("Agriculteur",["Agriculteur","agriculteur","client"]),
         ("Centre",     ["Centre","centre"]),
-        ("RÃƒÂ©gion",     ["RÃƒÂ©gion","region"]),
+        ("Région",     ["Région","region"]),
         ("Affectation",["Affectation","affectation_caisse"]),
-        ("DÃƒÂ©tail",     ["detail_caisse"]),
-        ("DÃƒÂ©b. RÃƒÂ©colte",["DÃƒÂ©b. RÃƒÂ©colte","date_debut_recolte"]),
+        ("Détail",     ["detail_caisse"]),
+        ("Déb. Récolte",["Déb. Récolte","date_debut_recolte"]),
         ("Ha",         ["Ha","hectares"]),
         ("Consigne Caisse",  ["Consigne Caisse","consigne_caisse"]),
         ("Consigne Plateau", ["Consigne Plateau","consigne_plateau"]),
@@ -1944,7 +1944,7 @@ def export_excel(df, df_sotusfa_raw=None):
     _cv = [(d, s) for d, s in _cv if s]
 
     ws3.merge_cells(f"A1:{get_column_letter(len(_cv))}1")
-    ws3["A1"] = "Ã°Å¸â€œÂ¦ CAISSES VIDES Ã¢â‚¬â€ Affectations & Consignes"
+    ws3["A1"] = "📦 CAISSES VIDES — Affectations & Consignes"
     ws3["A1"].font = bf(True, True, 12); ws3["A1"].fill = hf("7B3F00")
     ws3["A1"].alignment = CTR; ws3.row_dimensions[1].height = 30
 
@@ -1958,7 +1958,7 @@ def export_excel(df, df_sotusfa_raw=None):
     for ri, (_, row) in enumerate(df.iterrows()):
         r = ri + 3
         aff = str(row.get("affectation_caisse", row.get("Affectation", "")))
-        bg = "FBE9E7" if "1ÃƒÂ¨re" in aff else ("F0F5FF" if ri % 2 == 0 else "FFFFFF")
+        bg = "FBE9E7" if "1ère" in aff else ("F0F5FF" if ri % 2 == 0 else "FFFFFF")
         for ci, (_, src_col) in enumerate(_cv, 1):
             val = row.get(src_col, "")
             if isinstance(val, float) and _np.isnan(val): val = ""
@@ -1967,34 +1967,34 @@ def export_excel(df, df_sotusfa_raw=None):
             if ci == 1: c.alignment = LFT; c.font = bf(True, size=9)
             if isinstance(val, (int, float)) and val != "": c.number_format = "#,##0"
     ws3.freeze_panes = "A3"
-    # Ã¢Å“â€¦ FIX: filtre automatique
+    # ✅ FIX: filtre automatique
     try:
         if ws3.max_row > 2:
             ws3.auto_filter.ref = f"A2:{get_column_letter(ws3.max_column)}{ws3.max_row}"
     except Exception: pass
 
-    # Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-    # FEUILLE 4 Ã¢â‚¬â€ Ã°Å¸â€œË† PrÃƒÂ©visions
-    # Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-    ws4 = wb.create_sheet("Ã°Å¸â€œË† PrÃƒÂ©visions")
+    # ══════════════════════════════
+    # FEUILLE 4 — 📈 Prévisions
+    # ══════════════════════════════
+    ws4 = wb.create_sheet("📈 Prévisions")
     ws4.sheet_view.showGridLines = False
 
     _pv_src = [
         ("Agriculteur",      ["Agriculteur","agriculteur","client"]),
         ("Centre",           ["Centre","centre"]),
-        ("PrÃƒÂ©v. DÃƒÂ©c (T)",    ["PrÃƒÂ©v. DÃƒÂ©c (T)","prevision_dec"]),
-        ("PrÃƒÂ©v. Mai (T)",    ["PrÃƒÂ©v. Mai (T)","prevision_mai"]),
-        ("PrÃƒÂ©v. Juin (T)",   ["PrÃƒÂ©v. Juin (T)","prevision_juin"]),
-        ("LivrÃƒÂ© (T)",        ["LivrÃƒÂ© (T)","tonnage_livre"]),
+        ("Prév. Déc (T)",    ["Prév. Déc (T)","prevision_dec"]),
+        ("Prév. Mai (T)",    ["Prév. Mai (T)","prevision_mai"]),
+        ("Prév. Juin (T)",   ["Prév. Juin (T)","prevision_juin"]),
+        ("Livré (T)",        ["Livré (T)","tonnage_livre"]),
         ("RECOUVREMENT (T)", ["RECOUVREMENT (T)","tonnage_recouvrement"]),
         ("Recouv./ha",       ["Recouv./ha","recouvrement_ha"]),
-        ("Ãƒâ€°cart (T)",        ["Ãƒâ€°cart (T)","ecart_tonnage"]),
+        ("Écart (T)",        ["Écart (T)","ecart_tonnage"]),
     ]
     _pv = [(d, next((c for c in srcs if c in df.columns), None)) for d, srcs in _pv_src]
     _pv = [(d, s) for d, s in _pv if s]
 
     ws4.merge_cells(f"A1:{get_column_letter(len(_pv))}1")
-    ws4["A1"] = "Ã°Å¸â€œË† PRÃƒâ€°VISIONS vs RÃƒâ€°ALISÃƒâ€°"
+    ws4["A1"] = "📈 PRÉVISIONS vs RÉALISÉ"
     ws4["A1"].font = bf(True, True, 12); ws4["A1"].fill = hf("4A235A")
     ws4["A1"].alignment = CTR; ws4.row_dimensions[1].height = 30
 
@@ -2013,7 +2013,7 @@ def export_excel(df, df_sotusfa_raw=None):
             if isinstance(val, float) and _np.isnan(val): val = ""
             c = ws4.cell(r, ci, value=val)
             c.border = BD; c.alignment = CTR; c.font = bf(False, size=9)
-            if disp == "Ãƒâ€°cart (T)" and isinstance(val, (int, float)) and val != "":
+            if disp == "Écart (T)" and isinstance(val, (int, float)) and val != "":
                 try:
                     fv = float(val)
                     c.fill = hf("E8F5E9") if fv >= 0 else hf("FFEBEE")
@@ -2025,7 +2025,7 @@ def export_excel(df, df_sotusfa_raw=None):
                     c.number_format = "0.00" if disp in ("Recouv./ha",) else "#,##0.0"
             if ci <= 2: c.alignment = LFT; c.font = bf(True, size=9)
     ws4.freeze_panes = "A3"
-    # Ã¢Å“â€¦ FIX: filtre automatique
+    # ✅ FIX: filtre automatique
     try:
         if ws4.max_row > 2:
             ws4.auto_filter.ref = f"A2:{get_column_letter(ws4.max_column)}{ws4.max_row}"
@@ -2039,11 +2039,11 @@ def export_excel(df, df_sotusfa_raw=None):
 
 def _get_concordance_key(nom_ref):
     """Trouve le nom canonique correspondant via la table de concordance.
-    La table est dÃƒÂ©finie localement pour ÃƒÂ©viter tout NameError.
+    La table est définie localement pour éviter tout NameError.
     """
     import unicodedata as _uc, re as _re
 
-    # Table de concordance LOCALE (robuste Ã¢â‚¬â€ pas de variable globale requise)
+    # Table de concordance LOCALE (robuste — pas de variable globale requise)
     _CONC = {
         # KHALIL
         "NEJI ZAAFOURI":           "NEGI ZAAFOURI",
@@ -2092,7 +2092,7 @@ def _get_concordance_key(nom_ref):
         "MOUHAMED ALI GHZALA":     "MOHAMED ALI GHZELA",
         "MOUHAMED ALI BELMADHI":   "MOHAMED BEL MADHI",
         "MED MANOUBI":             "MOHAMED MANNOUBI",
-        # ACHREF (centres Ã¢â€ â€™ sous-membres)
+        # ACHREF (centres → sous-membres)
         "ABDELKARIM GARMALLAH":    "KARIM GARMALAH 1",
         "SOCIETE BILEL GHA SERVICE AGRICOLE": "BILEL GHA 1",
         "SEBTI JBALLAH":           "SEBTI JABALI",
@@ -2124,14 +2124,14 @@ def _get_concordance_key(nom_ref):
     for k, v in _CONC.items():
         if k.upper() == nom_up:
             return v
-    # 2. Recherche normalisÃƒÂ©e
+    # 2. Recherche normalisée
     for k, v in _CONC.items():
         if _norm(k) == nom_clean:
             return v
     return None
 
 def _fuzzy_match_clients(df_base, df_prev, col_prev):
-    """Merge fuzzy SANS double comptage. Un prev_key Ã¢â€ â€™ un seul base_key."""
+    """Merge fuzzy SANS double comptage. Un prev_key → un seul base_key."""
     import unicodedata as _uni, re as _re2
 
     def _clean(s):
@@ -2158,14 +2158,14 @@ def _fuzzy_match_clients(df_base, df_prev, col_prev):
     df_base["_km"] = df_base["client"].apply(_clean)
     df_prev["_km"] = df_prev["client"].apply(_clean)
 
-    # AgrÃƒÂ©ger prÃƒÂ©visions par _km (sÃƒÂ©curitÃƒÂ© contre doublons)
+    # Agréger prévisions par _km (sécurité contre doublons)
     prev_agg = df_prev.groupby("_km", as_index=False)[col_prev].sum()
     prev_dict = dict(zip(prev_agg["_km"], prev_agg[col_prev]))
 
     # Merge exact
     result = df_base.merge(prev_agg, on="_km", how="left")
 
-    # Fuzzy pour non-matchÃƒÂ©s (bijectif : chaque prev_key Ã¢â€ â€™ 1 base_key max)
+    # Fuzzy pour non-matchés (bijectif : chaque prev_key → 1 base_key max)
     unmatched_mask = result[col_prev].isna()
     if unmatched_mask.any():
         used_prev = set(result.loc[~unmatched_mask, "_km"].values)
@@ -2188,7 +2188,7 @@ def _fuzzy_match_clients(df_base, df_prev, col_prev):
 
 def _export_excel_table(df, sheet_title="Data",
                         header_text="Export", color_hex="1F3864"):
-    """Excel formatÃƒÂ© attractif pour n'importe quel DataFrame."""
+    """Excel formaté attractif pour n'importe quel DataFrame."""
     from openpyxl import Workbook
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
@@ -2227,20 +2227,20 @@ def _export_excel_table(df, sheet_title="Data",
         ws.column_dimensions[get_column_letter(ci)].width = max(14, len(str(col)) + 4)
     ws.row_dimensions[2].height = 28
     ALERTE_COLORS = {
-        "Ã°Å¸â€Â´":("FFCDD2","C0392B"), "Ã°Å¸Å¸Â¡":("FFF9C4","D4AC0D"),
-        "Ã°Å¸Å¸Â¢":("E8F5E9","1E8449"),
+        "🔴":("FFCDD2","C0392B"), "🟡":("FFF9C4","D4AC0D"),
+        "🟢":("E8F5E9","1E8449"),
     }
-    # DÃƒÂ©tecter colonnes numÃƒÂ©riques
+    # Détecter colonnes numériques
     _num_cols = {col: i+1 for i, col in enumerate(df.columns)
                  if str(df[col].dtype).startswith(("int","float"))}
 
     for ri, (_, row) in enumerate(df.iterrows()):
         r = ri + 3
-        # Couleur ligne selon alerte si prÃƒÂ©sente
+        # Couleur ligne selon alerte si présente
         alerte_val = str(row.get("alerte","")) if "alerte" in df.columns else ""
-        if "Ã°Å¸â€Â´" in alerte_val: row_bg = "FFEBEE"
-        elif "Ã°Å¸Å¸Â¡" in alerte_val: row_bg = "FFF9E6"
-        elif "Ã°Å¸Å¸Â¢" in alerte_val: row_bg = "E8F5E9"
+        if "🔴" in alerte_val: row_bg = "FFEBEE"
+        elif "🟡" in alerte_val: row_bg = "FFF9E6"
+        elif "🟢" in alerte_val: row_bg = "E8F5E9"
         else: row_bg = "F0F5FF" if ri % 2 == 0 else "FFFFFF"
 
         for ci, val in enumerate(row, 1):
@@ -2252,7 +2252,7 @@ def _export_excel_table(df, sheet_title="Data",
             c.alignment = LFT if ci == 1 else CTR
             c.font = bf(ci == 1, size=9)
 
-            # Couleur spÃƒÂ©ciale selon colonne
+            # Couleur spéciale selon colonne
             if col_name == "alerte" and val:
                 for emoji,(bg2,fg2) in ALERTE_COLORS.items():
                     if emoji in str(val):
@@ -2274,7 +2274,7 @@ def _export_excel_table(df, sheet_title="Data",
                 c.fill = hf("E8F5E9" if v>=90 else ("FFF9E6" if v>=85 else "FFEBEE"))
                 c.number_format = "0.0"
             elif col_name == "affectation_caisse":
-                c.fill = hf("FBE9E7") if "1ÃƒÂ¨re" in str(val) else hf("E8F5E9")
+                c.fill = hf("FBE9E7") if "1ère" in str(val) else hf("E8F5E9")
             else:
                 c.fill = hf(row_bg)
 
@@ -2303,7 +2303,7 @@ def _export_excel_table(df, sheet_title="Data",
             ws.cell(tr, ci).number_format = "#,##0"
         ws.row_dimensions[tr].height = 22
     ws.freeze_panes = "A3"
-    # Ã¢Å“â€¦ FIX: filtre automatique
+    # ✅ FIX: filtre automatique
     try:
         if ws.max_row > 2:
             ws.auto_filter.ref = f"A2:{get_column_letter(ws.max_column)}{ws.max_row}"
@@ -2314,12 +2314,12 @@ def _export_excel_table(df, sheet_title="Data",
     return buf.read()
 
 
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-# SESSION PERSISTANCE Ã¢â‚¬â€ Supabase (table agroeco_session)
-# Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+# ═══════════════════════════════
+# SESSION PERSISTANCE — Supabase (table agroeco_session)
+# ═══════════════════════════════
 
 def _df_to_b64(df):
-    """SÃƒÂ©rialise un DataFrame en base64 gzip Ã¢â‚¬â€ robuste."""
+    """Sérialise un DataFrame en base64 gzip — robuste."""
     if df is None: return None
     try:
         if hasattr(df, "empty") and df.empty: return None
@@ -2350,7 +2350,7 @@ def _df_to_b64(df):
 
 
 def _b64_to_df(b64_str):
-    """DÃƒÂ©sÃƒÂ©rialise un DataFrame depuis base64 gzip."""
+    """Désérialise un DataFrame depuis base64 gzip."""
     if not b64_str: return None
     try:
         import gzip as _gz, base64 as _b64mod
@@ -2365,7 +2365,7 @@ def _b64_to_df(b64_str):
 
 
 def save_session_to_supabase(sb, user_name, session_data):
-    """Sauvegarde la session dans Supabase (clÃƒÂ© partagÃƒÂ©e SHARED_2026)."""
+    """Sauvegarde la session dans Supabase (clé partagée SHARED_2026)."""
     if sb is None:
         return False, "Supabase non disponible"
     try:
@@ -2394,7 +2394,7 @@ def save_session_to_supabase(sb, user_name, session_data):
 @st.cache_data(ttl=60, show_spinner=False)
 def load_session_from_supabase(_sb, user_name="SHARED_2026"):
     sb = _sb
-    """Charge la session partagÃƒÂ©e depuis Supabase."""
+    """Charge la session partagée depuis Supabase."""
     if sb is None: return None
     try:
         SHARED_KEY = "SHARED_2026"
@@ -2436,19 +2436,19 @@ def _auto_save(sb, user_name):
             "params":       st.session_state.get("abo_params", {}),
         })
     except Exception:
-        pass  # Silencieux Ã¢â‚¬â€ ne pas bloquer l'UI
+        pass  # Silencieux — ne pas bloquer l'UI
 def render_agroeco_tab(sb=None, CURRENT_ROLE="directeur", CURRENT_NAME=""):
 
     st.markdown("""
 <div style='background:#0a1a0a;border:1px solid #1E8449;border-radius:12px;
 padding:16px 20px;margin-bottom:18px'>
   <div style='font-size:1.05rem;font-weight:700;color:#f0f6fc;margin-bottom:6px'>
-    Ã°Å¸â€œÅ  Dashboard AgroÃƒÂ©conomique Ã¢â‚¬â€ Tomate 2026
+    📊 Dashboard Agroéconomique — Tomate 2026
   </div>
   <div style='font-size:.82rem;color:#8b949e;line-height:1.8'>
-    ClÃƒÂ© de jointure : <b style='color:#FFD700'>client + centre</b> (obligatoires dans tous les fichiers) &nbsp;Ã‚Â·&nbsp;
-    Caisses vides : <b style='color:#FF9800'>date dÃƒÂ©but RÃƒâ€°COLTE</b> (fichier rectifiÃƒÂ© Supabase) &nbsp;Ã‚Â·&nbsp;
-    <b style='color:#ef5350'>Tonnage recouvrement</b> = (Charges + Consignes + MO 50DT/T) ÃƒÂ· Prix vente
+    Clé de jointure : <b style='color:#FFD700'>client + centre</b> (obligatoires dans tous les fichiers) &nbsp;·&nbsp;
+    Caisses vides : <b style='color:#FF9800'>date début RÉCOLTE</b> (fichier rectifié Supabase) &nbsp;·&nbsp;
+    <b style='color:#ef5350'>Tonnage recouvrement</b> = (Charges + Consignes + MO 50DT/T) ÷ Prix vente
   </div>
 </div>""", unsafe_allow_html=True)
 
@@ -2461,10 +2461,10 @@ padding:16px 20px;margin-bottom:18px'>
         if k not in st.session_state:
             st.session_state[k] = None
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ AUTO-RESTAURATION depuis Supabase Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ═══════════════════════ AUTO-RESTAURATION depuis Supabase ═══════════════════════
     _is_admin_role = CURRENT_ROLE.lower() in ("directeur","admin")
     # Non-admins : toujours essayer de charger depuis Supabase (pas de cache)
-    # Sauf si un recalcul forcÃƒÂ© est en cours (_skip_supabase_restore=True)
+    # Sauf si un recalcul forcé est en cours (_skip_supabase_restore=True)
     _skip_restore = st.session_state.get("_skip_supabase_restore", False)
     _should_restore = (
         st.session_state.get("abo_merged") is None and
@@ -2474,7 +2474,7 @@ padding:16px 20px;margin-bottom:18px'>
     )
     if _should_restore:
         st.session_state["abo_session_loaded"] = True
-        with st.spinner("Ã°Å¸â€â€ž Chargement des donnÃƒÂ©es..."):
+        with st.spinner("⏳ Chargement des données..."):
             _saved = load_session_from_supabase(sb)
         _has_any = bool(_saved and (
             _saved.get("merged") is not None or
@@ -2491,27 +2491,27 @@ padding:16px 20px;margin-bottom:18px'>
             if _saved.get("params"):
                 st.session_state["abo_params"] = _saved["params"]
             _ts = str(_saved.get("saved_at",""))[:16].replace("T"," ")
-            st.toast(f"Ã¢Å“â€¦ Session restaurÃƒÂ©e ({_ts})", icon="Ã°Å¸â€â€ž")
+            st.toast(f"✅ Session restaurée ({_ts})", icon="🔄")
 
     t0,t1,t2,t3,t4,t5,t6,t7,t8 = st.tabs([
-        "Ã¢Å¡â„¢Ã¯Â¸Â ParamÃƒÂ¨tres & Import",
-        "Ã°Å¸â€œâ€¹ Par Agriculteur",
-        "Ã°Å¸â€˜Â¤ Par IngÃƒÂ©nieur / Centre",
-        "Ã°Å¸â€”ÂºÃ¯Â¸Â Par RÃƒÂ©gion",
-        "Ã°Å¸Ââ€¦ Par VariÃƒÂ©tÃƒÂ©",
-        "Ã°Å¸â€™Å  Par Famille Intrant",
-        "Ã°Å¸â€œË† PrÃƒÂ©visions vs RÃƒÂ©alisÃƒÂ©",
-        "Ã°Å¸Ââ€  Analyse EfficacitÃƒÂ© Pro",
-        "Ã°Å¸Å¡â€º Plan RÃƒÂ©colte & Transport",
+        "⚙️ Paramètres & Import",
+        "📋 Par Agriculteur",
+        "👤 Par Ingénieur / Centre",
+        "🗺️ Par Région",
+        "🌱 Par Variété",
+        "💊 Par Famille Intrant",
+        "📈 Prévisions vs Réalisé",
+        "📊 Analyse Efficacité Pro",
+        "🚛 Plan Récolte & Transport",
     ])
 
-    # Ã¢â€¢ÂÃ¢â€¢Â TAB 0 Ã¢â‚¬â€ PARAMÃƒË†TRES ET IMPORT Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    # ════════════ TAB 0 — PARAMÈTRES ET IMPORT ════════════
     with t0:
-        # Ã¢â€â‚¬Ã¢â€â‚¬ ContrÃƒÂ´le d'accÃƒÂ¨s : upload rÃƒÂ©servÃƒÂ© au directeur Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+        # ══ Contrôle d'accès : upload réservé au directeur ═══
         _is_admin = (CURRENT_ROLE in ("directeur", "admin"))
 
         if not _is_admin:
-            # Utilisateur non-admin : lecture seule, donnÃƒÂ©es depuis session partagÃƒÂ©e
+            # Utilisateur non-admin : lecture seule, données depuis session partagée
             _role_label = {
                 "commercial": "Commercial",
                 "centre":     "Centre",
@@ -2526,10 +2526,10 @@ padding:16px 20px;margin-bottom:18px'>
                 _name_u = str(CURRENT_NAME or "").strip().upper()
                 _ck_tmp = (_name_u.replace("CENTRE","").strip() or _name_u) if _role_l=="centre" else _name_u
                 _n_filt = len(_df_tmp[_df_tmp["centre"].astype(str).str.upper().str.contains(_ck_tmp,na=False,regex=False)]) if (_role_l=="centre" and "centre" in _df_tmp.columns) else _n_tot
-                st.success(f"Ã¢Å“â€¦ **{_role_label} : {CURRENT_NAME}** Ã¢â‚¬â€ {_n_filt} agriculteurs affichÃƒÂ©s (/{_n_tot} total)")
+                st.success(f"✅ **{_role_label} : {CURRENT_NAME}** — {_n_filt} agriculteurs affichés (/{_n_tot} total)")
                 col_r1, col_r2 = st.columns([3,1])
-                col_r1.info(f"Ã°Å¸â€â€™ Upload rÃƒÂ©servÃƒÂ© ÃƒÂ  l'administrateur Ã‚Â· Filtre : **{_ck_tmp if _role_l in ('centre','commercial') else 'aucun (tout visible)'}**")
-                if col_r2.button("Ã°Å¸â€â€ž RafraÃƒÂ®chir"):
+                col_r1.info(f"🔒 Upload réservé à l'administrateur · Filtre : **{_ck_tmp if _role_l in ('centre','commercial') else 'aucun (tout visible)'}**")
+                if col_r2.button("🔄 Rafraîchir"):
                     if sb:
                         _sd = load_session_from_supabase(sb, "SHARED_2026")
                         if _sd and _sd.get("merged") is not None:
@@ -2543,10 +2543,10 @@ padding:16px 20px;margin-bottom:18px'>
                             st.cache_data.clear()
                             st.rerun()
                         else:
-                            st.warning("Aucune session partagÃƒÂ©e trouvÃƒÂ©e.")
+                            st.warning("Aucune session partagée trouvée.")
             else:
-                st.warning("Ã¢ÂÂ³ En attente des donnÃƒÂ©es Ã¢â‚¬â€ demandez ÃƒÂ  l'administrateur d'importer et sauvegarder les fichiers.")
-                if st.button("Ã°Å¸â€â€ž Essayer de charger depuis Supabase"):
+                st.warning("⏳ En attente des données — demandez à l'administrateur d'importer et sauvegarder les fichiers.")
+                if st.button("🔄 Essayer de charger depuis Supabase"):
                     if sb:
                         _sd = load_session_from_supabase(sb, "SHARED_2026")
                         if _sd and _sd.get("merged") is not None:
@@ -2560,18 +2560,18 @@ padding:16px 20px;margin-bottom:18px'>
                                     st.session_state[_k] = _sd[_sk]
                             st.rerun()
                         else:
-                            st.error("Aucune donnÃƒÂ©e disponible dans Supabase.")
-            # Ã¢â€ Â PAS de return : on continue pour afficher les tabs filtrÃƒÂ©s
+                            st.error("Aucune donnée disponible dans Supabase.")
+            # — PAS de return : on continue pour afficher les tabs filtrés
 
         if _is_admin:
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Bouton recalcul forcÃƒÂ© si donnÃƒÂ©es obsolÃƒÂ¨tes Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-            # Bouton NUCLEAIRE : efface tout et repart de zÃƒÂ©ro
+            # ════════════ Bouton recalcul forcé si données obsolètes ════════════
+            # Bouton NUCLEAIRE : efface tout et repart de zéro
             _c1, _c2 = st.columns([1,2])
             with _c1:
-                if st.button("Ã°Å¸â€”â€˜Ã¯Â¸Â **RESET TOTAL**",
+                if st.button("🗑️ **RESET TOTAL**",
                              type="secondary", key="btn_reset_total",
-                             help="Efface toutes les donnÃƒÂ©es Supabase + cache local + force recalcul"):
-                    # 1. Supprimer la session sauvegardÃƒÂ©e dans Supabase
+                             help="Efface toutes les données Supabase + cache local + force recalcul"):
+                    # 1. Supprimer la session sauvegardée dans Supabase
                     if sb:
                         try:
                             sb.table("shared_sessions").delete().eq(
@@ -2584,36 +2584,36 @@ padding:16px 20px;margin-bottom:18px'>
                                "abo_sotusfa_pivot","abo_quantite","abo_prev_mai",
                                "abo_params"]:
                         st.session_state.pop(_k, None)
-                    # 3. Poser le flag anti-restore pour ÃƒÂ©viter rechargement Supabase
+                    # 3. Poser le flag anti-restore pour éviter rechargement Supabase
                     st.session_state["_skip_supabase_restore"] = True
                     st.cache_data.clear()
-                    st.info("Ã¢Å“â€¦ Cache effacÃƒÂ©. DÃƒÂ©posez vos fichiers et cliquez **Fusionner**.")
+                    st.info("✅ Cache effacé. Déposez vos fichiers et cliquez **Fusionner**.")
                     st.rerun()
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ ParamÃƒÂ¨tres (admin seulement) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-            st.markdown("### Ã¢Å¡â„¢Ã¯Â¸Â ParamÃƒÂ¨tres de calcul")
+            # ═══════════════════════ Paramètres (admin seulement) ═══════════════════════
+            st.markdown("### ⚙️ Paramètres de calcul")
             with st.form("params_form"):
                 pc1,pc2,pc3 = st.columns(3)
                 with pc1:
-                    st.markdown("**Ã°Å¸â€™Â° Prix vente global (DT/tonne)**")
-                    st.caption("UtilisÃƒÂ© si absent du tableau quantitÃƒÂ©")
+                    st.markdown("**💰 Prix vente global (DT/tonne)**")
+                    st.caption("Utilisé si absent du tableau quantité")
                     prix_global = st.number_input("Prix vente DT/T",0.0,1000.0,240.0,10.0,key="px_g")
                 with pc2:
-                    st.markdown("**Ã°Å¸â€Â² Consigne plateaux (DT/plateau)**")
+                    st.markdown("**🌱 Consigne plateaux (DT/plateau)**")
                     p228pvc  = st.number_input("Pltx 228 PVC", 0.0,50.0,2.5,0.1,key="p1")
                     p228poly = st.number_input("Pltx 228 POLY",0.0,50.0,2.0,0.1,key="p2")
                     p160pvc  = st.number_input("Pltx 160 PVC", 0.0,50.0,2.0,0.1,key="p3")
                     p160poly = st.number_input("Pltx 160 POLY",0.0,50.0,1.8,0.1,key="p4")
                 with pc3:
-                    st.markdown("**Ã°Å¸â€œÂ¦ Caisses vides Ã¢â‚¬â€ MO rÃƒÂ©colte**")
-                    mo_tonne = st.number_input("MO rÃƒÂ©colte (DT/T)",0.0,200.0,50.0,5.0,key="mo")
-                    st.caption("Condition caisses : date dÃƒÂ©but RÃƒâ€°COLTE < 10 juil. Ã¢â€ â€™ 1ÃƒÂ¨re affectation")
-                st.form_submit_button("Ã¢Å“â€¦ Appliquer les paramÃƒÂ¨tres", use_container_width=True)
+                    st.markdown("**📦 Caisses vides — MO récolte**")
+                    mo_tonne = st.number_input("MO récolte (DT/T)",0.0,200.0,50.0,5.0,key="mo")
+                    st.caption("Condition caisses : date début RÉCOLTE < 10 juil. → 1ère affectation")
+                st.form_submit_button("✅ Appliquer les paramètres", use_container_width=True)
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Caisses vides PAR USINE Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ═════════════════════════════ Caisses vides PAR USINE ═════════════════════════════
             st.markdown("---")
-            st.markdown("#### Ã°Å¸â€œÂ¦ Caisses vides Ã¢â‚¬â€ ParamÃƒÂ¨tres par usine")
-            st.caption("1ÃƒÂ¨re affectation (dÃƒÂ©but rÃƒÂ©colte < 10 juillet) = caisses facturÃƒÂ©es | 2ÃƒÂ¨me = 0 DT")
+            st.markdown("#### 📦 Caisses vides — Paramètres par usine")
+            st.caption("1ère affectation (début récolte < 10 juillet) = caisses facturées | 2ème = 0 DT")
 
             caisses_par_usine = {}
             _saved_caisses = (st.session_state.get("abo_params") or {}).get("caisses_par_usine", {})
@@ -2641,7 +2641,7 @@ padding:16px 20px;margin-bottom:18px'>
                         value=float(saved_u.get("prix", dft["prix"])),
                         step=0.25, key=f"px_c_{usine}")
                     cout_ha = round(nb_ha * prix_c, 2)
-                    st.caption(f"Ã¢â€ â€™ **{cout_ha:.1f} DT/ha** (1ÃƒÂ¨re affectation)")
+                    st.caption(f"→ **{cout_ha:.1f} DT/ha** (1ère affectation)")
                     caisses_par_usine[usine] = {"nb_ha": nb_ha, "prix": prix_c,
                                                 "type": dft["type"], "cap_kg": dft["cap_kg"]}
 
@@ -2652,7 +2652,7 @@ padding:16px 20px;margin-bottom:18px'>
                     "Pltx 160 PVC":p160pvc,"Pltx 160 POLY":p160poly,
                 },
                 "caisses_par_usine": caisses_par_usine,
-                # RÃƒÂ©trocompat : valeurs globales = moyenne pondÃƒÂ©rÃƒÂ©e SICAM (usine principale)
+                # Rétrocompat : valeurs globales = moyenne pondérée SICAM (usine principale)
                 "prix_caisse":   caisses_par_usine.get("SICAM",{}).get("prix", 3.0),
                 "nb_caisses_ha": caisses_par_usine.get("SICAM",{}).get("nb_ha", 80.0),
                 "mo_tonne":      mo_tonne,
@@ -2660,10 +2660,10 @@ padding:16px 20px;margin-bottom:18px'>
             st.session_state["abo_params"] = params
 
             st.divider()
-            st.markdown("### Ã°Å¸â€œÂ¥ Import fichiers")
+            st.markdown("### 📥 Import fichiers")
             st.markdown("""<div style='background:#161b22;border:1px solid #FFD700;
     border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.85rem'>
-    Ã¢Â­Â <b style='color:#FFD700'>Colonnes OBLIGATOIRES dans tous les fichiers :</b>
+    — <b style='color:#FFD700'>Colonnes OBLIGATOIRES dans tous les fichiers :</b>
     &nbsp;<code>centre</code> &nbsp;+&nbsp; <code>client</code>
     </div>""", unsafe_allow_html=True)
 
@@ -2701,9 +2701,9 @@ padding:16px 20px;margin-bottom:18px'>
             with fi1:
                 st.markdown(f"""<div style='background:#111;border:1px solid #FF9800;
     border-radius:8px;padding:10px 14px;margin-bottom:8px'>
-    <b style='color:#FF9800'>Ã°Å¸Å¡â€º BOURAK</b> Ã¢â‚¬â€ Financement<br>
-    <span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client Ã‚Â· centre</b><br>
-    Attendu : responsable Ã‚Â· ingenieur Ã‚Â· region Ã‚Â· hectares Ã‚Â· avance Ã‚Â· report</span></div>""",
+    <b style='color:#FF9800'>🚛 BOURAK</b> — Financement<br>
+    <span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client · centre</b><br>
+    Attendu : responsable · ingenieur · region · hectares · avance · report</span></div>""",
                     unsafe_allow_html=True)
                 f_b = st.file_uploader("Bourak",type=["xlsx","xls"],
                                         key="up_b",label_visibility="collapsed")
@@ -2715,15 +2715,15 @@ padding:16px 20px;margin-bottom:18px'>
                     else:
                         st.session_state["abo_bourak"] = df_b
                         tot_av = df_b["avance"].sum() if "avance" in df_b.columns else 0
-                        st.success(f"Ã¢Å“â€¦ {len(df_b)} lignes Ã‚Â· {tot_av:,.0f} DT avances")
+                        st.success(f"✅ {len(df_b)} lignes · {tot_av:,.0f} DT avances")
 
             # ROYAL
             with fi2:
                 st.markdown(f"""<div style='background:#111;border:1px solid #9C27B0;
     border-radius:8px;padding:10px 14px;margin-bottom:8px'>
-    <b style='color:#9C27B0'>Ã°Å¸Å’Â± ROYAL</b> Ã¢â‚¬â€ Plants<br>
-    <span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client Ã‚Â· centre</b><br>
-    Attendu : zone Ã‚Â· variete Ã‚Â· qte_livree Ã‚Â· valeur Ã‚Â· <b>date_debut_livraison</b> Ã‚Â· date_fin</span></div>""",
+    <b style='color:#9C27B0'>🌱 ROYAL</b> — Plants<br>
+    <span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client · centre</b><br>
+    Attendu : zone · variete · qte_livree · valeur · <b>date_debut_livraison</b> · date_fin</span></div>""",
                     unsafe_allow_html=True)
                 f_r = st.file_uploader("Royal",type=["xlsx","xls"],
                                         key="up_r",label_visibility="collapsed")
@@ -2732,15 +2732,15 @@ padding:16px 20px;margin-bottom:18px'>
                     if msg: st.error(msg)
                     else:
                         st.session_state["abo_royal"] = df_r
-                        st.success(f"Ã¢Å“â€¦ {len(df_r)} lignes")
+                        st.success(f"✅ {len(df_r)} lignes")
 
             # SOTUSFA
             with fi3:
                 st.markdown(f"""<div style='background:#111;border:1px solid #4CAF50;
     border-radius:8px;padding:10px 14px;margin-bottom:8px'>
-    <b style='color:#4CAF50'>Ã°Å¸Å’Â¿ SOTUSFA</b> Ã¢â‚¬â€ Intrants<br>
-    <span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client Ã‚Â· centre</b><br>
-    Attendu : famille Ã‚Â· article Ã‚Â· qte Ã‚Â· valeur (DAP / fumure / fumier / pest.)</span></div>""",
+    <b style='color:#4CAF50'>🌿 SOTUSFA</b> — Intrants<br>
+    <span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client · centre</b><br>
+    Attendu : famille · article · qte · valeur (DAP / fumure / fumier / pest.)</span></div>""",
                     unsafe_allow_html=True)
                 f_s = st.file_uploader("Sotusfa",type=["xlsx","xls"],
                                         key="up_s",label_visibility="collapsed")
@@ -2751,94 +2751,94 @@ padding:16px 20px;margin-bottom:18px'>
                         st.session_state["abo_sotusfa_raw"]   = df_s_raw
                         st.session_state["abo_sotusfa_pivot"] = df_s_piv
                         tot = df_s_raw["valeur"].sum() if "valeur" in df_s_raw.columns else 0
-                        st.success(f"Ã¢Å“â€¦ {len(df_s_raw)} lignes Ã‚Â· {tot:,.0f} DT")
+                        st.success(f"✅ {len(df_s_raw)} lignes · {tot:,.0f} DT")
 
-            # QUANTITÃƒâ€°
+            # QUANTITÉ
             with fi4:
                 st.markdown(f"""<div style='background:#111;border:1px solid #2196F3;
     border-radius:8px;padding:10px 14px;margin-bottom:8px'>
-    <b style='color:#2196F3'>Ã°Å¸â€œÅ  QUANTITÃƒâ€°</b> Ã¢â‚¬â€ Actif/Extra<br>
-    <span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client Ã‚Â· centre</b><br>
-    Attendu : qte_livree Ã‚Â· qte_actif Ã‚Â· qte_extra Ã‚Â· tonnage_livre Ã‚Â· prix_vente</span></div>""",
+    <b style='color:#2196F3'>📊 QUANTITÉ</b> — Actif/Extra<br>
+    <span style='font-size:.78rem;color:#aaa'>Obligatoire : <b>client · centre</b><br>
+    Attendu : qte_livree · qte_actif · qte_extra · tonnage_livre · prix_vente</span></div>""",
                     unsafe_allow_html=True)
-                f_q = st.file_uploader("QuantitÃƒÂ©",type=["xlsx","xls"],
+                f_q = st.file_uploader("Quantité",type=["xlsx","xls"],
                                         key="up_q",label_visibility="collapsed")
                 if f_q:
                     df_q, msg = parse_quantite(f_q)
                     if msg: st.error(msg)
                     else:
                         st.session_state["abo_quantite"] = df_q
-                        st.success(f"Ã¢Å“â€¦ {len(df_q)} agriculteurs")
+                        st.success(f"✅ {len(df_q)} agriculteurs")
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ PrÃƒÂ©visions Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ════════════════════════════════════════ Prévisions ════════════════════════════════════════
             st.divider()
-            st.markdown("### Ã°Å¸â€œâ€¦ PrÃƒÂ©visions tonnage")
+            st.markdown("### 📅 Prévisions tonnage")
             pv1,pv2,pv3 = st.columns(3)
             with pv1:
-                f_dec = st.file_uploader("Ã°Å¸â€œâ€¹ PrÃƒÂ©vision DÃƒÂ©cembre",
+                f_dec = st.file_uploader("📋 Prévision Décembre",
                                           type=["xlsx","xls"],key="up_dec")
                 if f_dec:
                     df_d, msg = parse_prevision(f_dec, "prevision_dec")
                     if msg:
-                        st.warning(f"Ã¢Å¡Â Ã¯Â¸Â DÃƒÂ©c (non bloquant): {msg}")
-                        # Essayer quand mÃƒÂªme avec ce qu'on a
+                        st.warning(f"⚠️ Déc (non bloquant): {msg}")
+                        # Essayer quand même avec ce qu'on a
                         if df_d is not None and not df_d.empty:
                             st.session_state["abo_prev_dec"] = df_d
-                            st.success(f"Ã¢Å“â€¦ DÃƒÂ©c chargÃƒÂ© malgrÃƒÂ© avertissement: {df_d['prevision_dec'].sum():,.0f} T")
+                            st.success(f"✅ Déc chargé malgré avertissement: {df_d['prevision_dec'].sum():,.0f} T")
                     elif df_d is not None and not df_d.empty:
                         st.session_state["abo_prev_dec"] = df_d
-                        st.success(f"Ã¢Å“â€¦ DÃƒÂ©c: {df_d['prevision_dec'].sum():,.0f} T")
+                        st.success(f"✅ Déc: {df_d['prevision_dec'].sum():,.0f} T")
             with pv2:
-                f_mai = st.file_uploader("Ã°Å¸â€œâ€¹ PrÃƒÂ©vision Mai",
+                f_mai = st.file_uploader("📋 Prévision Mai",
                                           type=["xlsx","xls"],key="up_mai")
                 if f_mai:
                     df_m, msg = parse_prevision(f_mai, "prevision_mai")
                     if msg:
-                        st.warning(f"Ã¢Å¡Â Ã¯Â¸Â Mai (non bloquant): {msg}")
+                        st.warning(f"⚠️ Mai (non bloquant): {msg}")
                         if df_m is not None and not df_m.empty:
                             st.session_state["abo_prev_mai"] = df_m
-                            st.success(f"Ã¢Å“â€¦ Mai chargÃƒÂ© malgrÃƒÂ© avertissement: {df_m['prevision_mai'].sum():,.0f} T")
+                            st.success(f"✅ Mai chargé malgré avertissement: {df_m['prevision_mai'].sum():,.0f} T")
                     elif df_m is not None and not df_m.empty:
                         st.session_state["abo_prev_mai"] = df_m
-                        st.success(f"Ã¢Å“â€¦ Mai: {df_m['prevision_mai'].sum():,.0f} T")
+                        st.success(f"✅ Mai: {df_m['prevision_mai'].sum():,.0f} T")
             with pv3:
-                st.markdown("**Ã¢ËœÂÃ¯Â¸Â Juin Ã¢â‚¬â€ Supabase (fichier rectifiÃƒÂ©)**")
+                st.markdown("**📅 Juin — Supabase (fichier rectifié)**")
                 c1,c2 = st.columns(2)
                 with c1:
-                    if st.button("Ã°Å¸â€â€ž Charger Juin", use_container_width=True):
+                    if st.button("📅 Charger Juin", use_container_width=True):
                         df_j = load_prevision_juin(sb)
                         if not df_j.empty:
                             st.session_state["abo_prev_juin"] = df_j
-                            st.success(f"Ã¢Å“â€¦ {df_j['prevision_juin'].sum():,.0f} T")
+                            st.success(f"✅ {df_j['prevision_juin'].sum():,.0f} T")
                         else:
-                            st.warning("Aucune donnÃƒÂ©e Juin")
+                            st.warning("Aucune donnée Juin")
                 with c2:
-                    if st.button("Ã°Å¸â€â€ž Dates rÃƒÂ©colte", use_container_width=True):
+                    if st.button("📅 Dates récolte", use_container_width=True):
                         df_dr = load_date_debut_recolte(sb)
                         if not df_dr.empty:
                             st.session_state["abo_dates_recolte"] = df_dr
-                            n1 = (df_dr["affectation_caisse"].str.startswith("1ÃƒÂ¨re")).sum()
-                            st.success(f"Ã¢Å“â€¦ {n1} agriculteurs 1ÃƒÂ¨re affectation")
+                            n1 = (df_dr["affectation_caisse"].str.startswith("1ère")).sum()
+                            st.success(f"✅ {n1} agriculteurs 1ère affectation")
                         else:
-                            st.warning("Aucune date rÃƒÂ©colte")
+                            st.warning("Aucune date récolte")
 
             # Statut caisses vides
             dr = st.session_state.get("abo_dates_recolte")
             if dr is not None and not dr.empty:
-                n1 = (dr["affectation_caisse"].str.startswith("1ÃƒÂ¨re")).sum()
+                n1 = (dr["affectation_caisse"].str.startswith("1ère")).sum()
                 n2 = len(dr) - n1
-                st.info(f"Ã°Å¸â€œÂ¦ Caisses vides Ã¢â‚¬â€ **1ÃƒÂ¨re affectation** (< 10 juil.) : {n1} agriculteurs Ã‚Â· "
-                        f"**2ÃƒÂ¨me** (Ã¢â€°Â¥ 10 juil.) : {n2} agriculteurs")
+                st.info(f"📦 Caisses vides — **1ère affectation** (< 10 juil.) : {n1} agriculteurs · "
+                        f"**2ème** (≥ 10 juil.) : {n2} agriculteurs")
             else:
-                st.warning("Ã¢Å¡Â Ã¯Â¸Â Dates de rÃƒÂ©colte non chargÃƒÂ©es Ã¢â€ â€™ tous les agriculteurs "
-                           "seront mis en 2ÃƒÂ¨me affectation (sans caisses vides). "
-                           "Cliquez 'Ã°Å¸â€â€ž Dates rÃƒÂ©colte' ci-dessus.")
+                st.warning("⚠️ Dates de récolte non chargées → tous les agriculteurs "
+                           "seront mis en 2ème affectation (sans caisses vides). "
+                           "Cliquez '📅 Dates récolte' ci-dessus.")
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Fusionner Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ══════════════════════════════════════════ Fusionner ══════════════════════════════════════════
             st.divider()
-            if st.button("Ã°Å¸â€â€” Fusionner et calculer",
+            if st.button("🔗 Fusionner et calculer",
                          type="primary",use_container_width=True):
-                with st.spinner("Calcul en coursÃ¢â‚¬Â¦"):
+                with st.spinner("Calcul en cours…"):
                     df_merged = merge_and_calculate(
                         st.session_state.get("abo_bourak"),
                         st.session_state.get("abo_royal"),
@@ -2852,14 +2852,14 @@ padding:16px 20px;margin-bottom:18px'>
                         st.session_state["abo_params"],
                     )
                 if df_merged.empty:
-                    st.error("Ã¢ÂÅ’ Aucune donnÃƒÂ©e fusionnÃƒÂ©e Ã¢â‚¬â€ vÃƒÂ©rifiez les fichiers.")
+                    st.error("⚠️ Aucune donnée fusionnée — vérifiez les fichiers.")
                 else:
                     st.session_state["abo_merged"] = df_merged
-                    n_r = (df_merged["alerte"].str.contains("Ã°Å¸â€Â´")).sum()
-                    n_y = (df_merged["alerte"].str.contains("Ã°Å¸Å¸Â¡")).sum()
-                    n_g = (df_merged["alerte"].str.contains("Ã°Å¸Å¸Â¢")).sum()
+                    n_r = (df_merged["alerte"].str.contains("🔴")).sum()
+                    n_y = (df_merged["alerte"].str.contains("🟡")).sum()
+                    n_g = (df_merged["alerte"].str.contains("🟢")).sum()
 
-                    # Ã¢â€â‚¬Ã¢â€â‚¬ AUTO-SAVE dans Supabase (session partagÃƒÂ©e) Ã¢â€â‚¬Ã¢â€â‚¬
+                    # ══ AUTO-SAVE dans Supabase (session partagée) ══
                     _save_ok = False
                     if sb is not None:
                         try:
@@ -2876,26 +2876,26 @@ padding:16px 20px;margin-bottom:18px'>
                                 })
                         except Exception as _se:
                             _save_ok = False; _save_err = str(_se)
-                    _save_icon = "Ã°Å¸â€™Â¾ sauvegardÃƒÂ© auto" if _save_ok else "Ã¢Å¡Â Ã¯Â¸Â non sauvegardÃƒÂ©"
+                    _save_icon = "💾 sauvegardé auto" if _save_ok else "⚠️ non sauvegardé"
 
                     st.success(
-                        f"Ã¢Å“â€¦ {len(df_merged)} agriculteurs Ã‚Â· "
-                        f"Ã°Å¸â€Â´ {n_r} critiques Ã‚Â· Ã°Å¸Å¸Â¡ {n_y} attention Ã‚Â· Ã°Å¸Å¸Â¢ {n_g} OK Ã‚Â· {_save_icon}")
+                        f"✅ {len(df_merged)} agriculteurs · "
+                        f"🔴 {n_r} critiques · 🟡 {n_y} attention · 🟢 {n_g} OK · {_save_icon}")
 
                     if not _save_ok and sb is not None:
-                        st.warning(f"Ã¢Å¡Â Ã¯Â¸Â Sauvegarde ÃƒÂ©chouÃƒÂ©e : **{_save_err}**")
+                        st.warning(f"⚠️ Sauvegarde échouée : **{_save_err}**")
 
                     xl = export_excel(df_merged, st.session_state.get("abo_sotusfa_raw"))
                     st.download_button(
-                        "Ã°Å¸â€œÂ¥ TÃƒÂ©lÃƒÂ©charger Excel complet (4 feuilles)",
+                        "📥 Télécharger Excel complet (4 feuilles)",
                         data=xl,
                         file_name="dashboard_agroeco_2026.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True)
 
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ DonnÃƒÂ©es fusionnÃƒÂ©es Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    # Ã¢â€â‚¬Ã¢â€â‚¬ df filtrÃƒÂ© selon le rÃƒÂ´le de l'utilisateur Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # ═══════════════════════════════════ Données fusionnées ═══════════════════════════════════
+    # ══════════════════ df filtré selon le rôle de l'utilisateur ══════════════════
     _df_all = st.session_state.get("abo_merged")
     _role_l = CURRENT_ROLE.lower() if CURRENT_ROLE else "directeur"
     _name_u = str(CURRENT_NAME).strip().upper()
@@ -2907,18 +2907,18 @@ padding:16px 20px;margin-bottom:18px'>
                 df = df[df["commercial"].astype(str).str.upper()
                         .str.contains(_name_u, na=False, regex=False)]
         elif _role_l == "centre":
-            # kerkouane Ã¢â€ â€™ "KERKOUANE", baccara Ã¢â€ â€™ "BACCARA", centre428 Ã¢â€ â€™ "428"
+            # kerkouane → "KERKOUANE", baccara → "BACCARA", centre428 → "428"
             _ck = (_name_u.replace("CENTRE","").strip() or _name_u)
             if "centre" in df.columns:
                 df = df[df["centre"].astype(str).str.upper()
                         .str.contains(_ck, na=False, regex=False)]
-        # directeur / admin / usine Ã¢â€ â€™ voient tout
+        # directeur / admin / usine → voient tout
     else:
         df = _df_all  # None ou vide
 
 
-    # Ã¢â€¢ÂÃ¢â€¢Â POST-PROCESSING : Appliquer _INTRANTS_2026 et _PREVISION_2026 Ã¢â€¢ÂÃ¢â€¢Â
-    # Cette ÃƒÂ©tape garantit les donnÃƒÂ©es rÃƒÂ©elles mÃƒÂªme avec un cache Supabase ancien
+    # ═ POST-PROCESSING : Appliquer _INTRANTS_2026 et _PREVISION_2026 ═
+    # Cette étape garantit les données réelles même avec un cache Supabase ancien
     import re as _re_pp, unicodedata as _uc_pp
     def _cn_pp(n):
         n = str(n).strip().upper()
@@ -2953,90 +2953,90 @@ padding:16px 20px;margin-bottom:18px'>
                 best = max(_prv_keys, key=lambda k: _sco_pp(ck,k), default=None)
                 return _PREVISION_2026[best].get(key,"") if best and _sco_pp(ck,best)>=0.65 else ""
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Intrants : calcul depuis _INTRANTS_2026 Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ════════════════ Intrants : calcul depuis _INTRANTS_2026 ════════════════
             _int_series = df[_agri_col].apply(_get_intrant)
             _mask_int   = _int_series.notna()
-            # Mettre ÃƒÂ  jour TOUTES les colonnes intrants (interne + affichage)
+            # Mettre à jour TOUTES les colonnes intrants (interne + affichage)
             if "charge_intrants" not in df.columns:
                 df["charge_intrants"] = 0.0
             df.loc[_mask_int, "charge_intrants"] = _int_series[_mask_int].astype(float)
-            # Mettre ÃƒÂ  jour la colonne affichÃƒÂ©e "Intrants (DT)" directement
+            # Mettre à jour la colonne affichée "Intrants (DT)" directement
             _int_display_col = next((c for c in df.columns
                                     if c.strip().lower() in ["intrants (dt)","intrants(dt)"]), None)
             if _int_display_col:
                 df.loc[_mask_int, _int_display_col] = _int_series[_mask_int].astype(float)
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Recalculer Charge Totale avec intrants rÃƒÂ©els Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ════════════ Recalculer Charge Totale avec intrants réels ════════════
             _cp_col  = next((c for c in df.columns if c.strip().lower() in ["plants (dt)","charge_plants","plants(dt)"]), None)
             _plants  = pd.to_numeric(df[_cp_col], errors="coerce").fillna(0) if _cp_col else pd.Series([0]*len(df), index=df.index, dtype=float)
-            # Lire les intrants depuis charge_intrants (DÃƒâ€°JÃƒâ‚¬ mis ÃƒÂ  jour par _INTRANTS_2026)
+            # Lire les intrants depuis charge_intrants (DÉJÀ mis à jour par _INTRANTS_2026)
             _intrant = pd.to_numeric(df["charge_intrants"], errors="coerce").fillna(0)
             _av_col  = next((c for c in df.columns if c.strip().lower() in ["avance bourak (dt)","avance_bourak","avance bourak"]), None)
             _avance  = pd.to_numeric(df[_av_col], errors="coerce").fillna(0) if _av_col else pd.Series([0]*len(df), index=df.index, dtype=float)
             df["charge_totale"]  = (_plants + _intrant + _avance).round(0)
-            # Mettre ÃƒÂ  jour la colonne affichÃƒÂ©e
+            # Mettre à jour la colonne affichée
             _ct_col = next((c for c in df.columns if c.strip().lower() in ["charge totale (dt)","charge_totale"]), None)
             if _ct_col: df[_ct_col] = df["charge_totale"]
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Prix vente (dÃƒÂ©faut 270) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ═════════════════════════════════ Prix vente (défaut 270) ═════════════════════════════════
             _pv_col = next((c for c in df.columns if c.strip().lower() in ["prix vente","prix_vente"]), None)
             _pv = pd.to_numeric(df[_pv_col], errors="coerce").fillna(270) if _pv_col else pd.Series([270.0]*len(df), index=df.index, dtype=float)
             _pv = _pv.where(_pv>0, 270)
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Recalculer Charges totales (avec consignes et MO) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-            # Consigne Plateau = 0 (donnÃƒÂ©es non encore saisies Ã¢â‚¬â€ dÃƒÂ©calage plateaux pris/retournÃƒÂ©s)
+            # ══════ Recalculer Charges totales (avec consignes et MO) ══════
+            # Consigne Plateau = 0 (données non encore saisies — décalage plateaux pris/retournés)
             _cons_plt = pd.Series([0]*len(df), index=df.index, dtype=float)
             if "consigne_plateau" in df.columns:
                 _cons_plt_raw = pd.to_numeric(df["consigne_plateau"], errors="coerce").fillna(0)
-                # Ne garder que si la valeur vient d'une vraie saisie (pas calculÃƒÂ©e)
-                # Pour l'instant = 0 jusqu'ÃƒÂ  rÃƒÂ©ception des donnÃƒÂ©es
+                # Ne garder que si la valeur vient d'une vraie saisie (pas calculée)
+                # Pour l'instant = 0 jusqu'à réception des données
                 _cons_plt = pd.Series([0]*len(df), index=df.index, dtype=float)
             _cc_col  = next((c for c in df.columns if c.strip().lower() in ["consigne caisse","consigne_caisse"]), None)
-            _mo_col  = next((c for c in df.columns if c.strip().lower() in ["mo rÃƒÂ©colte (dt)","mo recolte (dt)","mo_recolte"]), None)
+            _mo_col  = next((c for c in df.columns if c.strip().lower() in ["mo récolte (dt)","mo recolte (dt)","mo_recolte"]), None)
             _rp_col  = next((c for c in df.columns if c.strip().lower() in ["report (dt)","report_dt","report"]), None)
             _cons_c  = pd.to_numeric(df[_cc_col], errors="coerce").fillna(0) if _cc_col else pd.Series([0]*len(df), index=df.index, dtype=float)
             _mo      = pd.to_numeric(df[_mo_col], errors="coerce").fillna(0) if _mo_col else pd.Series([0]*len(df), index=df.index, dtype=float)
             _rep     = pd.to_numeric(df[_rp_col], errors="coerce").fillna(0) if _rp_col else pd.Series([0]*len(df), index=df.index, dtype=float)
-            # Charges totales RÃƒâ€°ELLES = charge_totale + consigne_caisse + MO
-            # NOTE: consigne_plateau = 0 (donnÃƒÂ©es non fournies)
+            # Charges totales RÉELLES = charge_totale + consigne_caisse + MO
+            # NOTE: consigne_plateau = 0 (données non fournies)
             _charges_tot = df["charge_totale"] + _cons_c + _mo
             df["charges_totales"]     = _charges_tot.round(0)
             df["charge_a_recouvrir"]  = (_charges_tot + _rep).round(0)
             df["tonnage_recouvrement"]= (_charges_tot / _pv.where(_pv>0,1)).round(2)
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Recalculer Solde, Valeur, Ãƒâ€°cart Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ════════════════════════ Recalculer Solde, Valeur, Écart ════════════════════════
             _ton_col = next((c for c in df.columns
-                            if c.strip().lower() in ["livrÃƒÂ© (t)","livre_t","tonnage_livre",
-                                                      "livrÃƒÂ© t","livret","livrÃƒÂ©(t)"]), None)
+                            if c.strip().lower() in ["livré (t)","livre_t","tonnage_livre",
+                                                      "livré t","livret","livré(t)"]), None)
             _ton_livr = pd.to_numeric(df[_ton_col], errors="coerce").fillna(0) if _ton_col else pd.Series([0]*len(df), index=df.index, dtype=float)
             df["valeur_livree"] = (_ton_livr * _pv).round(0)
             df["ecart_tonnage"] = (_ton_livr - df["tonnage_recouvrement"]).round(2)
             df["solde_final"]   = (df["valeur_livree"] - _charges_tot - _rep).round(0)
-            # Synchroniser toutes les colonnes affichÃƒÂ©es avec les valeurs calculÃƒÂ©es
+            # Synchroniser toutes les colonnes affichées avec les valeurs calculées
             _col_sync = {
                 "Charge Totale (DT)":     "charge_totale",
                 "Intrants (DT)":          "charge_intrants",
-                "Charges ÃƒÂ  recouvrir":    "charge_a_recouvrir",
+                "Charges à recouvrir":    "charge_a_recouvrir",
                 "RECOUVREMENT (T)":       "tonnage_recouvrement",
                 "Recouv./ha":             "recouvrement_ha",
-                "Valeur LivrÃƒÂ©e":          "valeur_livree",
+                "Valeur Livrée":          "valeur_livree",
                 "Solde Final":            "solde_final",
-                "Ãƒâ€°cart (T)":             "ecart_tonnage",
-                "CoÃƒÂ»t/ha":                "cout_ha",
-                "CoÃƒÂ»t/plant":             "cout_plant",
-                "DensitÃƒÂ©/ha":             "densite_ha",
-                "T/ha rÃƒÂ©alisÃƒÂ©":           "rendement_ha_reel",
-                "Plants LivrÃƒÂ©s":          "_plants_display",
-                "DÃƒÂ©b. RÃƒÂ©colte":           "date_debut_recolte",
+                "Écart (T)":             "ecart_tonnage",
+                "Coût/ha":                "cout_ha",
+                "Coût/plant":             "cout_plant",
+                "Densité/ha":             "densite_ha",
+                "T/ha réalisé":           "rendement_ha_reel",
+                "Plants Livrés":          "_plants_display",
+                "Déb. Récolte":           "date_debut_recolte",
             }
-            # Mettre ÃƒÂ  jour Plants LivrÃƒÂ©s affichÃƒÂ© depuis plt_livres rÃƒÂ©els
+            # Mettre à jour Plants Livrés affiché depuis plt_livres réels
             if "_pl_from_plt" in dir():
                 df["_plants_display"] = _pl_from_plt.round(0)
             else:
                 df["_plants_display"] = pd.Series([0]*len(df), index=df.index, dtype=float)
-            # PrÃƒÂ©v. Mai = 0 (donnÃƒÂ©es mensuelles non disponibles)
+            # Prév. Mai = 0 (données mensuelles non disponibles)
             _pm_col = next((c for c in df.columns
-                           if c.strip().lower() in ["prÃƒÂ©v. mai (t)","prev mai","prevision_mai"]), None)
+                           if c.strip().lower() in ["prév. mai (t)","prev mai","prevision_mai"]), None)
             if _pm_col:
                 df[_pm_col] = 0.0
 
@@ -3044,8 +3044,8 @@ padding:16px 20px;margin-bottom:18px'>
                 if _disp in df.columns and _calc in df.columns:
                     df[_disp] = df[_calc]
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ VariÃƒÂ©tÃƒÂ© : effacer TOUS les faux noms (zones gÃƒÂ©ographiques)
-            # Vraies variÃƒÂ©tÃƒÂ©s tomate : Heinz, Savera, Tiger, Cobra, H2274, etc.
+            # ══ Variété : effacer TOUS les faux noms (zones géographiques)
+            # Vraies variétés tomate : Heinz, Savera, Tiger, Cobra, H2274, etc.
             # Fausses : dar allouch, amaymia, cap bon, gafsa, kairouan (=zones)
             _ZONES_KNOWN = {
                 "dar allouch","amaymia","sidi aich","tefeloun","diar hojjej",
@@ -3058,23 +3058,23 @@ padding:16px 20px;margin-bottom:18px'>
             _VRAI_VAR_KEYWORDS = ["heinz","savera","tiger","cobra","perfect","dorra",
                                   "ercole","h1015","h2274","f1","momotaro","lyterno"]
             for _col in df.columns:
-                if _col.strip().lower() in ["variÃƒÂ©tÃƒÂ©","variete"]:
+                if _col.strip().lower() in ["variété","variete"]:
                     _v = df[_col].astype(str).str.strip()
                     _v = _v.replace({"nan":"","NaN":"","None":"","NaT":""})
                     _is_zone = _v.str.lower().isin(_ZONES_KNOWN)
                     _has_var = _v.str.lower().str.contains(
                         "|".join(_VRAI_VAR_KEYWORDS), regex=True, na=False)
                     _has_num = _v.str.contains(r'[0-9]', regex=True, na=False)
-                    # Garder seulement si c'est une vraie variÃƒÂ©tÃƒÂ©
+                    # Garder seulement si c'est une vraie variété
                     _is_real = _has_var | (_has_num & ~_is_zone)
                     df.loc[~_is_real, _col] = ""
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Recalculer les ratios /ha et /plant Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-            # Recherche insensible ÃƒÂ  la casse (Ha / ha / hectares / Hectares)
+            # ═════════════════════ Recalculer les ratios /ha et /plant ═════════════════════
+            # Recherche insensible à la casse (Ha / ha / hectares / Hectares)
             _ha_col = next((c for c in df.columns
                            if c.strip().lower() in ["ha","hectares","superficie","nbre_ha"]), None)
             _pl_col = next((c for c in df.columns
-                           if c.strip().lower() in ["plants livrÃƒÂ©s","plants_livres",
+                           if c.strip().lower() in ["plants livrés","plants_livres",
                                                      "qte_livree","qte livree","plants livres"]), None)
 
             _ha_pp = pd.to_numeric(df[_ha_col], errors="coerce").fillna(0) if _ha_col else pd.Series([0]*len(df), index=df.index, dtype=float)
@@ -3084,11 +3084,11 @@ padding:16px 20px;margin-bottom:18px'>
 
             df["cout_ha"]            = (df["charge_totale"] / _ha_nz).fillna(0).round(0)
             df["cout_plant"]         = (df["charge_totale"] / _pl_nz).fillna(0).round(4)
-            # DensitÃƒÂ©/ha Ã¢â‚¬â€ prioritÃƒÂ© : nb_plateaux Royal > Plt LivrÃƒÂ©s Bourak > estimation
+            # Densité/ha — priorité : nb_plateaux Royal > Plt Livrés Bourak > estimation
             _nb_plt_col = next((c for c in df.columns
                                if c.strip().lower() in ["nb_plateaux","nb plateaux","nb plts"]), None)
             _plt_col    = next((c for c in df.columns
-                               if c.strip().lower() in ["plt livrÃƒÂ©s","plt_livres","plt livres"]), None)
+                               if c.strip().lower() in ["plt livrés","plt_livres","plt livres"]), None)
             _nb_plt_v   = pd.to_numeric(df[_nb_plt_col], errors="coerce").fillna(0) if _nb_plt_col else pd.Series([0]*len(df), index=df.index, dtype=float)
             _plt_bourak = pd.to_numeric(df[_plt_col], errors="coerce").fillna(0) if _plt_col else pd.Series([0]*len(df), index=df.index, dtype=float)
             # Choisir la meilleure source : Royal nb_plateaux > Bourak plt_livres
@@ -3096,29 +3096,29 @@ padding:16px 20px;margin-bottom:18px'>
             _pl_from_plt = _plt_final * 228
             _pl_nz_plt   = _pl_from_plt.where(_pl_from_plt > 0, float("nan"))
             _dens_raw    = (_pl_from_plt / _ha_nz).fillna(0)
-            # Valider la densitÃƒÂ© (15000-40000 plants/ha rÃƒÂ©aliste pour tomate)
+            # Valider la densité (15000-40000 plants/ha réaliste pour tomate)
             _dens_ok     = _dens_raw.where((_dens_raw >= 15000) & (_dens_raw <= 40000), 25000)
             df["densite_ha"] = _dens_ok.round(0)
             _pl_nz = _pl_nz_plt if "_pl_nz_plt" in dir() else pd.Series([float("nan")]*len(df), index=df.index)
             df["rendement_ha_reel"]  = (_ton_livr / _ha_nz).fillna(0).round(1)
             df["recouvrement_ha"]    = (df["tonnage_recouvrement"] / _ha_nz).fillna(0).round(2)
 
-            # Aussi mettre ÃƒÂ  jour les colonnes export (noms avec majuscule)
-            for _src, _dst in [("cout_ha","CoÃƒÂ»t/ha"), ("cout_plant","CoÃƒÂ»t/plant"),
-                                ("densite_ha","DensitÃƒÂ©/ha"), ("rendement_ha_reel","T/ha rÃƒÂ©alisÃƒÂ©")]:
+            # Aussi mettre à jour les colonnes export (noms avec majuscule)
+            for _src, _dst in [("cout_ha","Coût/ha"), ("cout_plant","Coût/plant"),
+                                ("densite_ha","Densité/ha"), ("rendement_ha_reel","T/ha réalisé")]:
                 if _src in df.columns and _dst in df.columns:
                     df[_dst] = df[_src]
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Enrichir AccessibilitÃƒÂ© / Usine / Zone / Dates depuis _PREVISION_2026
+            # ══ Enrichir Accessibilité / Usine / Zone / Dates depuis _PREVISION_2026
             for _pk, _col_candidates in [
-                ("acces",      ["AccessibilitÃƒÂ©","accessibilite"]),
+                ("acces",      ["Accessibilité","accessibilite"]),
                 ("usine",      ["Usine","usine"]),
                 ("zone",       ["Zone","zone"]),
-                ("region",     ["RÃƒÂ©gion","region"]),
-                ("date_debut", ["DÃƒÂ©b. RÃƒÂ©colte","date_debut_recolte","deb_recolte","date_debut"]),
-                ("date_fin",   ["Fin RÃƒÂ©colte","date_fin_recolte","date_fin"]),
+                ("region",     ["Région","region"]),
+                ("date_debut", ["Déb. Récolte","date_debut_recolte","deb_recolte","date_debut"]),
+                ("date_fin",   ["Fin Récolte","date_fin_recolte","date_fin"]),
             ]:
-                # Trouver la colonne correspondante dans df (insensible ÃƒÂ  la casse)
+                # Trouver la colonne correspondante dans df (insensible à la casse)
                 _found_col = next((c for c in df.columns
                                   if c.strip().lower() in [x.lower() for x in _col_candidates]), None)
                 if _found_col:
@@ -3126,10 +3126,10 @@ padding:16px 20px;margin-bottom:18px'>
                     if _is_empty:
                         df[_found_col] = df[_agri_col].apply(lambda x: _get_prev(x, _pk))
 
-            # VariÃƒÂ©tÃƒÂ© : conserver TOUTES les valeurs du fichier Royal
-            # (Savera, Heinz 7709, Dorra, Ercole = toutes vraies variÃƒÂ©tÃƒÂ©s)
-            # Ne rien effacer Ã¢â‚¬â€ si la colonne est remplie par l'utilisateur, garder
-            _var_col = next((c for c in df.columns if c.strip().lower() in ["variÃƒÂ©tÃƒÂ©","variete"]), None)
+            # Variété : conserver TOUTES les valeurs du fichier Royal
+            # (Savera, Heinz 7709, Dorra, Ercole = toutes vraies variétés)
+            # Ne rien effacer — si la colonne est remplie par l'utilisateur, garder
+            _var_col = next((c for c in df.columns if c.strip().lower() in ["variété","variete"]), None)
             if _var_col:
                 # Nettoyer uniquement les valeurs techniques (nan, NaN, None)
                 df[_var_col] = df[_var_col].astype(str).str.strip().replace(
@@ -3138,45 +3138,45 @@ padding:16px 20px;margin-bottom:18px'>
     def _no_data():
         if _df_all is None or (hasattr(_df_all,"empty") and _df_all.empty):
             if _is_admin_role:
-                st.info("Ã°Å¸â€œÂ¥ Importez les fichiers dans l'onglet **Ã¢Å¡â„¢Ã¯Â¸Â ParamÃƒÂ¨tres & Import** "
+                st.info("📥 Importez les fichiers dans l'onglet **⚙️ Paramètres & Import** "
                         "puis cliquez **Fusionner**.")
             else:
                 st.warning(
-                    f"Ã¢ÂÂ³ **Aucune donnÃƒÂ©e disponible** pour votre profil ({CURRENT_ROLE} : {CURRENT_NAME})\n\n"
+                    f"❌ **Aucune donnée disponible** pour votre profil ({CURRENT_ROLE} : {CURRENT_NAME})\n\n"
                     "Le directeur doit :\n"
                     "1. Se connecter avec son compte directeur\n"
-                    "2. DÃƒÂ©poser les fichiers dans Ã¢Å¡â„¢Ã¯Â¸Â ParamÃƒÂ¨tres & Import\n"
-                    "3. Cliquer **Fusionner** Ã¢â€ â€™ la session est sauvegardÃƒÂ©e automatiquement\n"
-                    "4. Revenir ici et cliquer Ã°Å¸â€â€ž RafraÃƒÂ®chir"
+                    "2. Déposer les fichiers dans ⚙️ Paramètres & Import\n"
+                    "3. Cliquer **Fusionner** → la session est sauvegardée automatiquement\n"
+                    "4. Revenir ici et cliquer 🔄 Rafraîchir"
                 )
         else:
             n_total = len(_df_all) if _df_all is not None else 0
             _ck_debug = (_name_u.replace("CENTRE","").strip() or _name_u)
             st.warning(
-                f"Ã°Å¸â€œÂ­ **Aucun agriculteur** trouvÃƒÂ© pour : {CURRENT_ROLE} = **{CURRENT_NAME}**\n\n"
+                f"📭 **Aucun agriculteur** trouvé pour : {CURRENT_ROLE} = **{CURRENT_NAME}**\n\n"
                 f"Recherche dans colonne \'centre\' : **'{_ck_debug}'**\n"
                 f"({n_total} agriculteurs au total dans la base)"
             )
 
-    # Ã¢â€¢ÂÃ¢â€¢Â TAB 1 Ã¢â‚¬â€ PAR AGRICULTEUR Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    # ═══════════════ TAB 1 — PAR AGRICULTEUR ═══════════════
     with t1:
         if df is None or df.empty:
             _no_data()
         else:
             kc = st.columns(6)
             kc[0].markdown(_metric("Agriculteurs",len(df)), unsafe_allow_html=True)
-            kc[1].markdown(_metric("Charge ÃƒÂ  Recouvrir",f"{df['charge_totale'].sum():,.0f} DT",color="#FF9800"),unsafe_allow_html=True)
+            kc[1].markdown(_metric("Charge à Recouvrir",f"{df['charge_totale'].sum():,.0f} DT",color="#FF9800"),unsafe_allow_html=True)
             kc[2].markdown(_metric("Recouvrement",f"{df['tonnage_recouvrement'].sum():,.1f} T",color="#ef5350"),unsafe_allow_html=True)
 
-            # Tonnage rÃƒÂ©alisÃƒÂ© : depuis QuantitÃƒÂ© ou prÃƒÂ©vision
+            # Tonnage réalisé : depuis Quantité ou prévision
             _ton_reel = df["tonnage_livre"].fillna(0).sum() if "tonnage_livre" in df.columns else 0
             _has_quantite = st.session_state.get("abo_quantite") is not None
-            _ton_label = f"{_ton_reel:,.1f} T" if _has_quantite else "Non importÃƒÂ©"
+            _ton_label = f"{_ton_reel:,.1f} T" if _has_quantite else "Non importé"
             _ton_color = "#4CAF50" if _has_quantite and _ton_reel > 0 else "#888"
-            kc[3].markdown(_metric("LivrÃƒÂ© rÃƒÂ©el", _ton_label, color=_ton_color),
+            kc[3].markdown(_metric("Livré réel", _ton_label, color=_ton_color),
                            unsafe_allow_html=True)
 
-            # PrÃƒÂ©vision Mai : total brut du fichier (pas juste les matchÃƒÂ©s)
+            # Prévision Mai : total brut du fichier (pas juste les matchés)
             _prev_mai_brut = 0
             _df_prev_mai = st.session_state.get("abo_prev_mai")
             if _df_prev_mai is not None and "prevision_mai" in _df_prev_mai.columns:
@@ -3185,35 +3185,35 @@ padding:16px 20px;margin-bottom:18px'>
 
             if _prev_mai_brut > 0:
                 _pct_match = round(_prev_mai_merged / _prev_mai_brut * 100) if _prev_mai_brut > 0 else 0
-                kc[4].markdown(_metric("PrÃƒÂ©vision Mai",
+                kc[4].markdown(_metric("Prévision Mai",
                     f"{_prev_mai_brut:,.0f} T",
                     color="#42A5F5",
                     delta=_prev_mai_merged - _prev_mai_brut,
-                    delta_label=f"T matchÃƒÂ©s ({_pct_match}%)"),
+                    delta_label=f"T matchés ({_pct_match}%)"),
                     unsafe_allow_html=True)
             else:
-                n_crit=(df["alerte"].str.contains("Ã°Å¸â€Â´")).sum()
-                kc[4].markdown(_metric("Ã¢Å¡Â Ã¯Â¸Â Critiques",n_crit,color="#ef5350"),unsafe_allow_html=True)
+                n_crit=(df["alerte"].str.contains("🔴")).sum()
+                kc[4].markdown(_metric("⚠️ Critiques",n_crit,color="#ef5350"),unsafe_allow_html=True)
 
             kc[5].markdown(_metric("Solde global",f"{df['solde_final'].sum():+,.0f} DT",
                 color="#4CAF50" if df["solde_final"].sum()>=0 else "#ef5350"),unsafe_allow_html=True)
 
-            # Avertissement si donnÃƒÂ©es fictives
+            # Avertissement si données fictives
             if not _has_quantite:
-                st.warning("Ã¢Å¡Â Ã¯Â¸Â **Tonnage rÃƒÂ©alisÃƒÂ© = 0** Ã¢â‚¬â€ Le fichier **Tableau QuantitÃƒÂ©** n'est pas encore importÃƒÂ©. "
-                           "Les calculs de recouvrement et solde sont basÃƒÂ©s sur les prÃƒÂ©visions uniquement.")
+                st.warning("⚠️ **Tonnage réalisé = 0** — Le fichier **Tableau Quantité** n'est pas encore importé. "
+                           "Les calculs de recouvrement et solde sont basés sur les prévisions uniquement.")
             if _prev_mai_brut > 0 and _prev_mai_merged < _prev_mai_brut * 0.5:
-                st.info(f"Ã¢â€žÂ¹Ã¯Â¸Â **PrÃƒÂ©vision Mai** : {_prev_mai_brut:,.0f} T dans le fichier, "
-                        f"mais seulement **{_prev_mai_merged:,.0f} T matchÃƒÂ©s** ({round(_prev_mai_merged/_prev_mai_brut*100)}%) "
-                        f"car certains noms d'agriculteurs diffÃƒÂ¨rent entre les fichiers. "
-                        f"Le total affichÃƒÂ© dans les tableaux = valeurs matchÃƒÂ©es uniquement.")
+                st.info(f"ℹ— **Prévision Mai** : {_prev_mai_brut:,.0f} T dans le fichier, "
+                        f"mais seulement **{_prev_mai_merged:,.0f} T matchés** ({round(_prev_mai_merged/_prev_mai_brut*100)}%) "
+                        f"car certains noms d'agriculteurs diffèrent entre les fichiers. "
+                        f"Le total affiché dans les tableaux = valeurs matchées uniquement.")
 
             fc1,fc2,fc3,fc4 = st.columns(4)
-            alerte_f = fc1.selectbox("Alerte",["Toutes","Ã°Å¸â€Â´","Ã°Å¸Å¸Â¡","Ã°Å¸Å¸Â¢"],key="t1a")
+            alerte_f = fc1.selectbox("Alerte",["Toutes","🔴","🟡","🟢"],key="t1a")
             comm_f   = fc2.selectbox("Commercial",
                 ["Tous"]+sorted(df["commercial"].dropna().unique().tolist())
                 if "commercial" in df.columns else ["Tous"],key="t1c")
-            ing_f    = fc3.selectbox("IngÃƒÂ©nieur",
+            ing_f    = fc3.selectbox("Ingénieur",
                 ["Tous"]+sorted(df["ingenieur"].dropna().unique().tolist())
                 if "ingenieur" in df.columns else ["Tous"],key="t1i")
             ctr_f    = fc4.selectbox("Centre",
@@ -3226,7 +3226,7 @@ padding:16px 20px;margin-bottom:18px'>
             if ing_f    != "Tous" and "ingenieur"  in df_f.columns: df_f = df_f[df_f["ingenieur"]== ing_f]
             if ctr_f    != "Tous" and "centre"     in df_f.columns: df_f = df_f[df_f["centre"]   == ctr_f]
 
-            # Graphique ÃƒÂ©cart tonnage
+            # Graphique écart tonnage
             if "ecart_tonnage" in df_f.columns and "agriculteur" in df_f.columns:
                 df_c = df_f.dropna(subset=["ecart_tonnage"]).sort_values("ecart_tonnage")
                 if not df_c.empty:
@@ -3241,25 +3241,25 @@ padding:16px 20px;margin-bottom:18px'>
                     fig.add_vline(x=0,line_color="#888",line_width=1.5,
                                   line_dash="dash")
                     fig.update_layout(
-                        title="Ãƒâ€°cart = Tonnage livrÃƒÂ© Ã¢Ë†â€™ Tonnage recouvrement",
+                        title="Écart = Tonnage livré − Tonnage recouvrement",
                         template="plotly_dark",paper_bgcolor="#161b22",
                         plot_bgcolor="#0d1117",
                         height=max(350,len(df_c)*26+80),
                         margin=dict(l=220,r=80,t=40,b=30))
                     st.plotly_chart(fig, use_container_width=True)
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Section Caisses Vides par usine Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ═══════════════════ Section Caisses Vides par usine ═══════════════════
             if "affectation_caisse" in df_f.columns:
-                st.markdown("#### Ã°Å¸â€œÂ¦ DÃƒÂ©tail caisses vides par usine")
-                # RÃƒÂ©cap par usine des consignes caisses
+                st.markdown("#### 📦 Détail caisses vides par usine")
+                # Récap par usine des consignes caisses
                 caisse_cfg = st.session_state.get("abo_params",{}).get("caisses_par_usine",{})
                 if caisse_cfg:
                     cv_cols = st.columns(len(caisse_cfg))
                     usine_colors_disp = {"SICAM":"#F5A623","TUCAL":"#8B5CF6",
                                          "COMOCAP":"#3B82F6","ABIDA":"#FF6B9D","ELFALLEH":"#00E5A0"}
                     for ci_u, (usine_u, cfg_u) in enumerate(caisse_cfg.items()):
-                        # Filtrer agriculteurs de cette usine en 1ÃƒÂ¨re affectation
-                        _mask_1 = (df_f.get("affectation_caisse","").str.startswith("1ÃƒÂ¨re")
+                        # Filtrer agriculteurs de cette usine en 1ère affectation
+                        _mask_1 = (df_f.get("affectation_caisse","").str.startswith("1ère")
                                    if hasattr(df_f.get("affectation_caisse",""),"str") else pd.Series([False]*len(df_f)))
                         _usine_mask = df_f.get("usine", pd.Series([""] * len(df_f))).astype(str).str.upper().str.contains(usine_u.upper(), na=False)
                         _agri_1ere = df_f[_mask_1 & _usine_mask] if "usine" in df_f.columns else df_f[_mask_1]
@@ -3273,9 +3273,9 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
 <div style='font-size:13px;font-weight:bold;color:{uc2}'>{usine_u}</div>
 <div style='font-size:11px;color:#aaa'>{cfg_u['type']}</div>
 <div style='font-size:11px;color:#ccc;margin:4px 0'>
-{cfg_u['nb_ha']:.0f} caisses/ha Ãƒâ€” {cfg_u['prix']:.2f} DT = <b style='color:#fff'>{cout_ha} DT/ha</b>
+{cfg_u['nb_ha']:.0f} caisses/ha × {cfg_u['prix']:.2f} DT = <b style='color:#fff'>{cout_ha} DT/ha</b>
 </div>
-<div style='font-size:11px;color:#FFD700'>{n_1ere} agri. 1ÃƒÂ¨re affect.</div>
+<div style='font-size:11px;color:#FFD700'>{n_1ere} agri. 1ère affect.</div>
 <div style='font-size:13px;font-weight:bold;color:{"#FF7043" if total_cv>0 else "#4CAF50"}'>
 {total_cv:,.0f} DT total</div>
 </div>""", unsafe_allow_html=True)
@@ -3283,15 +3283,15 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                 # Total global caisses
                 if "consigne_caisse" in df_f.columns:
                     tot_cv = df_f["consigne_caisse"].sum()
-                    n_1e = df_f["affectation_caisse"].str.startswith("1ÃƒÂ¨re").sum() if "affectation_caisse" in df_f.columns else 0
+                    n_1e = df_f["affectation_caisse"].str.startswith("1ère").sum() if "affectation_caisse" in df_f.columns else 0
                     n_2e = len(df_f) - n_1e
                     cc1,cc2,cc3 = st.columns(3)
                     cc1.markdown(_metric("Total consigne caisses",
                         f"{tot_cv:,.0f} DT", color="#FF7043"), unsafe_allow_html=True)
-                    cc2.markdown(_metric("1ÃƒÂ¨re affectation (< 10 juil.)",
+                    cc2.markdown(_metric("1ère affectation (< 10 juil.)",
                         f"{n_1e} agriculteurs", color="#FF9800"), unsafe_allow_html=True)
-                    cc3.markdown(_metric("2ÃƒÂ¨me affectation (Ã¢â€°Â¥ 10 juil.)",
-                        f"{n_2e} agriculteurs Ã¢â‚¬â€ 0 DT", color="#4CAF50"), unsafe_allow_html=True)
+                    cc3.markdown(_metric("2ème affectation (≥ 10 juil.)",
+                        f"{n_2e} agriculteurs — 0 DT", color="#4CAF50"), unsafe_allow_html=True)
                 st.markdown("---")
 
             VIEW = [c for c in ["agriculteur","commercial","ingenieur","centre","variete",
@@ -3305,35 +3305,35 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                 column_config={
                     "taux_prise":st.column_config.ProgressColumn(
                         "Taux prise %",min_value=0,max_value=100,format="%.1f%%"),
-                    "ecart_tonnage":st.column_config.NumberColumn("Ãƒâ€°cart (T)",format="%+.1f"),
+                    "ecart_tonnage":st.column_config.NumberColumn("Écart (T)",format="%+.1f"),
                     "solde_final":st.column_config.NumberColumn("Solde (DT)",format="%+,.0f"),
                 })
             # Exports multiples tab1
             _dl1, _dl2 = st.columns(2)
             with _dl1:
                 xl2 = export_excel(df_f, st.session_state.get("abo_sotusfa_raw"))
-                st.download_button("Ã°Å¸â€œÂ¥ Excel complet (4 feuilles)",data=xl2,
+                st.download_button("📥 Excel complet (4 feuilles)",data=xl2,
                     file_name="agroeco_vue.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True, type="primary")
             with _dl2:
                 _view_df = df_f[[c for c in VIEW if c in df_f.columns]].round(1)
-                st.download_button("Ã°Å¸â€œÂ¥ Excel Ã¢â‚¬â€ Vue actuelle",
+                st.download_button("📥 Excel — Vue actuelle",
                     data=_export_excel_table(
                         _view_df, "Par Agriculteur",
-                        "Tableau AgroÃƒÂ©conomique par Agriculteur Ã¢â‚¬â€ Campagne 2026",
+                        "Tableau Agroéconomique par Agriculteur — Campagne 2026",
                         "1F3864"),
                     file_name="agroeco_par_agriculteur.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True)
 
-    # Ã¢â€¢ÂÃ¢â€¢Â TAB 2 Ã¢â‚¬â€ PAR INGÃƒâ€°NIEUR / CENTRE Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    # ═══════════ TAB 2 — PAR INGÉNIEUR / CENTRE ═══════════
     with t2:
         if df is None or df.empty: _no_data()
         else:
-            grp_col = st.radio("Regrouper par", ["IngÃƒÂ©nieur","Centre","IngÃƒÂ©nieur Ãƒâ€” Centre"],
+            grp_col = st.radio("Regrouper par", ["Ingénieur","Centre","Ingénieur × Centre"],
                                 horizontal=True, key="t2_grp")
-            if grp_col == "IngÃƒÂ©nieur":
+            if grp_col == "Ingénieur":
                 gc = ["ingenieur"] if "ingenieur" in df.columns else ["centre"]
             elif grp_col == "Centre":
                 gc = ["centre"] if "centre" in df.columns else ["ingenieur"]
@@ -3344,7 +3344,7 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                 try:
                     _ac2 = next((c for c in ["agriculteur","client"] if c in df.columns),None)
                     if "alerte" in df.columns:
-                        df["_rouge2"] = df["alerte"].astype(str).str.contains("Ã°Å¸â€Â´",na=False).astype(int)
+                        df["_rouge2"] = df["alerte"].astype(str).str.contains("🔴",na=False).astype(int)
                     else:
                         df["_rouge2"] = 0
                     _g2d = {"_rouge2":"sum"}
@@ -3371,33 +3371,33 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                 x_col = gc[-1] if gc else "centre"
                 fig2.add_trace(go.Bar(name="Recouvrement (T)",
                     x=g2[x_col],y=g2["Recouvrement_T"],marker_color="#ef5350"))
-                fig2.add_trace(go.Bar(name="LivrÃƒÂ© rÃƒÂ©el (T)",
+                fig2.add_trace(go.Bar(name="Livré réel (T)",
                     x=g2[x_col],y=g2["Livre_T"],marker_color="#4CAF50"))
                 fig2.update_layout(barmode="group",template="plotly_dark",
                     paper_bgcolor="#161b22",plot_bgcolor="#0d1117",
-                    height=340,title=f"Recouvrement vs LivrÃƒÂ© par {grp_col}")
+                    height=340,title=f"Recouvrement vs Livré par {grp_col}")
                 st.plotly_chart(fig2,use_container_width=True)
                 st.dataframe(g2,use_container_width=True,hide_index=True)
                 st.download_button(
-                    "Ã°Å¸â€œÂ¥ Excel Ã¢â‚¬â€ Par IngÃƒÂ©nieur/Centre",
+                    "📥 Excel — Par Ingénieur/Centre",
                     data=_export_excel_table(g2,
                         "Par Ingenieur Centre",
-                        f"SynthÃƒÂ¨se par {grp_col} Ã¢â‚¬â€ Campagne 2026",
+                        f"Synthèse par {grp_col} — Campagne 2026",
                         "0B4F6C"),
                     file_name="agroeco_par_ingenieur.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True)
 
-    # Ã¢â€¢ÂÃ¢â€¢Â TAB 3 Ã¢â‚¬â€ PAR RÃƒâ€°GION Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    # ═════════════════ TAB 3 — PAR RÉGION ═════════════════
     with t3:
         if df is None or df.empty: _no_data()
         elif "region" not in df.columns:
-            st.warning("Colonne 'region' absente Ã¢â‚¬â€ vÃƒÂ©rifiez le fichier Bourak.")
+            st.warning("Colonne 'region' absente — vérifiez le fichier Bourak.")
         else:
-            # AgrÃƒÂ©gation par rÃƒÂ©gion Ã¢â‚¬â€ approche dÃƒÂ©fensive sans named agg
+            # Agrégation par région — approche défensive sans named agg
             try:
                 _df_rg = df.copy()
-                # S'assurer que toutes les colonnes numÃƒÂ©riques sont bien numÃƒÂ©riques
+                # S'assurer que toutes les colonnes numériques sont bien numériques
                 for _c in ["hectares","cout_ha","rendement_ha_reel","taux_prise",
                            "recouvrement_ha","tonnage_livre"]:
                     if _c in _df_rg.columns:
@@ -3406,7 +3406,7 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                 _ac = next((c for c in ["agriculteur","client"] if c in _df_rg.columns), None)
                 # Alerte rouge
                 if "alerte" in _df_rg.columns:
-                    _df_rg["_rouge"] = _df_rg["alerte"].astype(str).str.contains("Ã°Å¸â€Â´", na=False).astype(int)
+                    _df_rg["_rouge"] = _df_rg["alerte"].astype(str).str.contains("🔴", na=False).astype(int)
                 else:
                     _df_rg["_rouge"] = 0
                 # Construction agg simple
@@ -3426,32 +3426,32 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                 }
                 rg = rg_raw.rename(columns={k:v for k,v in _rename_map.items() if k in rg_raw.columns})
             except Exception as _e3:
-                st.warning(f"Erreur agrÃƒÂ©gation rÃƒÂ©gion : {_e3}")
+                st.warning(f"Erreur agrégation région : {_e3}")
                 rg = pd.DataFrame({"region":[]})
 
             fig3 = px.bar(rg,x="region",y="Rendement_moy",
                 color="Rendement_moy",
                 color_continuous_scale=["#ef5350","#FF9800","#4CAF50"],
                 template="plotly_dark",text_auto=".1f",
-                title="Rendement moyen (T/ha) par rÃƒÂ©gion")
+                title="Rendement moyen (T/ha) par région")
             fig3.update_layout(paper_bgcolor="#161b22",plot_bgcolor="#0d1117",height=340)
             st.plotly_chart(fig3,use_container_width=True)
             st.dataframe(rg,use_container_width=True,hide_index=True)
             st.download_button(
-                "Ã°Å¸â€œÂ¥ Excel Ã¢â‚¬â€ Par RÃƒÂ©gion",
+                "📥 Excel — Par Région",
                 data=_export_excel_table(rg,
                     "Par Region",
-                    "Performance par RÃƒÂ©gion Ã¢â‚¬â€ Campagne 2026",
+                    "Performance par Région — Campagne 2026",
                     "1A5C2A"),
                 file_name="agroeco_par_region.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True)
 
-    # Ã¢â€¢ÂÃ¢â€¢Â TAB 4 Ã¢â‚¬â€ PAR VARIÃƒâ€°TÃƒâ€° Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    # ════════════════ TAB 4 — PAR VARIÉTÉ ════════════════—
     with t4:
         if df is None or df.empty: _no_data()
         elif "variete" not in df.columns:
-            st.warning("Colonne 'variete' absente Ã¢â‚¬â€ vÃƒÂ©rifiez le fichier Royal.")
+            st.warning("Colonne 'variete' absente — vérifiez le fichier Royal.")
         else:
             try:
                 _df_v = df.dropna(subset=["variete"]).copy()
@@ -3472,33 +3472,33 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                 if "Rendement_moy" in vg.columns:
                     vg = vg.sort_values("Rendement_moy",ascending=False).round(1)
             except Exception as _ev:
-                st.warning(f"Erreur agrÃƒÂ©gation variÃƒÂ©tÃƒÂ© : {_ev}")
+                st.warning(f"Erreur agrégation variété : {_ev}")
                 vg = pd.DataFrame({"variete":[]})
 
             fig4 = px.bar(vg,x="variete",y="Rendement_moy",
                 color="Rendement_moy",
                 color_continuous_scale=["#ef5350","#FF9800","#4CAF50"],
                 template="plotly_dark",text_auto=".1f",
-                title="Rendement moyen (T/ha) par variÃƒÂ©tÃƒÂ©")
+                title="Rendement moyen (T/ha) par variété")
             fig4.update_layout(paper_bgcolor="#161b22",plot_bgcolor="#0d1117",height=340)
             st.plotly_chart(fig4,use_container_width=True)
             st.dataframe(vg,use_container_width=True,hide_index=True)
             st.download_button(
-                "Ã°Å¸â€œÂ¥ Excel Ã¢â‚¬â€ Par VariÃƒÂ©tÃƒÂ©",
+                "📥 Excel — Par Variété",
                 data=_export_excel_table(vg,
                     "Par Variete",
-                    "Performance par VariÃƒÂ©tÃƒÂ© Ã¢â‚¬â€ Campagne 2026",
+                    "Performance par Variété — Campagne 2026",
                     "375623"),
                 file_name="agroeco_par_variete.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True)
 
-    # Ã¢â€¢ÂÃ¢â€¢Â TAB 5 Ã¢â‚¬â€ PAR FAMILLE INTRANT Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    # ════════════ TAB 5 — PAR FAMILLE INTRANT ════════════—
     with t5:
         ds = st.session_state.get("abo_sotusfa_raw")
         if ds is None or ds.empty:
             _no_data()
-            st.caption("Importez le fichier Sotusfa dans l'onglet Ã¢Å¡â„¢Ã¯Â¸Â.")
+            st.caption("Importez le fichier Sotusfa dans l'onglet ⚙️.")
         else:
             # Recalculer famille_norm si absent
             if "famille_norm" not in ds.columns and "famille" in ds.columns:
@@ -3520,7 +3520,7 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
             c5a,c5b = st.columns(2)
             with c5a:
                 fig5 = px.pie(fg,names="famille_norm",values="Valeur_DT",hole=0.4,
-                    template="plotly_dark",title="DÃƒÂ©penses intrants par famille (DT)",
+                    template="plotly_dark",title="Dépenses intrants par famille (DT)",
                     color_discrete_sequence=px.colors.qualitative.Set2)
                 fig5.update_layout(paper_bgcolor="#161b22",height=370)
                 st.plotly_chart(fig5, use_container_width=True)
@@ -3529,14 +3529,14 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                     color="Valeur_DT",
                     color_continuous_scale=["#1A5C2A","#4CAF50","#A5D6A7"],
                     template="plotly_dark", text_auto=",.0f",
-                    title="DÃƒÂ©penses par famille (DT)")
+                    title="Dépenses par famille (DT)")
                 fig5b.update_traces(textposition="outside", textfont_size=11)
                 fig5b.update_layout(paper_bgcolor="#161b22",
                     plot_bgcolor="#0d1117", height=370,
                     xaxis_tickangle=-30)
                 st.plotly_chart(fig5b, use_container_width=True)
 
-            # Tableau + tÃƒÂ©lÃƒÂ©chargement
+            # Tableau + téléchargement
             fg_disp = fg.rename(columns={"famille_norm":"Famille","Part_pct":"Part %"})
             st.dataframe(fg_disp, use_container_width=True, hide_index=True,
                 column_config={
@@ -3545,26 +3545,26 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                         "Part %", min_value=0, max_value=100, format="%.1f%%"),
                 })
             st.download_button(
-                "Ã°Å¸â€œÂ¥ TÃƒÂ©lÃƒÂ©charger Famille Intrant (Excel)",
+                "📥 Télécharger Famille Intrant (Excel)",
                 data=_export_excel_table(fg_disp,
                     "Famille Intrant",
-                    "DÃƒÂ©penses Intrants par Famille Ã¢â‚¬â€ Campagne 2026",
+                    "Dépenses Intrants par Famille — Campagne 2026",
                     "1A5C2A"),
                 file_name="famille_intrant_2026.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True)
 
-            # Ã¢â€¢ÂÃ¢â€¢Â ANALYSE AGRONOMIQUE Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+            # ══════════════════ ANALYSE AGRONOMIQUE ══════════════════
             st.markdown("---")
-            st.markdown("#### Ã°Å¸Å’Â± Analyse Agronomique Ã¢â‚¬â€ Intrants vs Production")
-            st.caption("DAP Ã‚Â· Engrais Ã‚Â· Fertilissants Ã‚Â· Fongicides Ã‚Â· Insecticides par agriculteur")
+            st.markdown("#### 🌱 Analyse Agronomique — Intrants vs Production")
+            st.caption("DAP · Engrais · Fertilissants · Fongicides · Insecticides par agriculteur")
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ DonnÃƒÂ©es disponibles Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ════════════════════════════════ Données disponibles ════════════════════════════════
             _ds_agro = st.session_state.get("abo_sotusfa_raw")
             _df_main = df  # merged data
 
             if _ds_agro is None or _ds_agro.empty:
-                st.warning("Ã¢Å¡Â Ã¯Â¸Â Importez le fichier **Sotusfa** dans Ã¢Å¡â„¢Ã¯Â¸Â pour voir cette analyse.")
+                st.warning("⚠️ Importez le fichier **Sotusfa** dans ⚙️ pour voir cette analyse.")
             else:
                 import plotly.graph_objects as _go2
                 import numpy as _np_agro
@@ -3579,22 +3579,22 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                 _art_agro = next((c for c in ["article","Article"] if c in _ds_agro.columns), None)
 
                 if not _cl_agro or not _fam_agro:
-                    st.info("Structure Sotusfa incompatible Ã¢â‚¬â€ colonnes client/famille manquantes.")
+                    st.info("Structure Sotusfa incompatible — colonnes client/famille manquantes.")
                 else:
-                    # Mapping familles rÃƒÂ©elles Sotusfa Ã¢â€ â€™ catÃƒÂ©gories agro
+                    # Mapping familles réelles Sotusfa → catégories agro
                     _FAM_MAP = {
-                        "engrais":      "Ã°Å¸Â§Âª DAP & Engrais",
-                        "Engrais":      "Ã°Å¸Â§Âª DAP & Engrais",
-                        "fertilissant": "Ã°Å¸Å’Â¿ Fertilissants",
-                        "Fertilissant": "Ã°Å¸Å’Â¿ Fertilissants",
-                        "fongicide":    "Ã°Å¸â€ºÂ¡Ã¯Â¸Â Fongicides",
-                        "Fongicide":    "Ã°Å¸â€ºÂ¡Ã¯Â¸Â Fongicides",
-                        "insecticide":  "Ã°Å¸Â¦Å¸ Insecticides",
-                        "Insecticide":  "Ã°Å¸Â¦Å¸ Insecticides",
-                        "IRRIGATIONS":  "Ã°Å¸â€™Â§ Irrigation",
-                        "IRRIGATIONS TURK": "Ã°Å¸â€™Â§ Irrigation",
-                        "HERBICIDE":    "Ã°Å¸Å’Â¾ Herbicides",
-                        "Divers":       "Ã°Å¸â€œÂ¦ Divers",
+                        "engrais":      "🧪 DAP & Engrais",
+                        "Engrais":      "🧪 DAP & Engrais",
+                        "fertilissant": "🌿 Fertilissants",
+                        "Fertilissant": "🌿 Fertilissants",
+                        "fongicide":    "🛡️ Fongicides",
+                        "Fongicide":    "🛡️ Fongicides",
+                        "insecticide":  "🦟 Insecticides",
+                        "Insecticide":  "🦟 Insecticides",
+                        "IRRIGATIONS":  "💧 Irrigation",
+                        "IRRIGATIONS TURK": "💧 Irrigation",
+                        "HERBICIDE":    "🌾 Herbicides",
+                        "Divers":       "📦 Divers",
                     }
                     _ds_agro["_cat"] = _ds_agro[_fam_agro].astype(str).str.strip().map(_FAM_MAP)
                     _ds_agro = _ds_agro[_ds_agro["_cat"].notna()]
@@ -3603,7 +3603,7 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                     if _val_col:
                         _ds_agro[_val_col] = pd.to_numeric(_ds_agro[_val_col], errors="coerce").fillna(0)
 
-                    # Pivot : 1 ligne par client, colonnes = catÃƒÂ©gories
+                    # Pivot : 1 ligne par client, colonnes = catégories
                     if _val_col:
                         _pivot = _ds_agro.groupby([_cl_agro, "_cat"])[_val_col].sum()                                         .unstack("_cat", fill_value=0).reset_index()
                         _pivot.columns.name = None
@@ -3611,7 +3611,7 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                     else:
                         _pivot = _ds_agro.groupby([_cl_agro, "_cat"])["_cat"].count()                                         .unstack("_cat", fill_value=0).reset_index()                                         .rename(columns={_cl_agro: "client"})
 
-                    # Tonnage : depuis df merged ou depuis prÃƒÂ©vision Mai
+                    # Tonnage : depuis df merged ou depuis prévision Mai
                     _ton_col = None
                     if _df_main is not None and not _df_main.empty:
                         _agri_col = next((c for c in ["agriculteur","client"] if c in _df_main.columns), None)
@@ -3619,7 +3619,7 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                             if tc in _df_main.columns and _df_main[tc].fillna(0).sum() > 0:
                                 _ton_col = tc; break
                         if _agri_col and _ton_col:
-                            # Construire la liste de colonnes en vÃƒÂ©rifiant leur existence
+                            # Construire la liste de colonnes en vérifiant leur existence
                             _keep_cols = [_agri_col, _ton_col]
                             for _extra in ["commercial", "region"]:
                                 if _extra in _df_main.columns:
@@ -3639,28 +3639,28 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                     _cats = [c for c in _ma.columns if c not in
                              ["client","commercial","region",_ton_col or "x"]]
 
-                    # Ã¢â€â‚¬Ã¢â€â‚¬ KPIs intrants Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-                    st.markdown("**Ã°Å¸â€œÅ  Total intrants Sotusfa par catÃƒÂ©gorie**")
+                    # ══════════════════════════════════ KPIs intrants ══════════════════════════════════
+                    st.markdown("**📊 Total intrants Sotusfa par catégorie**")
                     _kpi_cols = st.columns(min(len(_cats), 5))
                     _COLORS_AGR = {
-                        "Ã°Å¸Â§Âª DAP & Engrais": "#42A5F5",
-                        "Ã°Å¸Å’Â¿ Fertilissants": "#66BB6A",
-                        "Ã°Å¸â€ºÂ¡Ã¯Â¸Â Fongicides":    "#AB47BC",
-                        "Ã°Å¸Â¦Å¸ Insecticides":  "#FF7043",
-                        "Ã°Å¸â€™Â§ Irrigation":    "#26C6DA",
-                        "Ã°Å¸Å’Â¾ Herbicides":    "#FFA726",
-                        "Ã°Å¸â€œÂ¦ Divers":        "#78909C",
+                        "🧪 DAP & Engrais": "#42A5F5",
+                        "🌿 Fertilissants": "#66BB6A",
+                        "🛡️ Fongicides":    "#AB47BC",
+                        "🦟 Insecticides":  "#FF7043",
+                        "💧 Irrigation":    "#26C6DA",
+                        "🌾 Herbicides":    "#FFA726",
+                        "📦 Divers":        "#78909C",
                     }
                     for ci4, cat in enumerate(_cats):
                         if ci4 < 5:
                             tot_cat = _ma[cat].sum() if cat in _ma.columns else 0
                             _kpi_cols[ci4].metric(cat, f"{tot_cat:,.0f} DT")
 
-                    # Ã¢â€â‚¬Ã¢â€â‚¬ GRAPHIQUE 1 : Scatter corrÃƒÂ©lation Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+                    # ══════════════ GRAPHIQUE 1 : Scatter corrélation ══════════════
                     if _ton_col and _cats:
-                        st.markdown(f"**Ã°Å¸â€œË† CorrÃƒÂ©lation Intrants Ã¢â€ â€™ {_ton_col.replace('_',' ').title()}**")
-                        _scatter_cats = [c for c in _cats if c in ["Ã°Å¸Â§Âª DAP & Engrais",
-                                         "Ã°Å¸Å’Â¿ Fertilissants","Ã°Å¸â€ºÂ¡Ã¯Â¸Â Fongicides","Ã°Å¸Â¦Å¸ Insecticides"]]
+                        st.markdown(f"**📈 Corrélation Intrants → {_ton_col.replace('_',' ').title()}**")
+                        _scatter_cats = [c for c in _cats if c in ["🧪 DAP & Engrais",
+                                         "🌿 Fertilissants","🛡️ Fongicides","🦟 Insecticides"]]
                         if not _scatter_cats:
                             _scatter_cats = _cats[:4]
 
@@ -3710,8 +3710,8 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                             with _sc_cols[ci5 % 3]:
                                 st.plotly_chart(_fig_sc, use_container_width=True)
 
-                    # Ã¢â€â‚¬Ã¢â€â‚¬ GRAPHIQUE 2 : Top 20 barres horizontales Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-                    st.markdown("**Ã°Å¸Ââ€  Top 20 Agriculteurs Ã¢â‚¬â€ Production vs Intrants**")
+                    # ═══════ GRAPHIQUE 2 : Top 20 barres horizontales ═══════
+                    st.markdown("**🏆 Top 20 Agriculteurs — Production vs Intrants**")
                     _sort_col = _ton_col if _ton_col and _ton_col in _ma.columns else                                 (_cats[0] if _cats else None)
                     if _sort_col:
                         _top20 = _ma.nlargest(20, _sort_col).sort_values(_sort_col, ascending=True)
@@ -3735,7 +3735,7 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                             _norm = _top20[cat] / _max_v * _max_t * 0.4 if _max_v > 0 else 0
                             _fig_top.add_trace(_go2.Bar(
                                 y=_top20["client"], x=_norm,
-                                name=f"{cat} (normalisÃƒÂ©)",
+                                name=f"{cat} (normalisé)",
                                 orientation="h",
                                 marker_color=_COLORS_AGR.get(cat,"#888"),
                                 marker_opacity=0.55,
@@ -3750,7 +3750,7 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                             paper_bgcolor="#161b22",
                             plot_bgcolor="#0d1117",
                             height=max(400, len(_top20)*22),
-                            title="Top 20 Ã¢â‚¬â€ Activer les intrants dans la lÃƒÂ©gende pour comparer",
+                            title="Top 20 — Activer les intrants dans la légende pour comparer",
                             yaxis=dict(tickfont=dict(size=9)),
                             legend=dict(orientation="h", yanchor="bottom",
                                         y=1.01, font=dict(size=9)),
@@ -3759,23 +3759,23 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                         )
                         st.plotly_chart(_fig_top, use_container_width=True)
 
-                    # Ã¢â€â‚¬Ã¢â€â‚¬ TABLEAU Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-                    st.markdown("**Ã°Å¸â€œâ€¹ Tableau complet**")
+                    # ════════════════════════════════════════ TABLEAU ════════════════════════════════════════
+                    st.markdown("**📋 Tableau complet**")
                     _tbl_cols = ["client"] + _cats +                                 ([_ton_col] if _ton_col else []) +                                 [c for c in ["commercial","region"] if c in _ma.columns]
                     _tbl_show = _ma[[c for c in _tbl_cols if c in _ma.columns]]                                .sort_values(_sort_col if _sort_col else _tbl_cols[1],
                                              ascending=False).round(0)
                     st.dataframe(_tbl_show, use_container_width=True,
                                  hide_index=True, height=350)
                     st.download_button(
-                        "Ã°Å¸â€œÂ¥ Excel Ã¢â‚¬â€ Analyse Intrants vs Production",
+                        "📥 Excel — Analyse Intrants vs Production",
                         data=_export_excel_table(
                             _tbl_show, "Analyse Intrants",
-                            "Intrants vs Production Ã¢â‚¬â€ Campagne 2026", "1A5C2A"),
+                            "Intrants vs Production — Campagne 2026", "1A5C2A"),
                         file_name="analyse_intrants_production_2026.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True)
 
-    # Ã¢â€¢ÂÃ¢â€¢Â TAB 6 Ã¢â‚¬â€ PRÃƒâ€°VISIONS VS RÃƒâ€°ALISÃƒâ€° Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â    # Ã¢â€¢ÂÃ¢â€¢Â TAB 6 Ã¢â‚¬â€ PRÃƒâ€°VISIONS VS RÃƒâ€°ALISÃƒâ€° Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    # ══════════════════════ TAB 6 — PRÉVISIONS VS RÉALISÉ ══════════════════════—    # ══════════════════════ TAB 6 — PRÉVISIONS VS RÉALISÉ ══════════════════════—
     with t6:
         if df is None or df.empty:
             _no_data()
@@ -3783,18 +3783,18 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
             prev_exist = [c for c in ["prevision_dec","prevision_mai",
                                        "prevision_juin","tonnage_livre"]
                           if c in df.columns]
-            # Afficher mÃƒÂªme avec une seule source
+            # Afficher même avec une seule source
             if not any(c in df.columns for c in
                        ["prevision_dec","prevision_mai","prevision_juin"]):
-                st.info("Importez un fichier de prÃƒÂ©vision (DÃƒÂ©c ou Mai) "
-                        "dans l'onglet Ã¢Å¡â„¢Ã¯Â¸Â.")
+                st.info("Importez un fichier de prévision (Déc ou Mai) "
+                        "dans l'onglet ⚙️.")
             else:
-                # Totaux par pÃƒÂ©riode
+                # Totaux par période
                 labels_map = {
-                    "prevision_dec":  "PrÃƒÂ©vision DÃƒÂ©c",
-                    "prevision_mai":  "PrÃƒÂ©vision Mai",
-                    "prevision_juin": "PrÃƒÂ©vision Juin",
-                    "tonnage_livre":  "RÃƒÂ©alisÃƒÂ©",
+                    "prevision_dec":  "Prévision Déc",
+                    "prevision_mai":  "Prévision Mai",
+                    "prevision_juin": "Prévision Juin",
+                    "tonnage_livre":  "Réalisé",
                 }
                 tots = {}
                 for col, lbl in labels_map.items():
@@ -3805,37 +3805,37 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
 
                 if tots:
                     bar_colors = {
-                        "PrÃƒÂ©vision DÃƒÂ©c": "#78909C",
-                        "PrÃƒÂ©vision Mai": "#42A5F5",
-                        "PrÃƒÂ©vision Juin":"#26A69A",
-                        "RÃƒÂ©alisÃƒÂ©":       "#FF9800",
+                        "Prévision Déc": "#78909C",
+                        "Prévision Mai": "#42A5F5",
+                        "Prévision Juin":"#26A69A",
+                        "Réalisé":       "#FF9800",
                     }
                     LINE_STYLES = {
-                        "PrÃƒÂ©vision DÃƒÂ©c": dict(color="#78909C", width=2, dash="dot"),
-                        "PrÃƒÂ©vision Mai": dict(color="#42A5F5", width=2, dash="dash"),
-                        "PrÃƒÂ©vision Juin":dict(color="#26A69A", width=2, dash="dashdot"),
-                        "RÃƒÂ©alisÃƒÂ©":       dict(color="#FF9800", width=3),
+                        "Prévision Déc": dict(color="#78909C", width=2, dash="dot"),
+                        "Prévision Mai": dict(color="#42A5F5", width=2, dash="dash"),
+                        "Prévision Juin":dict(color="#26A69A", width=2, dash="dashdot"),
+                        "Réalisé":       dict(color="#FF9800", width=3),
                     }
                     MARKER_SYMS = {
-                        "PrÃƒÂ©vision DÃƒÂ©c": "circle",
-                        "PrÃƒÂ©vision Mai": "square",
-                        "PrÃƒÂ©vision Juin":"triangle-up",
-                        "RÃƒÂ©alisÃƒÂ©":       "diamond",
+                        "Prévision Déc": "circle",
+                        "Prévision Mai": "square",
+                        "Prévision Juin":"triangle-up",
+                        "Réalisé":       "diamond",
                     }
 
-                    # Ã¢â€â‚¬Ã¢â€â‚¬ GRAPHIQUE 1 : Courbes superposÃƒÂ©es par commercial Ã¢â€â‚¬Ã¢â€â‚¬
-                    st.markdown("##### Ã°Å¸â€œË† Courbes superposÃƒÂ©es par commercial Ã¢â‚¬â€ DÃƒÂ©c vs Mai vs RÃƒÂ©alisÃƒÂ©")
-                    st.caption("Chaque courbe = une prÃƒÂ©vision | Ãƒâ€°carts verticaux = dÃƒÂ©calages entre versions")
+                    # ══ GRAPHIQUE 1 : Courbes superposées par commercial ══
+                    st.markdown("##### 📈 Courbes superposées par commercial — Déc vs Mai vs Réalisé")
+                    st.caption("Chaque courbe = une prévision | Écarts verticaux = décalages entre versions")
 
-                    # Construire donnÃƒÂ©es par commercial
+                    # Construire données par commercial
                     _comms_all = sorted(df["commercial"].dropna().unique()) if "commercial" in df.columns else []
                     fig6_lines = go.Figure()
 
                     _col_map = {
-                        "PrÃƒÂ©vision DÃƒÂ©c":  "prevision_dec",
-                        "PrÃƒÂ©vision Mai":  "prevision_mai",
-                        "PrÃƒÂ©vision Juin": "prevision_juin",
-                        "RÃƒÂ©alisÃƒÂ©":        "tonnage_livre",
+                        "Prévision Déc":  "prevision_dec",
+                        "Prévision Mai":  "prevision_mai",
+                        "Prévision Juin": "prevision_juin",
+                        "Réalisé":        "tonnage_livre",
                     }
                     _has_any = False
                     for lbl, col in _col_map.items():
@@ -3848,7 +3848,7 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                                 _y = [df[col].fillna(0).sum()]
                                 _x = ["TOTAL"]
 
-                            # Barre + courbe superposÃƒÂ©e
+                            # Barre + courbe superposée
                             fig6_lines.add_trace(go.Bar(
                                 name=lbl, x=_x, y=_y,
                                 marker_color=bar_colors.get(lbl,"#888"),
@@ -3873,7 +3873,7 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                         if recouv > 0:
                             fig6_lines.add_hline(y=recouv,
                                 line_dash="dot", line_color="#ef5350", line_width=2.5,
-                                annotation_text=f"Ã¢Å¡Â Ã¯Â¸Â Seuil recouvrement : {recouv:,.0f} T",
+                                annotation_text=f"⚠️ Seuil recouvrement : {recouv:,.0f} T",
                                 annotation_font_color="#ef5350", annotation_font_size=11,
                                 annotation_position="top right")
 
@@ -3881,8 +3881,8 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                         barmode="group", template="plotly_dark",
                         paper_bgcolor="#161b22", plot_bgcolor="#0d1117",
                         height=520,
-                        title="<b>PrÃƒÂ©visions vs RÃƒÂ©alisÃƒÂ© par Commercial</b>"
-                              "<br><sup>Barres = volumes | Courbes = tendances | Ãƒâ€°cart vertical = dÃƒÂ©calage entre versions</sup>",
+                        title="<b>Prévisions vs Réalisé par Commercial</b>"
+                              "<br><sup>Barres = volumes | Courbes = tendances | Écart vertical = décalage entre versions</sup>",
                         yaxis_title="Tonnes (T)",
                         yaxis=dict(gridcolor="#21262d"),
                         legend=dict(orientation="h", yanchor="bottom", y=1.02,
@@ -3893,9 +3893,9 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                     if _has_any:
                         st.plotly_chart(fig6_lines, use_container_width=True)
 
-                    # Ã¢â€â‚¬Ã¢â€â‚¬ GRAPHIQUE 2 : Radar statistique Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+                    # ════════════════ GRAPHIQUE 2 : Radar statistique ════════════════
                     if len(_comms_all) >= 3:
-                        st.markdown("##### Ã°Å¸â€¢Â·Ã¯Â¸Â Radar Ã¢â‚¬â€ Comparaison globale par commercial")
+                        st.markdown("##### 🕷— Radar — Comparaison globale par commercial")
                         fig_radar = go.Figure()
                         _theta = list(_comms_all) + [_comms_all[0]]
                         for lbl, col in _col_map.items():
@@ -3914,7 +3914,7 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                                        radialaxis=dict(gridcolor="#21262d"),
                                        angularaxis=dict(gridcolor="#21262d")),
                             height=420,
-                            title="Radar Ã¢â‚¬â€ RÃƒÂ©partition par commercial (toutes prÃƒÂ©visions)",
+                            title="Radar — Répartition par commercial (toutes prévisions)",
                             legend=dict(orientation="h", yanchor="bottom", y=-0.2),
                             font=dict(color="#f0f6fc"),
                         )
@@ -3924,8 +3924,8 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                 if tots:
                     cols_k = st.columns(len(tots))
                     for i, (lbl, val) in enumerate(tots.items()):
-                        ref = tots.get("PrÃƒÂ©vision DÃƒÂ©c", val)
-                        delta = val - ref if lbl != "PrÃƒÂ©vision DÃƒÂ©c" and ref > 0 else None
+                        ref = tots.get("Prévision Déc", val)
+                        delta = val - ref if lbl != "Prévision Déc" and ref > 0 else None
                         cols_k[i].markdown(
                             _metric(lbl, f"{val:,.0f} T",
                                 color=bar_colors.get(lbl, "#888"),
@@ -3941,10 +3941,10 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                 ] if c in df.columns]
 
                 df_pv = df[pv_cols].copy()
-                df_pv.columns = [c.replace("_"," ").replace("prevision","PrÃƒÂ©v.").title()
+                df_pv.columns = [c.replace("_"," ").replace("prevision","Prév.").title()
                                   for c in df_pv.columns]
 
-                st.markdown("#### Ã°Å¸â€œâ€¹ Tableau prÃƒÂ©visions vs rÃƒÂ©alisÃƒÂ© par agriculteur")
+                st.markdown("#### 📋 Tableau prévisions vs réalisé par agriculteur")
                 st.dataframe(df_pv.round(1),
                     use_container_width=True,
                     hide_index=True,
@@ -3955,23 +3955,23 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                     })
 
                 st.download_button(
-                    "Ã°Å¸â€œÂ¥ TÃƒÂ©lÃƒÂ©charger PrÃƒÂ©visions vs RÃƒÂ©alisÃƒÂ© (Excel)",
+                    "📥 Télécharger Prévisions vs Réalisé (Excel)",
                     data=_export_excel_table(
                         df_pv,
                         "Previsions",
-                        "PrÃƒÂ©visions vs RÃƒÂ©alisÃƒÂ© Ã¢â‚¬â€ Campagne 2026",
+                        "Prévisions vs Réalisé — Campagne 2026",
                         "4A235A"),
                     file_name="previsions_vs_realise_2026.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True)
 
-    # Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-    # TAB 7 Ã¢â‚¬â€ ANALYSE EFFICACITÃƒâ€° PROFESSIONNELLE
-    # Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    # ═════════════════════════════
+    # TAB 7 — ANALYSE EFFICACITÉ PROFESSIONNELLE
+    # ═════════════════════════════
     with t7:
         if df is None or df.empty:
             _no_data()
-            st.caption("Fusionnez les donnÃƒÂ©es dans Ã¢Å¡â„¢Ã¯Â¸Â pour voir cette analyse.")
+            st.caption("Fusionnez les données dans ⚙️ pour voir cette analyse.")
         else:
             import numpy as _npro
             import plotly.graph_objects as _gop
@@ -3979,9 +3979,9 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
             st.markdown("""<div style='background:linear-gradient(90deg,#0a1628,#1a2332);
 border-radius:12px;padding:16px 24px;margin-bottom:20px;border-left:4px solid #FFD700'>
 <div style='font-size:1.1rem;font-weight:800;color:#f0f6fc'>
-Ã°Å¸Ââ€  Analyse EfficacitÃƒÂ© Professionnelle Ã¢â‚¬â€ Campagne 2026</div>
+📊 Analyse Efficacité Professionnelle — Campagne 2026</div>
 <div style='font-size:.82rem;color:#8b949e;margin-top:6px'>
-Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI Ã‚Â· Recommandations automatiques
+Score d'efficacité · Benchmark commerciaux · Matrice ROI · Recommandations automatiques
 </div></div>""", unsafe_allow_html=True)
 
             _df7 = df.copy()
@@ -3994,8 +3994,8 @@ Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI 
                 if _sc2 not in _df7.columns:
                     _df7[_sc2] = ""
 
-            # MÃƒÂ©triques dÃƒÂ©rivÃƒÂ©es
-            # Utiliser rendement_ha_reel (calculÃƒÂ© dans merge_and_calculate)
+            # Métriques dérivées
+            # Utiliser rendement_ha_reel (calculé dans merge_and_calculate)
             if "rendement_ha_reel" in _df7.columns and _df7["rendement_ha_reel"].fillna(0).gt(0).any():
                 _df7["rendement_ha"] = _df7["rendement_ha_reel"].fillna(0)
             elif "rendement_ha_reel" in _df7.columns and _df7["rendement_ha_reel"].fillna(0).gt(0).any():
@@ -4015,61 +4015,61 @@ Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI 
                 lambda r: round((r["valeur_livree"]-r["charge_totale"])/r["charge_totale"]*100,1)
                           if r["charge_totale"]>0 else 0, axis=1)
 
-            # Ã¢â€¢ÂÃ¢â€¢Â Score EfficacitÃƒÂ© ABSOLU (0-100) Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-            # BarÃƒÂ¨mes rÃƒÂ©els tomate industrielle Tunisie Ã¢â‚¬â€ NON relatif
-            # Source : rÃƒÂ©fÃƒÂ©rences AVFA / GIFruits Tunisie
-            # Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ══════════ Score Efficacité ABSOLU (0-100) ══════════
+            # Barèmes réels tomate industrielle Tunisie — NON relatif
+            # Source : références AVFA / GIFruits Tunisie
+            # ═════════════════════════════════════════════════════
 
             def _score_rendement(t_ha):
                 """
-                BarÃƒÂ¨me rendement t/ha Ã¢â‚¬â€ calibrÃƒÂ© sur donnÃƒÂ©es rÃƒÂ©elles 2026.
+                Barème rendement t/ha — calibré sur données réelles 2026.
                 Vos agriculteurs sont dans la plage 60-110 t/ha.
-                DonnÃƒÂ©es aberrantes (>120) Ã¢â€ â€™ exclus (erreur de calcul ha).
+                Données aberrantes (>120) → exclus (erreur de calcul ha).
                 """
                 try: v = float(t_ha)
                 except: return 30.0
-                if v > 110:   return None   # Aberrant (>110 t/ha) Ã¢â€ â€™ exclu du score
+                if v > 110:   return None   # Aberrant (>110 t/ha) → exclu du score
                 if v >= 90:   return 100.0  # Exceptionnel
                 elif v >= 75: return 88.0   # Excellent
-                elif v >= 65: return 74.0   # TrÃƒÂ¨s bon
+                elif v >= 65: return 74.0   # Très bon
                 elif v >= 55: return 58.0   # Bon
                 elif v >= 42: return 40.0   # Moyen
                 elif v >= 28: return 22.0   # Faible
-                else:         return 5.0    # TrÃƒÂ¨s faible
+                else:         return 5.0    # Très faible
 
             def _score_taux_prise(tp):
-                """BarÃƒÂ¨me taux de prise % Ã¢â‚¬â€ vos donnÃƒÂ©es : 83-94%."""
+                """Barème taux de prise % — vos données : 83-94%."""
                 try: v = float(tp)
                 except: return 40.0
                 if v >= 93:   return 100.0  # Exceptionnel
                 elif v >= 91: return 85.0   # Excellent
-                elif v >= 88: return 70.0   # TrÃƒÂ¨s bon
+                elif v >= 88: return 70.0   # Très bon
                 elif v >= 85: return 52.0   # Bon
                 elif v >= 80: return 35.0   # Moyen
                 else:         return 15.0   # Faible
 
             def _score_intrant(cout_tonne):
                 """
-                BarÃƒÂ¨me coÃƒÂ»t intrant/tonne (DT/T).
-                Si = 0 Ã¢â€ â€™ donnÃƒÂ©es Sotusfa absentes Ã¢â€ â€™ score neutre 50.
+                Barème coût intrant/tonne (DT/T).
+                Si = 0 → données Sotusfa absentes → score neutre 50.
                 """
                 try: v = float(cout_tonne)
                 except: return 50.0
-                if v <= 0:    return 50.0   # Absent Ã¢â€ â€™ neutre (ni bon ni mauvais)
-                elif v <= 40: return 100.0  # TrÃƒÂ¨s ÃƒÂ©conomique
+                if v <= 0:    return 50.0   # Absent → neutre (ni bon ni mauvais)
+                elif v <= 40: return 100.0  # Très économique
                 elif v <= 60: return 80.0
                 elif v <= 80: return 60.0
                 elif v <= 100:return 40.0
                 elif v <= 130:return 20.0
-                else:         return 5.0    # TrÃƒÂ¨s coÃƒÂ»teux
+                else:         return 5.0    # Très coûteux
 
             def _score_roi(roi):
                 """
-                Score ROI Ã¢â‚¬â€ plafonnÃƒÂ© ÃƒÂ  300% pour ÃƒÂ©viter l'inflation.
-                Note : ROI ÃƒÂ©levÃƒÂ© (~500%) est NORMAL car les charges ne
-                comprennent que les avances sociÃƒÂ©tÃƒÂ© (plants + intrants + Bourak),
-                PAS les frais rÃƒÂ©els de l'agriculteur (irrigation, labour...).
-                Ã¢â€ â€™ On plafonne ÃƒÂ  300% pour neutraliser cet effet.
+                Score ROI — plafonné à 300% pour éviter l'inflation.
+                Note : ROI élevé (~500%) est NORMAL car les charges ne
+                comprennent que les avances société (plants + intrants + Bourak),
+                PAS les frais réels de l'agriculteur (irrigation, labour...).
+                → On plafonne à 300% pour neutraliser cet effet.
                 """
                 try: v = min(float(roi), 300.0)   # Plafond 300%
                 except: return 0.0
@@ -4079,18 +4079,18 @@ Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI 
                 elif v >= 0:  return 35.0
                 else:         return 0.0   # Perte
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Application des barÃƒÂ¨mes Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ══════════════════════════ Application des barèmes ══════════════════════════
             # Poids : Rendement 55% | Taux prise 35% | ROI 10%
-            # (intrants ÃƒÂ  0 = donnÃƒÂ©es absentes Ã¢â€ â€™ poids redistribuÃƒÂ©)
+            # (intrants à 0 = données absentes → poids redistribué)
             _df7["_s_rend"]  = _df7["rendement_ha"].apply(_score_rendement)
             _df7["_s_prise"] = _df7["taux_prise"].apply(_score_taux_prise)
             _df7["_s_int"]   = _df7["cout_intrant_tonne"].apply(_score_intrant)
             _df7["_s_roi"]   = _df7["roi_pct"].apply(_score_roi)
 
-            # Marquer les donnÃƒÂ©es aberrantes (rendement > 120 t/ha)
+            # Marquer les données aberrantes (rendement > 120 t/ha)
             _aberrant = _df7["_s_rend"].isna()
             _df7.loc[_aberrant, "score_efficacite"] = float("nan")
-            _df7.loc[_aberrant, "categorie"] = "Ã¢Å¡Â Ã¯Â¸Â DonnÃƒÂ©es ÃƒÂ  vÃƒÂ©rifier"
+            _df7.loc[_aberrant, "categorie"] = "⚠️ Données à vérifier"
 
             _valid = ~_aberrant
             _no_intrant = _df7["cout_intrant_tonne"].fillna(0).eq(0) & _valid
@@ -4112,67 +4112,67 @@ Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI 
                     _df7.loc[_with_intrant, "_s_roi"]   * 0.10
                 ).round(1)
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ CatÃƒÂ©gorie ABSOLUE Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ════════════════════════════════ Catégorie ABSOLUE ════════════════════════════════
             def _cat7(s):
                 """
-                CatÃƒÂ©gorie basÃƒÂ©e sur barÃƒÂ¨mes Ã¢â‚¬â€ calibrÃƒÂ©e sur vos donnÃƒÂ©es 2026.
-                Score rÃƒÂ©el observÃƒÂ©: 24-94/100 aprÃƒÂ¨s rÃƒÂ©vision.
+                Catégorie basée sur barèmes — calibrée sur vos données 2026.
+                Score réel observé: 24-94/100 après révision.
                 """
-                if pd.isna(s):    return "Ã¢Å¡Â Ã¯Â¸Â DonnÃƒÂ©es ÃƒÂ  vÃƒÂ©rifier"
-                if s >= 85:       return "Ã°Å¸Ââ€  Excellent"
-                elif s >= 70:     return "Ã¢Å“â€¦ TrÃƒÂ¨s bon"
-                elif s >= 55:     return "Ã¢Å“â€¦ Bon"
-                elif s >= 40:     return "Ã¢Å¡Â Ã¯Â¸Â Moyen"
-                else:             return "Ã°Å¸â€Â´ Ãƒâ‚¬ amÃƒÂ©liorer"
+                if pd.isna(s):    return "⚠️ Données à vérifier"
+                if s >= 85:       return "🟢 Excellent"
+                elif s >= 70:     return "✅ Très bon"
+                elif s >= 55:     return "✅ Bon"
+                elif s >= 40:     return "⚠️ Moyen"
+                else:             return "🟡 À améliorer"
 
             _df7["categorie"] = _df7["score_efficacite"].apply(_cat7)
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Note explicative Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ═════════════════════════════════ Note explicative ═════════════════════════════════
             st.info("""
-**Ã°Å¸â€œÂ MÃƒÂ©thode Score EfficacitÃƒÂ© Ã¢â‚¬â€ Campagne Tomate 2026**
+**— Méthode Score Efficacité — Campagne Tomate 2026**
 
 **C'est quoi chaque indicateur ?**
-- **Rendement t/ha** = Tonnes livrÃƒÂ©es ÃƒÂ· Hectares rÃƒÂ©els. Vos donnÃƒÂ©es : 30-110 t/ha.
-- **Taux prise %** = Plants actifs ÃƒÂ· Plants livrÃƒÂ©s Ãƒâ€” 100 (% des plants qui ont produit). Vos donnÃƒÂ©es : 83-94%.
-- **ROI %** = (Valeur livrÃƒÂ©e Ã¢Ë†â€™ Charges sociÃƒÂ©tÃƒÂ©) ÃƒÂ· Charges sociÃƒÂ©tÃƒÂ© Ãƒâ€” 100. Ã¢Å¡Â Ã¯Â¸Â Note : ce ROI ne compte QUE les avances de la sociÃƒÂ©tÃƒÂ© (plants, intrants, avance Bourak), PAS les frais rÃƒÂ©els de l'agriculteur (irrigation, labour, location). C'est pour ÃƒÂ§a qu'il est ÃƒÂ©levÃƒÂ© (200-600%). On le plafonne ÃƒÂ  300% dans le calcul.
-- **CoÃƒÂ»t maÃƒÂ®trisÃƒÂ©** (radar commerciaux) = Score inversÃƒÂ© du coÃƒÂ»t intrant/tonne. Moins l'agriculteur dÃƒÂ©pense en intrants pour produire 1 tonne, meilleur est le score.
+- **Rendement t/ha** = Tonnes livrées ÷ Hectares réels. Vos données : 30-110 t/ha.
+- **Taux prise %** = Plants actifs ÷ Plants livrés × 100 (% des plants qui ont produit). Vos données : 83-94%.
+- **ROI %** = (Valeur livrée − Charges société) ÷ Charges société × 100. ⚠️ Note : ce ROI ne compte QUE les avances de la société (plants, intrants, avance Bourak), PAS les frais réels de l'agriculteur (irrigation, labour, location). C'est pour ça qu'il est élevé (200-600%). On le plafonne à 300% dans le calcul.
+- **Coût maîtrisé** (radar commerciaux) = Score inversé du coût intrant/tonne. Moins l'agriculteur dépense en intrants pour produire 1 tonne, meilleur est le score.
 
-**BarÃƒÂ¨mes calibrÃƒÂ©s sur vos donnÃƒÂ©es rÃƒÂ©elles :**
+**Barèmes calibrés sur vos données réelles :**
 
-| CritÃƒÂ¨re | Poids* | BarÃƒÂ¨me (vos donnÃƒÂ©es 60-110 t/ha) |
+| Critère | Poids* | Barème (vos données 60-110 t/ha) |
 |---|---|---|
-| **Rendement t/ha** | 55% | <28Ã¢â€ â€™5 Ã‚Â· 28-42Ã¢â€ â€™22 Ã‚Â· 42-55Ã¢â€ â€™40 Ã‚Â· 55-65Ã¢â€ â€™58 Ã‚Â· 65-75Ã¢â€ â€™74 Ã‚Â· 75-90Ã¢â€ â€™88 Ã‚Â· 90+Ã¢â€ â€™100 |
-| **Taux prise %** | 35% | <80Ã¢â€ â€™15 Ã‚Â· 80-85Ã¢â€ â€™35 Ã‚Â· 85-88Ã¢â€ â€™52 Ã‚Â· 88-91Ã¢â€ â€™70 Ã‚Â· 91-93Ã¢â€ â€™85 Ã‚Â· 93+Ã¢â€ â€™100 |
-| **ROI (plafonnÃƒÂ© 300%)** | 10% | <0Ã¢â€ â€™0 Ã‚Â· 0-50Ã¢â€ â€™35 Ã‚Â· 50-100Ã¢â€ â€™55 Ã‚Â· 100-200Ã¢â€ â€™75 Ã‚Â· 200+Ã¢â€ â€™100 |
+| **Rendement t/ha** | 55% | <28→5 · 28-42→22 · 42-55→40 · 55-65→58 · 65-75→74 · 75-90→88 · 90+→100 |
+| **Taux prise %** | 35% | <80→15 · 80-85→35 · 85-88→52 · 88-91→70 · 91-93→85 · 93+→100 |
+| **ROI (plafonné 300%)** | 10% | <0→0 · 0-50→35 · 50-100→55 · 100-200→75 · 200+→100 |
 
-*Sans donnÃƒÂ©es Sotusfa (coÃƒÂ»t=0). Avec : Rendement 45% Ã‚Â· Prise 25% Ã‚Â· Intrants 20% Ã‚Â· ROI 10%.
+*Sans données Sotusfa (coût=0). Avec : Rendement 45% · Prise 25% · Intrants 20% · ROI 10%.
 
-**CatÃƒÂ©gories** : Ã°Å¸â€Â´ <40 Ã‚Â· Ã¢Å¡Â Ã¯Â¸Â 40-55 Ã‚Â· Ã¢Å“â€¦ 55-70 Ã‚Â· Ã¢Å“â€¦ 70-85 Ã‚Â· Ã°Å¸Ââ€  85+
-Ã¢Å¡Â Ã¯Â¸Â Rendement >110 t/ha = donnÃƒÂ©es suspectes (prob. erreur ha ACHREF) Ã¢â€ â€™ exclu du score.
+**Catégories** : 🔴 <40 · ⚠️ 40-55 · 🟡 55-70 · 🟢 70-85 · ⭐ 85+
+⚠️ Rendement >110 t/ha = données suspectes (prob. erreur ha ACHREF) → exclu du score.
 """)
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ KPIs Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-            st.markdown("### Ã°Å¸â€œÅ  Indicateurs ClÃƒÂ©s")
+            # ═══════════════════════════════════════════ KPIs ═══════════════════════════════════════════
+            st.markdown("### 📊 Indicateurs Clés")
             _kp = st.columns(5)
             _kp[0].markdown(_metric("Score moyen",f"{_df7['score_efficacite'].mean():.1f}/100",color="#FFD700"),unsafe_allow_html=True)
             _rend_pos = _df7["rendement_ha"][_df7["rendement_ha"]>0]
             _kp[1].markdown(_metric("Rendement moyen",f"{_rend_pos.mean():.1f} t/ha" if len(_rend_pos)>0 else "N/A",color="#4CAF50"),unsafe_allow_html=True)
             _cout_pos = _df7["cout_intrant_tonne"][_df7["cout_intrant_tonne"]>0]
-            _kp[2].markdown(_metric("CoÃƒÂ»t intrant/tonne",f"{_cout_pos.mean():.0f} DT/T" if len(_cout_pos)>0 else "N/A",color="#FF9800"),unsafe_allow_html=True)
+            _kp[2].markdown(_metric("Coût intrant/tonne",f"{_cout_pos.mean():.0f} DT/T" if len(_cout_pos)>0 else "N/A",color="#FF9800"),unsafe_allow_html=True)
             _kp[3].markdown(_metric("ROI moyen",f"{_df7['roi_pct'].mean():+.1f}%",
                 color="#4CAF50" if _df7["roi_pct"].mean()>=0 else "#ef5350"),unsafe_allow_html=True)
-            _kp[4].markdown(_metric("Excellents (Ã¢â€°Â¥75)",f"{(_df7['score_efficacite']>=75).sum()} agri",color="#FFD700"),unsafe_allow_html=True)
+            _kp[4].markdown(_metric("Excellents (≥75)",f"{(_df7['score_efficacite']>=75).sum()} agri",color="#FFD700"),unsafe_allow_html=True)
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Matrice EfficacitÃƒÂ© Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ══════════════════════════════ Matrice Efficacité ══════════════════════════════
             st.markdown("---")
-            st.markdown("### Ã°Å¸â€Â· Matrice EfficacitÃƒÂ© Ã¢â‚¬â€ CoÃƒÂ»t Intrant vs Rendement")
-            st.caption("4 quadrants : Efficace Ã‚Â· Surinvesti Ã‚Â· Potentiel Ã‚Â· Inefficace")
+            st.markdown("### 📊 Matrice Efficacité — Coût Intrant vs Rendement")
+            st.caption("4 quadrants : Efficace · Surinvesti · Potentiel · Inefficace")
             _dfm = _df7[(_df7["cout_intrant_ha"]>0)&(_df7["rendement_ha"]>0)].copy()
             if not _dfm.empty:
                 _med_c = _dfm["cout_intrant_ha"].median()
                 _med_r = _dfm["rendement_ha"].median()
                 _ac = next((c for c in ["agriculteur","client"] if c in _dfm.columns),None)
-                _CAT_COL = {"Ã°Å¸Ââ€  Excellent":"#FFD700","Ã¢Å“â€¦ Bon":"#4CAF50","Ã¢Å¡Â Ã¯Â¸Â Moyen":"#FF9800","Ã°Å¸â€Â´ Ãƒâ‚¬ amÃƒÂ©liorer":"#ef5350"}
+                _CAT_COL = {"🟢 Excellent":"#FFD700","✅ Bon":"#4CAF50","⚠️ Moyen":"#FF9800","🟡 À améliorer":"#ef5350"}
                 _figm = _gop.Figure()
                 for _cat7v, _cc in _CAT_COL.items():
                     _sub = _dfm[_dfm["categorie"]==_cat7v]
@@ -4182,31 +4182,31 @@ Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI 
                         mode="markers", name=_cat7v,
                         marker=dict(color=_cc,size=10,opacity=0.85,line=dict(width=1,color="#fff")),
                         text=_sub[_ac] if _ac else None,
-                        hovertemplate="<b>%{text}</b><br>CoÃƒÂ»t: %{x:,.0f} DT/ha<br>Rend: %{y:.1f} t/ha<extra></extra>",
+                        hovertemplate="<b>%{text}</b><br>Coût: %{x:,.0f} DT/ha<br>Rend: %{y:.1f} t/ha<extra></extra>",
                     ))
                 _figm.add_hline(y=_med_r,line_dash="dash",line_color="#555",line_width=1.5,
-                    annotation_text=f"MÃƒÂ©diane {_med_r:.1f}t/ha",annotation_font_color="#999")
+                    annotation_text=f"Médiane {_med_r:.1f}t/ha",annotation_font_color="#999")
                 _figm.add_vline(x=_med_c,line_dash="dash",line_color="#555",line_width=1.5,
-                    annotation_text=f"MÃƒÂ©diane {_med_c:.0f}DT/ha",annotation_font_color="#999")
+                    annotation_text=f"Médiane {_med_c:.0f}DT/ha",annotation_font_color="#999")
                 _xmax = _dfm["cout_intrant_ha"].quantile(0.9)
                 _ymax = _dfm["rendement_ha"].quantile(0.9)
                 for _ql,_xa,_ya,_qc in [
-                    ("Ã¢Â­Â EFFICACE",_med_c*0.3,_ymax*0.9,"#4CAF50"),
-                    ("Ã°Å¸â€™Â¸ SURINVESTI",_xmax*0.75,_ymax*0.9,"#FF9800"),
-                    ("Ã°Å¸â€Â POTENTIEL",_med_c*0.3,_med_r*0.3,"#42A5F5"),
-                    ("Ã¢ÂÅ’ INEFFICACE",_xmax*0.75,_med_r*0.3,"#ef5350")]:
+                    ("— EFFICACE",_med_c*0.3,_ymax*0.9,"#4CAF50"),
+                    ("💸 SURINVESTI",_xmax*0.75,_ymax*0.9,"#FF9800"),
+                    ("—?? POTENTIEL",_med_c*0.3,_med_r*0.3,"#42A5F5"),
+                    ("🔴 INEFFICACE",_xmax*0.75,_med_r*0.3,"#ef5350")]:
                     _figm.add_annotation(x=_xa,y=_ya,text=_ql,showarrow=False,
                         font=dict(size=10,color=_qc),bgcolor="rgba(0,0,0,0.5)",
                         bordercolor=_qc,borderwidth=1,borderpad=4)
                 _figm.update_layout(template="plotly_dark",paper_bgcolor="#161b22",
                     plot_bgcolor="#0d1117",height=460,
-                    xaxis_title="CoÃƒÂ»t intrants / ha (DT)",yaxis_title="Rendement (t/ha)",
+                    xaxis_title="Coût intrants / ha (DT)",yaxis_title="Rendement (t/ha)",
                     legend=dict(orientation="h",y=1.02,font=dict(size=10)),font=dict(color="#f0f6fc"))
                 st.plotly_chart(_figm,use_container_width=True)
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Benchmark Commerciaux Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ═══════════════════════════ Benchmark Commerciaux ═══════════════════════════
             st.markdown("---")
-            st.markdown("### Ã°Å¸â€˜â€ Benchmark Commerciaux Ã¢â‚¬â€ Radar 5 axes")
+            st.markdown("### — Benchmark Commerciaux — Radar 5 axes")
             if _df7["commercial"].ne("").any():
                 _cb = _df7.groupby("commercial").agg(
                     Rend_moy=("rendement_ha",lambda x: round(x[x>0].mean(),1) if (x>0).any() else 0),
@@ -4233,7 +4233,7 @@ Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI 
 
                 _CCOL={"KHALIL":"#F5A623","KHALIL MAIRECH":"#F5A623","MAKKI BEN SALAH":"#00E5A0",
                        "FEDI":"#3B82F6","JILANI OBAY":"#FF6B9D","ACHREF AJLANI":"#8B5CF6"}
-                _theta7=["Rendement/ha","Taux prise","CoÃƒÂ»t maÃƒÂ®trisÃƒÂ©","ROI agri","Score global"]
+                _theta7=["Rendement/ha","Taux prise","Coût maîtrisé","ROI agri","Score global"]
 
                 _figr = _gop.Figure()
                 for _,_rw in _rb.iterrows():
@@ -4247,7 +4247,7 @@ Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI 
                     polar=dict(bgcolor="#0d1117",
                                radialaxis=dict(gridcolor="#21262d",range=[0,100]),
                                angularaxis=dict(gridcolor="#21262d")),
-                    height=420,title="Radar EfficacitÃƒÂ© Ã¢â‚¬â€ 5 Commerciaux",
+                    height=420,title="Radar Efficacité — 5 Commerciaux",
                     legend=dict(orientation="h",y=-0.15,font=dict(size=10)),font=dict(color="#f0f6fc"))
 
                 _cb_sorted = _cb.sort_values("Score",ascending=True)
@@ -4272,10 +4272,10 @@ Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI 
                             "ROI_pos":"% ROI positif","Nb":"Nb agri","Tonnage":"Tonnage(T)"})                        .sort_values("Score/100",ascending=False),
                         hide_index=True,use_container_width=True)
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Analyse par VariÃƒÂ©tÃƒÂ© Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ═════════════════════════════ Analyse par Variété ═════════════════════════════
             if _df7["variete"].ne("").any() and (_df7["rendement_ha"]>0).any():
                 st.markdown("---")
-                st.markdown("### Ã°Å¸Ââ€¦ EfficacitÃƒÂ© par VariÃƒÂ©tÃƒÂ©")
+                st.markdown("### 📊 Efficacité par Variété")
                 try:
                     _df7v = _df7[_df7["rendement_ha"]>0].copy()
                     _evd  = {}
@@ -4296,8 +4296,8 @@ Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI 
                         _vg = _vg.sort_values("Rend_moy",ascending=False).round(1)
                 except Exception as _evv:
                     _vg = pd.DataFrame({"variete":[]})
-                _vg["Recommandation"] = ["Ã¢Â­Â MEILLEURE" if i==0
-                    else ("Ã¢Å“â€¦ Bonne" if r["Rend_moy"]>=_vg["Rend_moy"].median() else "Ã°Å¸â€™Â¡ Ãƒâ‚¬ optimiser")
+                _vg["Recommandation"] = ["— MEILLEURE" if i==0
+                    else ("✅ Bonne" if r["Rend_moy"]>=_vg["Rend_moy"].median() else "💡 À optimiser")
                     for i,(_,r) in enumerate(_vg.iterrows())]
                 _vg_c1,_vg_c2 = st.columns(2)
                 with _vg_c1:
@@ -4306,17 +4306,17 @@ Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI 
                         marker_color=["#FFD700" if i==0 else "#42A5F5" for i in range(len(_vg))],
                         text=_vg["Rend_moy"].apply(lambda v: f"{v:.1f} t/ha"),textposition="outside"))
                     _figv.update_layout(template="plotly_dark",paper_bgcolor="#161b22",
-                        plot_bgcolor="#0d1117",height=320,title="Rendement moyen par variÃƒÂ©tÃƒÂ©",
+                        plot_bgcolor="#0d1117",height=320,title="Rendement moyen par variété",
                         yaxis_title="t/ha",font=dict(color="#f0f6fc"))
                     st.plotly_chart(_figv,use_container_width=True)
                 with _vg_c2:
-                    st.dataframe(_vg.rename(columns={"variete":"VariÃƒÂ©tÃƒÂ©","Rend_moy":"Rend(t/ha)",
-                        "Score_moy":"Score/100","Cout_moy":"CoÃƒÂ»t/T(DT)","Nb":"Nb agri"}),
+                    st.dataframe(_vg.rename(columns={"variete":"Variété","Rend_moy":"Rend(t/ha)",
+                        "Score_moy":"Score/100","Cout_moy":"Coût/T(DT)","Nb":"Nb agri"}),
                         hide_index=True,use_container_width=True,height=320)
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Tableau complet avec score Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ══════════════════════ Tableau complet avec score ══════════════════════
             st.markdown("---")
-            st.markdown("### Ã°Å¸â€œâ€¹ Tableau Score EfficacitÃƒÂ© Complet")
+            st.markdown("### 📋 Tableau Score Efficacité Complet")
             _ac7 = next((c for c in ["agriculteur","client"] if c in _df7.columns),None)
             _v7 = [c for c in [_ac7,"commercial","region","variete","score_efficacite",
                 "categorie","rendement_ha","taux_prise","cout_intrant_tonne","roi_pct","solde_final"]
@@ -4327,82 +4327,82 @@ Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI 
                     "score_efficacite":st.column_config.ProgressColumn("Score/100",min_value=0,max_value=100,format="%.1f"),
                     "roi_pct":st.column_config.NumberColumn("ROI%",format="%+.1f%%"),
                     "rendement_ha":st.column_config.NumberColumn("Rend(t/ha)",format="%.1f"),
-                    "cout_intrant_tonne":st.column_config.NumberColumn("CoÃƒÂ»t/T(DT)",format="%.0f"),
+                    "cout_intrant_tonne":st.column_config.NumberColumn("Coût/T(DT)",format="%.0f"),
                     "solde_final":st.column_config.NumberColumn("Solde(DT)",format="%+,.0f"),
                 })
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Top & Bottom Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ════════════════════════════════════ Top & Bottom ════════════════════════════════════
             _tb1,_tb2 = st.columns(2)
             with _tb1:
-                st.markdown("**Ã¢Â­Â Top 10**")
+                st.markdown("**— Top 10**")
                 for idx,(_,r) in enumerate(_df7d.head(10).iterrows()):
-                    _med = ["Ã°Å¸Â¥â€¡","Ã°Å¸Â¥Ë†","Ã°Å¸Â¥â€°","4Ã¯Â¸ÂÃ¢Æ’Â£","5Ã¯Â¸ÂÃ¢Æ’Â£","6Ã¯Â¸ÂÃ¢Æ’Â£","7Ã¯Â¸ÂÃ¢Æ’Â£","8Ã¯Â¸ÂÃ¢Æ’Â£","9Ã¯Â¸ÂÃ¢Æ’Â£","Ã°Å¸â€Å¸"][idx]
+                    _med = ["🥇","🥈","🥉","4—⃣","5—⃣","6—⃣","7—⃣","8—⃣","9—⃣","🔴"][idx]
                     _nm7 = r[_ac7] if _ac7 and _ac7 in r else str(r.name)
-                    st.caption(f"{_med} **{_nm7}** Ã¢â‚¬â€ Score {r['score_efficacite']:.0f}/100 | Rend {r['rendement_ha']:.1f}t/ha | ROI {r['roi_pct']:+.0f}%")
+                    st.caption(f"{_med} **{_nm7}** — Score {r['score_efficacite']:.0f}/100 | Rend {r['rendement_ha']:.1f}t/ha | ROI {r['roi_pct']:+.0f}%")
             with _tb2:
-                st.markdown("**Ã°Å¸â€Â´ Ãƒâ‚¬ amÃƒÂ©liorer (10 derniers)**")
+                st.markdown("**🟡 À améliorer (10 derniers)**")
                 for _,r in _df7d.tail(10).sort_values("score_efficacite").iterrows():
                     _nm7 = r[_ac7] if _ac7 and _ac7 in r else str(r.name)
                     _cause = ("faible rendement" if r["rendement_ha"]<15
-                              else ("coÃƒÂ»t ÃƒÂ©levÃƒÂ©" if r["cout_intrant_tonne"]>80 else "taux prise bas"))
-                    st.caption(f"Ã¢Å¡Â Ã¯Â¸Â **{_nm7}** Ã¢â‚¬â€ {r['score_efficacite']:.0f}/100 | Cause : {_cause}")
+                              else ("coût élevé" if r["cout_intrant_tonne"]>80 else "taux prise bas"))
+                    st.caption(f"⚠️ **{_nm7}** — {r['score_efficacite']:.0f}/100 | Cause : {_cause}")
 
-            # Ã¢â€â‚¬Ã¢â€â‚¬ Recommandations Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            # ═════════════════════════════════ Recommandations ═════════════════════════════════
             st.markdown("---")
-            st.markdown("### Ã°Å¸â€™Â¡ Recommandations Automatiques")
+            st.markdown("### 💡 Recommandations Automatiques")
             _rc1,_rc2 = st.columns(2)
             with _rc1:
                 if _df7["variete"].ne("").any() and (_df7["rendement_ha"]>0).any():
                     _bv = _df7[_df7["rendement_ha"]>0].groupby("variete")["rendement_ha"].mean().idxmax()
-                    st.info(f"Ã°Å¸Å’Â± **VariÃƒÂ©tÃƒÂ© recommandÃƒÂ©e : {_bv}** Ã¢â‚¬â€ meilleur rendement moyen. PrioritÃƒÂ© pour la prochaine campagne.")
+                    st.info(f"🌱 **Variété recommandée : {_bv}** — meilleur rendement moyen. Priorité pour la prochaine campagne.")
                 if _df7["commercial"].ne("").any():
                     _bc = _df7.groupby("commercial")["score_efficacite"].mean().idxmax()
-                    st.success(f"Ã°Å¸â€˜â€ **Meilleur commercial : {_bc}** Ã¢â‚¬â€ partager ses mÃƒÂ©thodes de suivi avec les autres ÃƒÂ©quipes.")
+                    st.success(f"— **Meilleur commercial : {_bc}** — partager ses méthodes de suivi avec les autres équipes.")
             with _rc2:
                 _n_sous = (_df7["score_efficacite"]<35).sum()
                 _n_sur  = (_df7["cout_intrant_ha"]>_df7["cout_intrant_ha"].quantile(0.75)).sum()
                 if _n_sous > 0:
-                    st.warning(f"Ã¢Å¡Â Ã¯Â¸Â **{_n_sous} agriculteurs** ont un score < 35/100 Ã¢â‚¬â€ nÃƒÂ©cessitent un accompagnement terrain urgent.")
+                    st.warning(f"⚠️ **{_n_sous} agriculteurs** ont un score < 35/100 — nécessitent un accompagnement terrain urgent.")
                 if _n_sur > 0:
-                    st.error(f"Ã°Å¸â€™Â¸ **{_n_sur} agriculteurs** surinvestissent en intrants (quartile supÃƒÂ©rieur) sans rendement proportionnel Ã¢â‚¬â€ rationaliser les doses DAP/fongicides.")
+                    st.error(f"💸 **{_n_sur} agriculteurs** surinvestissent en intrants (quartile supérieur) sans rendement proportionnel — rationaliser les doses DAP/fongicides.")
 
-            st.download_button("Ã°Å¸â€œÂ¥ Excel Ã¢â‚¬â€ Analyse EfficacitÃƒÂ© ComplÃƒÂ¨te",
+            st.download_button("📥 Excel — Analyse Efficacité Complète",
                 data=_export_excel_table(_df7d.rename(columns={
-                    "score_efficacite":"Score/100","categorie":"CatÃƒÂ©gorie",
-                    "rendement_ha":"Rend(t/ha)","cout_intrant_tonne":"CoÃƒÂ»t/T(DT)",
+                    "score_efficacite":"Score/100","categorie":"Catégorie",
+                    "rendement_ha":"Rend(t/ha)","cout_intrant_tonne":"Coût/T(DT)",
                     "roi_pct":"ROI%","solde_final":"Solde(DT)"}),
-                    "Analyse Efficacite","Score EfficacitÃƒÂ© & ROI Ã¢â‚¬â€ 2026","FFD700"),
+                    "Analyse Efficacite","Score Efficacité & ROI — 2026","FFD700"),
                 file_name="analyse_efficacite_2026.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True)
 
 
 
-    # Ã¢â€¢ÂÃ¢â€¢Â TAB 8 Ã¢â‚¬â€ PLAN RÃƒâ€°COLTE & TRANSPORT Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    # ══════════ TAB 8 — PLAN RÉCOLTE & TRANSPORT ══════════—
     with t8:
-        st.markdown("## Ã°Å¸Å¡â€º Plan RÃƒÂ©colte & Transport")
-        st.info("**IngÃƒÂ©nieur = Commercial** (mÃƒÂªme personne)  Ã‚Â·  **Transport = AccessibilitÃƒÂ©** (PL / PPL / SEMI)")
+        st.markdown("## 🚛 Plan Récolte & Transport")
+        st.info("**Ingénieur = Commercial** (même personne)  ·  **Transport = Accessibilité** (PL / PPL / SEMI)")
 
-        # RÃƒÂ©cupÃƒÂ©rer les donnÃƒÂ©es prÃƒÂ©vision
+        # Récupérer les données prévision
         _df_prev = st.session_state.get("abo_prev_mai")
         _df_merge = df if df is not None and not (hasattr(df,"empty") and df.empty) else None
 
         if _df_merge is None and _df_prev is None:
-            st.info("Ã°Å¸â€œÂ¥ Importez le fichier **Plan RÃƒÂ©colte** (PrÃƒÂ©visions) dans Ã¢Å¡â„¢Ã¯Â¸Â ParamÃƒÂ¨tres & Import")
+            st.info("📥 Importez le fichier **Plan Récolte** (Prévisions) dans ⚙️ Paramètres & Import")
             st.markdown("**Format attendu :** `PLAN_Recolte_Centre_2026.xlsx` avec les colonnes :")
-            st.code("Client Ã‚Â· Centre Ã‚Â· Ha Ã‚Â· Rendement_Ha Ã‚Â· Usine Ã‚Â· Date_Debut Ã‚Â· Date_Fin Ã‚Â· IngÃƒÂ©nieur Ã‚Â· Transport")
+            st.code("Client · Centre · Ha · Rendement_Ha · Usine · Date_Debut · Date_Fin · Ingénieur · Transport")
             st.stop()
 
-        # Utiliser le df_merged si disponible, sinon prÃƒÂ©visions
+        # Utiliser le df_merged si disponible, sinon prévisions
         _src = _df_merge.copy() if _df_merge is not None else pd.DataFrame()
 
-        # Ã¢â€â‚¬Ã¢â€â‚¬ Section 1 : Par Commercial (= IngÃƒÂ©nieur) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-        st.markdown("### Ã°Å¸â€˜Â¤ Par Commercial / IngÃƒÂ©nieur (mÃƒÂªme personne)")
+        # ═══════════ Section 1 : Par Commercial (= Ingénieur) ═══════════
+        st.markdown("### 👤 Par Commercial / Ingénieur (même personne)")
         if _src is not None and not _src.empty:
             _comm_col = next((c for c in ["commercial","responsable","ingenieur"] if c in _src.columns), None)
             if _comm_col:
                 _comm_list = sorted(_src[_comm_col].dropna().astype(str).unique().tolist())
-                sel_comm = st.selectbox("Filtrer par commercial / ingÃƒÂ©nieur",
+                sel_comm = st.selectbox("Filtrer par commercial / ingénieur",
                                         ["Tous"] + _comm_list, key="plan_comm")
                 _ing_df = _src.copy()
                 if sel_comm != "Tous":
@@ -4414,15 +4414,15 @@ Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI 
                               "usine","acces"] if c in _ing_df.columns]
                 if _show_cols:
                     _disp = _ing_df[_show_cols].copy()
-                    _disp.columns = [{"commercial":"Commercial / IngÃƒÂ©nieur",
-                        "responsable":"Commercial / IngÃƒÂ©nieur","ingenieur":"IngÃƒÂ©nieur",
+                    _disp.columns = [{"commercial":"Commercial / Ingénieur",
+                        "responsable":"Commercial / Ingénieur","ingenieur":"Ingénieur",
                         "client":"Client","centre":"Centre","hectares":"Ha",
                         "rendement_ha_reel":"T/ha","tonnage_livre":"Tonnage(T)",
-                        "date_debut_recolte":"DÃƒÂ©b. RÃƒÂ©colte","date_fin_recolte":"Fin RÃƒÂ©colte",
-                        "usine":"Usine","acces":"Transport / AccÃƒÂ¨s"}.get(c,c) for c in _show_cols]
+                        "date_debut_recolte":"Déb. Récolte","date_fin_recolte":"Fin Récolte",
+                        "usine":"Usine","acces":"Transport / Accès"}.get(c,c) for c in _show_cols]
                     st.dataframe(_disp, use_container_width=True, hide_index=True)
 
-                # RÃƒÂ©sumÃƒÂ© par commercial Ã¢â‚¬â€ approche dÃƒÂ©fensive
+                # Résumé par commercial — approche défensive
                 try:
                     _ragg = {}
                     _ac = next((c for c in ["client","agriculteur"] if c in _src.columns), None)
@@ -4431,19 +4431,19 @@ Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI 
                     if "tonnage_livre" in _src.columns: _ragg["tonnage_livre"] = "sum"
                     if _ragg:
                         _rsum_raw = _src.groupby(_comm_col).agg(_ragg).reset_index().round(1)
-                        _rn = {_comm_col:"Commercial / IngÃƒÂ©nieur",
+                        _rn = {_comm_col:"Commercial / Ingénieur",
                                _ac:"Agriculteurs","hectares":"Ha","tonnage_livre":"Tonnage(T)"}
                         _rsum_raw.rename(columns={k:v for k,v in _rn.items() if k in _rsum_raw.columns}, inplace=True)
                         st.dataframe(_rsum_raw, use_container_width=True, hide_index=True)
                 except Exception as _e8a:
-                    st.caption(f"RÃƒÂ©sumÃƒÂ© indisponible : {_e8a}")
+                    st.caption(f"Résumé indisponible : {_e8a}")
             else:
-                st.info("Colonne commercial/ingÃƒÂ©nieur absente dans les donnÃƒÂ©es.")
+                st.info("Colonne commercial/ingénieur absente dans les données.")
 
         st.divider()
 
-        # Ã¢â€â‚¬Ã¢â€â‚¬ Section 2 : Planning par Usine/Date Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-        st.markdown("### Ã°Å¸ÂÂ­ Calendrier rÃƒÂ©colte par usine")
+        # ═══════════════ Section 2 : Planning par Usine/Date ═══════════════
+        st.markdown("### 📅 Calendrier récolte par usine")
         if _df_merge is not None and not _df_merge.empty:
             _usine_col = next((c for c in _src.columns if "usine" in c.lower()), None)
             _date_col  = next((c for c in _src.columns if "date_debut" in c.lower() or "deb_recolt" in c.lower()), None)
@@ -4455,42 +4455,42 @@ Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI 
                     n = len(grp)
                     ha  = pd.to_numeric(grp["hectares"],     errors="coerce").sum() if "hectares"      in grp.columns else 0
                     ton = pd.to_numeric(grp["tonnage_livre"],errors="coerce").sum() if "tonnage_livre" in grp.columns else 0
-                    with st.expander(f"Ã°Å¸ÂÂ­ {usine} Ã¢â‚¬â€ {n} agriculteurs Ã‚Â· {ha:.0f} ha Ã‚Â· {ton:.0f} T"):
+                    with st.expander(f"⚠️ {usine} — {n} agriculteurs · {ha:.0f} ha · {ton:.0f} T"):
                         show_cols = [c for c in ["client","hectares","tonnage_livre",_date_col,"acces"] if c in grp.columns]
                         if show_cols:
                             st.dataframe(grp[show_cols], use_container_width=True, hide_index=True)
                         else:
                             st.dataframe(grp, use_container_width=True, hide_index=True)
             else:
-                st.info("Colonnes Usine ou Date dÃƒÂ©but rÃƒÂ©colte absentes.")
+                st.info("Colonnes Usine ou Date début récolte absentes.")
 
         st.divider()
 
-        # Ã¢â€â‚¬Ã¢â€â‚¬ Section 3 : Transport = AccessibilitÃƒÂ© Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-        st.markdown("### Ã°Å¸Å¡â€º Transport = AccessibilitÃƒÂ© (PL / PPL / SEMI)")
-        st.caption("Le type de transport dÃƒÂ©termine le type de vÃƒÂ©hicule : PL = camion plateau libre Ã‚Â· PPL = avec pente Ã‚Â· SEMI = semi-remorque")
-        _acc_col = next((c for c in ["acces","accessibilite","accessibilitÃƒÂ©"] if c in _src.columns), None)
+        # ════════════ Section 3 : Transport = Accessibilité ════════════
+        st.markdown("### 🚛 Transport = Accessibilité (PL / PPL / SEMI)")
+        st.caption("Le type de transport détermine le type de véhicule : PL = camion plateau libre · PPL = avec pente · SEMI = semi-remorque")
+        _acc_col = next((c for c in ["acces","accessibilite","accessibilité"] if c in _src.columns), None)
         if _acc_col and not _src.empty:
             _acc_list = sorted(_src[_acc_col].dropna().astype(str).unique().tolist())
-            sel_acc = st.selectbox("Filtrer par transport / accessibilitÃƒÂ©",
+            sel_acc = st.selectbox("Filtrer par transport / accessibilité",
                                    ["Tous"] + _acc_list, key="plan_acc")
             _trans_df = _src.copy()
             if sel_acc != "Tous":
                 _trans_df = _trans_df[_trans_df[_acc_col].astype(str) == sel_acc]
 
-            # Tableau dÃƒÂ©tail
+            # Tableau détail
             _tcols = [c for c in [_acc_col,"client","hectares","tonnage_livre",
                                    "date_debut_recolte","date_fin_recolte","usine","zone"]
                       if c in _trans_df.columns]
             if _tcols:
                 _td = _trans_df[_tcols].copy()
-                _td.columns = [{"acces":"Transport / AccÃƒÂ¨s","accessibilite":"Transport / AccÃƒÂ¨s",
+                _td.columns = [{"acces":"Transport / Accès","accessibilite":"Transport / Accès",
                     "client":"Client","hectares":"Ha","tonnage_livre":"Tonnage(T)",
-                    "date_debut_recolte":"DÃƒÂ©b. RÃƒÂ©colte","date_fin_recolte":"Fin RÃƒÂ©colte",
+                    "date_debut_recolte":"Déb. Récolte","date_fin_recolte":"Fin Récolte",
                     "usine":"Usine","zone":"Zone"}.get(c,c) for c in _tcols]
                 st.dataframe(_td, use_container_width=True, hide_index=True)
 
-            # RÃƒÂ©sumÃƒÂ© par type transport
+            # Résumé par type transport
             try:
                 _tagg = {}
                 _tc = next((c for c in ["client","agriculteur"] if c in _src.columns), None)
@@ -4499,11 +4499,11 @@ Score d'efficacitÃƒÂ© Ã‚Â· Benchmark commerciaux Ã‚Â· Matrice ROI 
                 if "tonnage_livre" in _src.columns: _tagg["tonnage_livre"] = "sum"
                 if _tagg:
                     _rsum_t_raw = _src.groupby(_acc_col).agg(_tagg).reset_index().round(1)
-                    _rnt = {_acc_col:"Transport / AccÃƒÂ¨s", _tc:"Agriculteurs",
+                    _rnt = {_acc_col:"Transport / Accès", _tc:"Agriculteurs",
                             "hectares":"Ha","tonnage_livre":"Tonnage(T)"}
                     _rsum_t_raw.rename(columns={k:v for k,v in _rnt.items() if k in _rsum_t_raw.columns}, inplace=True)
                     st.dataframe(_rsum_t_raw, use_container_width=True, hide_index=True)
             except Exception as _e8b:
-                st.caption(f"RÃƒÂ©sumÃƒÂ© transport indisponible : {_e8b}")
+                st.caption(f"Résumé transport indisponible : {_e8b}")
         else:
-            st.info("Ã¢â€žÂ¹Ã¯Â¸Â Colonne AccessibilitÃƒÂ© / Transport absente.")
+            st.info("ℹ— Colonne Accessibilité / Transport absente.")
