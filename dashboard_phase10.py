@@ -5868,17 +5868,36 @@ with tab8:
                     Tonnage=("Tonnes","sum"),
                 )
 
-                _prev_set = set(_prev_by.index)
-                _real_set = set(_real_by.index)
+                # ── FILTRE DYNAMIQUE PAR COMMERCIAL ──
+                _all_comms_f = sorted(set(_prev_by["Commercial"].dropna().unique().tolist() +
+                                          _real_by["Commercial"].dropna().unique().tolist()))
+                _all_comms_f = [c for c in _all_comms_f if c and str(c).strip()]
+                _comm_filter = st.selectbox(
+                    "🔎 Filtrer par commercial",
+                    ["Tous les commerciaux"] + _all_comms_f,
+                    key=f"cmp_agri_comm_filter_{_yr_sel}",
+                )
+
+                # Appliquer le filtre
+                if _comm_filter != "Tous les commerciaux":
+                    _prev_by_f = _prev_by[_prev_by["Commercial"] == _comm_filter]
+                    _real_by_f = _real_by[_real_by["Commercial"] == _comm_filter]
+                else:
+                    _prev_by_f = _prev_by
+                    _real_by_f = _real_by
+
+                _prev_set = set(_prev_by_f.index)
+                _real_set = set(_real_by_f.index)
 
                 _common = _prev_set & _real_set
                 _only_prev = _prev_set - _real_set
                 _only_real = _real_set - _prev_set
 
-                # KPI
+                # KPI dynamiques
+                _lbl_sfx = f" — {_comm_filter}" if _comm_filter != "Tous les commerciaux" else ""
                 _k1, _k2, _k3, _k4 = st.columns(4)
-                _k1.metric("Agri prévus", f"{len(_prev_set):,}")
-                _k2.metric("Agri réalisés", f"{len(_real_set):,}")
+                _k1.metric(f"Agri prévus{_lbl_sfx}", f"{len(_prev_set):,}")
+                _k2.metric(f"Agri réalisés{_lbl_sfx}", f"{len(_real_set):,}")
                 _k3.metric("✅ Communs", f"{len(_common):,}")
                 _k4.metric("⚠️ Différences", f"{len(_only_prev) + len(_only_real):,}")
 
@@ -5894,8 +5913,8 @@ with tab8:
                     if _common:
                         _rows_cm = []
                         for _n in _common:
-                            _p = _prev_by.loc[_n]
-                            _r = _real_by.loc[_n]
+                            _p = _prev_by_f.loc[_n]
+                            _r = _real_by_f.loc[_n]
                             _tp = float(_p["Tonnage"])
                             _tr = float(_r["Tonnage"])
                             _pct = (_tr/_tp*100) if _tp > 0 else 0
@@ -5930,7 +5949,7 @@ with tab8:
                     if _only_prev:
                         _rows_op = []
                         for _n in _only_prev:
-                            _p = _prev_by.loc[_n]
+                            _p = _prev_by_f.loc[_n]
                             _rows_op.append({
                                 "Agriculteur": _p["Nom"],
                                 "Commercial": _p["Commercial"],
@@ -5940,7 +5959,7 @@ with tab8:
                             })
                         _df_op = _pd.DataFrame(_rows_op).sort_values("Tonnage prévu (t)",
                                     key=lambda s: s.astype(str).str.replace(",","").astype(float), ascending=False)
-                        _tot_op = sum(float(_p["Tonnage"]) for _p in [_prev_by.loc[_n] for _n in _only_prev])
+                        _tot_op = sum(float(_p["Tonnage"]) for _p in [_prev_by_f.loc[_n] for _n in _only_prev])
                         st.warning(f"🔴 **{len(_only_prev)} agriculteurs** prévus mais qui n'ont **PAS** livré — Tonnage prévu total : **{_tot_op:,.0f} t**")
                         st.dataframe(_df_op, use_container_width=True, hide_index=True)
                         try:
@@ -5961,7 +5980,7 @@ with tab8:
                     if _only_real:
                         _rows_or = []
                         for _n in _only_real:
-                            _r = _real_by.loc[_n]
+                            _r = _real_by_f.loc[_n]
                             _rows_or.append({
                                 "Agriculteur": _r["Nom"],
                                 "Commercial": _r["Commercial"],
@@ -5971,7 +5990,7 @@ with tab8:
                             })
                         _df_or = _pd.DataFrame(_rows_or).sort_values("Tonnage réalisé (t)",
                                     key=lambda s: s.astype(str).str.replace(",","").astype(float), ascending=False)
-                        _tot_or = sum(float(_r["Tonnage"]) for _r in [_real_by.loc[_n] for _n in _only_real])
+                        _tot_or = sum(float(_r["Tonnage"]) for _r in [_real_by_f.loc[_n] for _n in _only_real])
                         st.info(f"🟢 **{len(_only_real)} agriculteurs** ont livré mais n'étaient **PAS** prévus — Tonnage réalisé total : **{_tot_or:,.0f} t**")
                         st.dataframe(_df_or, use_container_width=True, hide_index=True)
                         try:
