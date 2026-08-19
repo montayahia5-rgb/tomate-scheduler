@@ -4967,9 +4967,65 @@ et les 4 autres onglets affichent uniquement les vraies catégories.
 """)
 
         # ══════════════════════════════════════════════════════════════════
-        # ── SECTION : Transporteurs (upload optionnel) ──────────────────
+        # ── SECTION : Transporteurs (upload optionnel + Supabase) ───────
         # ══════════════════════════════════════════════════════════════════
         st.markdown("---")
+
+        # Persistance Supabase transporteurs
+        _SB_TRANSP = "dashboard_transporteurs"
+
+        def _df_to_json_tr(df):
+            try:
+                return df.to_json(orient="split", date_format="iso", default_handler=str)
+            except Exception:
+                return _pd.DataFrame(df).astype(str).to_json(orient="split")
+
+        def _json_to_df_tr(js):
+            try:
+                import io as _io_jt
+                df = _pd.read_json(_io_jt.StringIO(js), orient="split")
+                if "Tonnes" in df.columns:
+                    df["Tonnes"] = _pd.to_numeric(df["Tonnes"], errors="coerce").fillna(0)
+                return df
+            except Exception:
+                return None
+
+        def _sb_save_transp_year(annee, df):
+            try:
+                get_supabase().table(_SB_TRANSP).upsert({
+                    "annee": int(annee),
+                    "data_json": _df_to_json_tr(df),
+                }).execute()
+                return True
+            except Exception as _e:
+                st.warning(f"⚠️ Sauvegarde Supabase transporteurs échouée : {_e}")
+                return False
+
+        def _sb_delete_transp_year(annee):
+            try:
+                get_supabase().table(_SB_TRANSP).delete().eq("annee", int(annee)).execute()
+            except Exception: pass
+
+        @st.cache_data(ttl=300, show_spinner=False)
+        def _sb_load_transp_cached(_key):
+            try:
+                resp = get_supabase().table(_SB_TRANSP).select("*").execute()
+                out = {}
+                for r in (resp.data or []):
+                    df = _json_to_df_tr(r.get("data_json",""))
+                    if df is not None:
+                        out[int(r["annee"])] = df
+                return out
+            except Exception:
+                return {}
+
+        # Charger depuis Supabase au démarrage
+        if "transp_data" not in st.session_state:
+            _tr_sb = _sb_load_transp_cached("transp_key")
+            st.session_state.transp_data = _tr_sb if _tr_sb else {}
+            if _tr_sb:
+                st.info(f"🔄 Transporteurs de {len(_tr_sb)} année(s) rechargés : {sorted(_tr_sb.keys())}")
+
         with st.expander("🚛 Importer les données Transporteurs (optionnel)", expanded=False):
             st.caption("Fichier attendu : colonnes **Date, Transporteur, Vehicule, Commercial, Usine, Agriculteur, Tonnes**")
             _cT1, _cT2 = st.columns([1,3])
@@ -4997,6 +5053,10 @@ et les 4 autres onglets affichent uniquement les vraies catégories.
                         if "transp_data" not in st.session_state:
                             st.session_state.transp_data = {}
                         st.session_state.transp_data[int(_tr_annee)] = _df_tr
+                        # Sauver en Supabase
+                        _sb_save_transp_year(_tr_annee, _df_tr)
+                        try: _sb_load_transp_cached.clear()
+                        except Exception: pass
                         st.success(f"✅ {_tr_annee} : {len(_df_tr):,} voyages • {_df_tr['Transporteur'].nunique()} transporteurs")
                 except Exception as _e:
                     st.error(f"❌ Erreur : {_e}")
@@ -5004,6 +5064,21 @@ et les 4 autres onglets affichent uniquement les vraies catégories.
         # Affichage transporteurs si données chargées
         if st.session_state.get("transp_data"):
             st.markdown("### 🚛 Analyse Transporteurs")
+
+            # Ligne d'actions : liste + delete
+            with st.expander("🗂️ Gérer les années de transporteurs chargées", expanded=False):
+                for _an_t in sorted(st.session_state.transp_data.keys()):
+                    _dft_i = st.session_state.transp_data[_an_t]
+                    _cLt, _cRt = st.columns([4,1])
+                    with _cLt: st.markdown(f"• **{_an_t}** — {len(_dft_i):,} voyages • {_dft_i['Transporteur'].nunique()} transporteurs")
+                    with _cRt:
+                        if st.button("🗑️", key=f"del_tr_{_an_t}"):
+                            _sb_delete_transp_year(_an_t)
+                            del st.session_state.transp_data[_an_t]
+                            try: _sb_load_transp_cached.clear()
+                            except Exception: pass
+                            st.rerun()
+
             _yr_tr = st.selectbox(
                 "📅 Année",
                 sorted(st.session_state.transp_data.keys()),
@@ -5011,6 +5086,23 @@ et les 4 autres onglets affichent uniquement les vraies catégories.
                 key="tr_year_sel",
             )
             _dft = st.session_state.transp_data[_yr_tr].copy()
+
+            # ═══════ FILTRE PAR DATE ═══════
+            if "Date" in _dft.columns:
+                _dft["Date"] = _pd.to_datetime(_dft["Date"], errors="coerce")
+                _dft = _dft.dropna(subset=["Date"]).copy()
+                _min_d = _dft["Date"].min().date()
+                _max_d = _dft["Date"].max().date()
+                _cD1, _cD2 = st.columns(2)
+                with _cD1:
+                    _date_from = st.date_input("📆 Du", value=_min_d,
+                                                min_value=_min_d, max_value=_max_d,
+                                                key=f"tr_date_from_{_yr_tr}")
+                with _cD2:
+                    _date_to = st.date_input("📆 Au", value=_max_d,
+                                              min_value=_min_d, max_value=_max_d,
+                                              key=f"tr_date_to_{_yr_tr}")
+                _dft = _dft[(_dft["Date"].dt.date >= _date_from) & (_dft["Date"].dt.date <= _date_to)].copy()
 
             # KPI globaux
             _tk1, _tk2, _tk3, _tk4 = st.columns(4)
@@ -5141,16 +5233,7 @@ et les 4 autres onglets affichent uniquement les vraies catégories.
                         _agri_map[_nom] = {"Commercial": _r["Commercial"], "Region": _r["Region"], "Usine": _r["Usine"]}
                     _agri_map[_nom][int(_an_ag)] = float(_r["Tonnage"])
 
-            # Statistiques globales
-            _c1, _c2, _c3, _c4 = st.columns(4)
-            _c1.metric("Total agriculteurs uniques", f"{len(_agri_map):,}")
-            _c2.metric("Années comparées", f"{len(_years_with_agri)}")
-            _nb_recur = sum(1 for a in _agri_map.values() if sum(1 for y in _years_with_agri if y in a) >= 2)
-            _c3.metric("Récurrents (≥2 ans)", f"{_nb_recur:,}")
-            _nb_all = sum(1 for a in _agri_map.values() if all(y in a for y in _years_with_agri))
-            _c4.metric(f"Présents toutes années", f"{_nb_all:,}")
-
-            # Construire DataFrame comparatif
+            # Construire DataFrame comparatif AVANT filtres
             _rows_cmp = []
             for _nom, _dt in _agri_map.items():
                 _row = {"Agriculteur": _nom, "Commercial": _dt.get("Commercial",""),
@@ -5162,19 +5245,20 @@ et les 4 autres onglets affichent uniquement les vraies catégories.
                 _rows_cmp.append(_row)
             _df_cmp = _pd.DataFrame(_rows_cmp).sort_values("Total (t)", ascending=False)
 
-            # Filtres
+            # Filtres AVANT les KPI (pour que les KPI se recalculent selon filtre)
             _fc1, _fc2, _fc3 = st.columns(3)
             with _fc1:
                 _comms_list = ["Tous"] + sorted([c for c in _df_cmp["Commercial"].unique() if c])
-                _f_comm = st.selectbox("Commercial", _comms_list, key="cmp_agri_comm")
+                _f_comm = st.selectbox("🔎 Commercial", _comms_list, key="cmp_agri_comm")
             with _fc2:
                 _regs_list = ["Toutes"] + sorted([r for r in _df_cmp["Region"].unique() if r])
-                _f_reg = st.selectbox("Région", _regs_list, key="cmp_agri_reg")
+                _f_reg = st.selectbox("🔎 Région", _regs_list, key="cmp_agri_reg")
             with _fc3:
-                _f_prez = st.selectbox("Présence", ["Tous","Récurrents (≥2 ans)",
+                _f_prez = st.selectbox("🔎 Présence", ["Tous","Récurrents (≥2 ans)",
                                                     f"Toutes années ({len(_years_with_agri)})",
                                                     "Nouveaux (1 seule année)"], key="cmp_agri_prez")
 
+            # Appliquer filtres
             _df_show = _df_cmp.copy()
             if _f_comm != "Tous":
                 _df_show = _df_show[_df_show["Commercial"] == _f_comm]
@@ -5186,6 +5270,18 @@ et les 4 autres onglets affichent uniquement les vraies catégories.
                 _df_show = _df_show[_df_show["Nb années"] == len(_years_with_agri)]
             elif _f_prez == "Nouveaux (1 seule année)":
                 _df_show = _df_show[_df_show["Nb années"] == 1]
+
+            # KPI DYNAMIQUES basés sur _df_show (respectent les filtres)
+            _lbl_flt = ""
+            if _f_comm != "Tous": _lbl_flt += f" • {_f_comm}"
+            if _f_reg != "Toutes": _lbl_flt += f" • {_f_reg}"
+            _c1, _c2, _c3, _c4 = st.columns(4)
+            _c1.metric(f"Total agriculteurs{_lbl_flt}", f"{len(_df_show):,}")
+            _c2.metric("Années comparées", f"{len(_years_with_agri)}")
+            _nb_recur_f = int((_df_show["Nb années"] >= 2).sum())
+            _c3.metric("Récurrents (≥2 ans)", f"{_nb_recur_f:,}")
+            _nb_all_f = int((_df_show["Nb années"] == len(_years_with_agri)).sum())
+            _c4.metric("Présents toutes années", f"{_nb_all_f:,}")
 
             st.caption(f"**{len(_df_show):,} agriculteurs** affichés • Total : **{_df_show['Total (t)'].sum():,.0f} t**")
             st.dataframe(_df_show, use_container_width=True, height=500)
@@ -5544,14 +5640,86 @@ with tab8:
         _os.makedirs(_PDIR, exist_ok=True)
     _PREV_FILE = _os.path.join(_PDIR, "prev_data.pkl")
 
+    _SB_PREV = "dashboard_previsions"
+
+    def _df_to_json_prev(df):
+        try:
+            return df.to_json(orient="split", date_format="iso", default_handler=str)
+        except Exception:
+            return _pd.DataFrame(df).astype(str).to_json(orient="split")
+
+    def _json_to_df_prev(js):
+        try:
+            import io as _io_jp
+            df = _pd.read_json(_io_jp.StringIO(js), orient="split")
+            if "Tonnes" in df.columns:
+                df["Tonnes"] = _pd.to_numeric(df["Tonnes"], errors="coerce").fillna(0)
+            return df
+        except Exception:
+            return None
+
+    def _sb_save_prev_year(annee, df):
+        try:
+            get_supabase().table(_SB_PREV).upsert({
+                "annee": int(annee),
+                "data_json": _df_to_json_prev(df),
+            }).execute()
+            return True
+        except Exception as _e:
+            st.warning(f"⚠️ Sauvegarde Supabase prévisions échouée : {_e}")
+            return False
+
+    def _sb_delete_prev_year(annee):
+        try:
+            get_supabase().table(_SB_PREV).delete().eq("annee", int(annee)).execute()
+        except Exception: pass
+
+    @st.cache_data(ttl=300, show_spinner=False)
+    def _sb_load_prev_cached(_key):
+        try:
+            resp = get_supabase().table(_SB_PREV).select("*").execute()
+            out = {}
+            for r in (resp.data or []):
+                df = _json_to_df_prev(r.get("data_json", ""))
+                if df is not None:
+                    out[int(r["annee"])] = df
+            return out
+        except Exception:
+            return {}
+
     def _save_prev_to_disk():
         try:
             with open(_PREV_FILE, "wb") as _f:
                 _pkl.dump({"data": st.session_state.prev_data,
                            "apply": st.session_state.prev_apply}, _f)
         except Exception: pass
+        # Sauver aussi en Supabase (persistance cloud)
+        try:
+            for _yr, _df in st.session_state.prev_data.items():
+                if isinstance(_df, _pd.DataFrame):
+                    _sb_save_prev_year(_yr, _df)
+            # Supprimer années plus présentes
+            try:
+                _sb = get_supabase()
+                _resp = _sb.table(_SB_PREV).select("annee").execute()
+                _sb_years = {int(r["annee"]) for r in (_resp.data or [])}
+                _local_years = {int(y) for y in st.session_state.prev_data.keys()}
+                for _yr in (_sb_years - _local_years):
+                    _sb.table(_SB_PREV).delete().eq("annee", int(_yr)).execute()
+            except Exception: pass
+            # Invalider cache
+            try: _sb_load_prev_cached.clear()
+            except Exception: pass
+        except Exception: pass
 
     def _load_prev_from_disk():
+        # 1) Essayer Supabase d'abord (source de vérité cloud)
+        try:
+            _sb_data = _sb_load_prev_cached("prev_key")
+            if _sb_data:
+                return _sb_data, True
+        except Exception: pass
+        # 2) Fallback disque
         try:
             if _os.path.exists(_PREV_FILE):
                 with open(_PREV_FILE, "rb") as _f:
@@ -5675,6 +5843,7 @@ with tab8:
                 with _cL: st.markdown(f"• **{_an}** — {len(_dfp):,} lignes • {_dfp['Tonnes'].sum():,.0f} t")
                 with _cR:
                     if st.button("🗑️", key=f"del_prev_{_an}"):
+                        _sb_delete_prev_year(_an)  # supabase aussi
                         del st.session_state.prev_data[_an]
                         _save_prev_to_disk(); st.rerun()
 
@@ -5701,6 +5870,12 @@ with tab8:
                         st.info("Aucune ligne à nettoyer.")
             with _cC:
                 if st.button("🔄 Réinitialiser tout", use_container_width=True, key="btn_reset_prev"):
+                    # Vider Supabase
+                    try:
+                        _sb = get_supabase()
+                        for _yr in list(st.session_state.prev_data.keys()):
+                            _sb.table(_SB_PREV).delete().eq("annee", int(_yr)).execute()
+                    except Exception: pass
                     st.session_state.prev_data = {}
                     st.session_state.prev_apply = False
                     _save_prev_to_disk(); st.rerun()
