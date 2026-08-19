@@ -4967,6 +4967,133 @@ et les 4 autres onglets affichent uniquement les vraies catégories.
 """)
 
         # ══════════════════════════════════════════════════════════════════
+        # ── SECTION : Transporteurs (upload optionnel) ──────────────────
+        # ══════════════════════════════════════════════════════════════════
+        st.markdown("---")
+        with st.expander("🚛 Importer les données Transporteurs (optionnel)", expanded=False):
+            st.caption("Fichier attendu : colonnes **Date, Transporteur, Vehicule, Commercial, Usine, Agriculteur, Tonnes**")
+            _cT1, _cT2 = st.columns([1,3])
+            with _cT1:
+                _tr_annee = st.number_input("Année transporteurs", min_value=2020, max_value=2035,
+                                            value=2026, step=1, key="tr_annee_new")
+            with _cT2:
+                _file_tr = st.file_uploader(
+                    f"Charger Transporteurs {_tr_annee}",
+                    type=["xlsx","xls","csv"], key=f"tr_up_{_tr_annee}"
+                )
+            if _file_tr is not None:
+                try:
+                    _df_tr = _pd.read_excel(_file_tr) if _file_tr.name.lower().endswith(("xlsx","xls")) else _pd.read_csv(_file_tr)
+                    _df_tr.columns = [str(c).strip() for c in _df_tr.columns]
+                    _req = ["Date","Transporteur","Commercial","Tonnes"]
+                    _missing = [c for c in _req if c not in _df_tr.columns]
+                    if _missing:
+                        st.error(f"❌ Colonnes manquantes : {_missing}")
+                    else:
+                        # Nettoyer
+                        _df_tr["Transporteur"] = _df_tr["Transporteur"].astype(str).str.strip().str.upper()
+                        _df_tr["Tonnes"] = _pd.to_numeric(_df_tr["Tonnes"], errors="coerce").fillna(0)
+                        _df_tr = _df_tr[(_df_tr["Transporteur"] != "") & (_df_tr["Transporteur"] != "NAN")].copy()
+                        if "transp_data" not in st.session_state:
+                            st.session_state.transp_data = {}
+                        st.session_state.transp_data[int(_tr_annee)] = _df_tr
+                        st.success(f"✅ {_tr_annee} : {len(_df_tr):,} voyages • {_df_tr['Transporteur'].nunique()} transporteurs")
+                except Exception as _e:
+                    st.error(f"❌ Erreur : {_e}")
+
+        # Affichage transporteurs si données chargées
+        if st.session_state.get("transp_data"):
+            st.markdown("### 🚛 Analyse Transporteurs")
+            _yr_tr = st.selectbox(
+                "📅 Année",
+                sorted(st.session_state.transp_data.keys()),
+                index=len(st.session_state.transp_data)-1,
+                key="tr_year_sel",
+            )
+            _dft = st.session_state.transp_data[_yr_tr].copy()
+
+            # KPI globaux
+            _tk1, _tk2, _tk3, _tk4 = st.columns(4)
+            _tk1.metric("Transporteurs", f"{_dft['Transporteur'].nunique():,}")
+            _tk2.metric("Voyages", f"{len(_dft):,}")
+            _tk3.metric("Tonnage transporté", f"{_dft['Tonnes'].sum():,.0f} t")
+            if "Vehicule" in _dft.columns:
+                _tk4.metric("Véhicules", f"{_dft['Vehicule'].nunique():,}")
+
+            # Filtre par commercial
+            _all_commsT = sorted([c for c in _dft["Commercial"].dropna().unique() if c and str(c).strip()])
+            _tr_comm_filter = st.selectbox(
+                "🔎 Filtrer par commercial",
+                ["Tous les commerciaux"] + _all_commsT,
+                key=f"tr_comm_filter_{_yr_tr}",
+            )
+            if _tr_comm_filter != "Tous les commerciaux":
+                _dft_f = _dft[_dft["Commercial"] == _tr_comm_filter].copy()
+            else:
+                _dft_f = _dft.copy()
+
+            # ─── Tableau : nb voyages par transporteur × commercial ───
+            st.markdown(f"#### 📋 Voyages par transporteur (commercial : **{_tr_comm_filter}**)")
+            _agg = _dft_f.groupby("Transporteur").agg(
+                Voyages=("Tonnes","count"),
+                Tonnage=("Tonnes","sum"),
+                Nb_Commerciaux=("Commercial","nunique"),
+                Nb_Agriculteurs=("Agriculteur","nunique") if "Agriculteur" in _dft_f.columns else ("Tonnes","count"),
+            ).reset_index().sort_values("Voyages", ascending=False)
+            if "Vehicule" in _dft_f.columns:
+                _veh_map = _dft_f.groupby("Transporteur")["Vehicule"].apply(
+                    lambda x: ", ".join(sorted(set([v for v in x if v and str(v) != "NAN"]))[:3])
+                    + ("…" if x.nunique() > 3 else "")
+                ).to_dict()
+                _agg["Véhicules"] = _agg["Transporteur"].map(_veh_map)
+            _agg["Tonnage"] = _agg["Tonnage"].round(0).astype(int)
+            st.dataframe(_agg, use_container_width=True, hide_index=True)
+
+            # ─── Matrice Transporteur × Commercial ───
+            if _tr_comm_filter == "Tous les commerciaux":
+                st.markdown("#### 🗺️ Matrice Transporteur × Commercial (nb voyages)")
+                _pivot = _dft.pivot_table(index="Transporteur", columns="Commercial",
+                                          values="Tonnes", aggfunc="count", fill_value=0)
+                _pivot["TOTAL"] = _pivot.sum(axis=1)
+                _pivot = _pivot.sort_values("TOTAL", ascending=False).head(30)
+                st.dataframe(_pivot, use_container_width=True)
+
+            # ─── Bar chart top 20 ───
+            st.markdown("#### 📊 Top 20 transporteurs (nb voyages)")
+            import plotly.graph_objects as go
+            _top = _agg.head(20)
+            _fig_t = go.Figure()
+            _fig_t.add_trace(go.Bar(
+                x=_top["Voyages"], y=_top["Transporteur"], orientation="h",
+                marker_color="#3B82F6", text=_top["Voyages"], textposition="outside",
+                hovertemplate="<b>%{y}</b><br>%{x} voyages<extra></extra>",
+            ))
+            _fig_t.update_layout(
+                template="plotly_dark", height=600,
+                paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+                yaxis={"categoryorder":"total ascending"},
+                xaxis_title="Nb voyages",
+                margin=dict(l=200, r=40, t=20, b=40),
+            )
+            st.plotly_chart(_fig_t, use_container_width=True)
+
+            # ─── Export ───
+            try:
+                import io as _io_tr
+                _buf_tr = _io_tr.BytesIO()
+                _agg.to_excel(_buf_tr, index=False, sheet_name="Transporteurs")
+                _buf_tr.seek(0)
+                st.download_button(
+                    "⬇️ Télécharger analyse transporteurs",
+                    data=_buf_tr,
+                    file_name=f"TRANSPORTEURS_{_yr_tr}_{_tr_comm_filter.replace(' ','_')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"dl_tr_{_yr_tr}",
+                )
+            except Exception: pass
+
+        # ══════════════════════════════════════════════════════════════════
+        # ══════════════════════════════════════════════════════════════════
         # ── SECTION : Comparaison des agriculteurs entre années ─────────
         # ══════════════════════════════════════════════════════════════════
         st.markdown("---")
