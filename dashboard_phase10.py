@@ -5028,6 +5028,43 @@ et les 4 autres onglets affichent uniquement les vraies catégories.
 
         with st.expander("🚛 Importer les données Transporteurs (optionnel)", expanded=False):
             st.caption("Fichier attendu : colonnes **Date, Transporteur, Vehicule, Commercial, Usine, Agriculteur, Tonnes**")
+
+            # Bouton de diagnostic Supabase
+            _cDiag1, _cDiag2 = st.columns([1,3])
+            with _cDiag1:
+                if st.button("🔍 Tester Supabase", key="tr_test_sb"):
+                    try:
+                        _sb_test = get_supabase()
+                        # Test 1 : existence table
+                        try:
+                            _resp_test = _sb_test.table(_SB_TRANSP).select("annee").limit(1).execute()
+                            st.success(f"✅ Table `dashboard_transporteurs` accessible ({len(_resp_test.data or [])} lignes visibles)")
+                        except Exception as _ee1:
+                            st.error(f"❌ Table `dashboard_transporteurs` INACCESSIBLE : {_ee1}")
+                            st.info("Créez la table avec le SQL ci-dessus (bouton d'aide à droite)")
+                            raise
+                        # Test 2 : écriture test
+                        try:
+                            _test_row = {"annee": 9999, "data_json": '{"test":1}'}
+                            _sb_test.table(_SB_TRANSP).upsert(_test_row).execute()
+                            _sb_test.table(_SB_TRANSP).delete().eq("annee", 9999).execute()
+                            st.success("✅ Écriture Supabase OK — RLS bien désactivé")
+                        except Exception as _ee2:
+                            st.error(f"❌ Écriture BLOQUÉE : {_ee2}")
+                            st.info("Exécutez : `ALTER TABLE dashboard_transporteurs DISABLE ROW LEVEL SECURITY;`")
+                    except Exception as _ee:
+                        pass
+            with _cDiag2:
+                if st.button("📋 Afficher SQL de création table", key="tr_show_sql"):
+                    st.code(
+                        "CREATE TABLE IF NOT EXISTS dashboard_transporteurs (\n"
+                        "    annee INTEGER PRIMARY KEY,\n"
+                        "    data_json TEXT NOT NULL,\n"
+                        "    updated_at TIMESTAMPTZ DEFAULT NOW()\n"
+                        ");\n"
+                        "ALTER TABLE dashboard_transporteurs DISABLE ROW LEVEL SECURITY;",
+                        language="sql")
+                    st.caption("Copiez-collez dans **Supabase → SQL Editor** puis cliquez Run.")
             _cT1, _cT2 = st.columns([1,3])
             with _cT1:
                 _tr_annee = st.number_input("Année transporteurs", min_value=2020, max_value=2035,
@@ -5053,11 +5090,32 @@ et les 4 autres onglets affichent uniquement les vraies catégories.
                         if "transp_data" not in st.session_state:
                             st.session_state.transp_data = {}
                         st.session_state.transp_data[int(_tr_annee)] = _df_tr
-                        # Sauver en Supabase
-                        _sb_save_transp_year(_tr_annee, _df_tr)
+                        # Sauver en Supabase avec test explicite
+                        _sb_ok = _sb_save_transp_year(_tr_annee, _df_tr)
                         try: _sb_load_transp_cached.clear()
                         except Exception: pass
-                        st.success(f"✅ {_tr_annee} : {len(_df_tr):,} voyages • {_df_tr['Transporteur'].nunique()} transporteurs")
+                        if _sb_ok:
+                            # Vérifier vraiment que c'est en base
+                            try:
+                                _chk = get_supabase().table(_SB_TRANSP).select("annee").eq("annee", int(_tr_annee)).execute()
+                                if _chk.data and len(_chk.data) > 0:
+                                    st.success(f"✅ {_tr_annee} : {len(_df_tr):,} voyages • {_df_tr['Transporteur'].nunique()} transporteurs — **sauvé en Supabase** ✔")
+                                else:
+                                    st.warning(f"⚠️ {_tr_annee} : {len(_df_tr):,} voyages importés mais **NON persistés en Supabase** (données perdues au refresh). Vérifiez que la table `dashboard_transporteurs` existe et que RLS est désactivé.")
+                            except Exception as _ee:
+                                st.warning(f"⚠️ {_tr_annee} importé en session mais vérification Supabase échouée : {_ee}")
+                        else:
+                            st.error(f"❌ {_tr_annee} : sauvegarde Supabase **ÉCHOUÉE** — les données ne survivront pas au refresh.\n\n"
+                                     "**Cause probable** : la table `dashboard_transporteurs` n'existe pas ou RLS est activé.\n\n"
+                                     "**Solution** : dans Supabase → SQL Editor, exécutez :\n"
+                                     "```sql\n"
+                                     "CREATE TABLE IF NOT EXISTS dashboard_transporteurs (\n"
+                                     "    annee INTEGER PRIMARY KEY,\n"
+                                     "    data_json TEXT NOT NULL,\n"
+                                     "    updated_at TIMESTAMPTZ DEFAULT NOW()\n"
+                                     ");\n"
+                                     "ALTER TABLE dashboard_transporteurs DISABLE ROW LEVEL SECURITY;\n"
+                                     "```")
                 except Exception as _e:
                     st.error(f"❌ Erreur : {_e}")
 
