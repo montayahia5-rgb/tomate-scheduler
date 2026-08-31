@@ -1216,34 +1216,24 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
             client_raw = str(row.get("client","")).strip()
             ck = _cn(client_raw)
 
-            # 0. PRIORITÉ ABSOLUE : données réelles/estimées confirmées 2026
-            if ck in _INTRANTS_2026:
-                result[client_raw] = _INTRANTS_2026[ck]
-                continue
-
-            # 1. Fuzzy sur _INTRANTS_2026 (seuil élevé = confiance)
-            best_pre = max(_INTRANTS_2026.keys(), key=lambda k: _sco(ck,k), default=None)
-            if best_pre and _sco(ck, best_pre) >= 0.70:
-                result[client_raw] = _INTRANTS_2026[best_pre]
-                continue
-
-            # 2. Exact match Sotusfa uploadé
+            # ⚠️ NOUVELLE PRIORITÉ : fichier SOTUSFA uploadé D'ABORD (données réelles)
+            # 1. Exact match Sotusfa uploadé (PRIORITÉ ABSOLUE aux vraies données)
             if ck in sot_clean:
                 result[client_raw] = sot_clean[ck]
                 continue
 
-            # 2. ACHREF : appartient à un groupe → distribution proportionnelle
+            # 2. Fuzzy match Sotusfa uploadé (seuil élevé)
+            best_k = max(sot_keys, key=lambda k: _sco(ck, k), default=None)
+            if best_k and _sco(ck, best_k) >= 0.80:
+                result[client_raw] = sot_clean[best_k]
+                continue
+
+            # 3. ACHREF : appartient à un groupe → distribution proportionnelle
             assigned = False
             for grp_k, membres in ACHREF_GROUPES.items():
                 membres_cn = [_cn(m) for m in membres]
                 if ck in membres_cn:
-                    # 1. Distribution pré-calculée (basée sur tonnages référence ACHREF)
-                    if ck in _ACHREF_DIST_CN:
-                        result[client_raw] = _ACHREF_DIST_CN[ck]
-                        assigned = True
-                        break
-                    # 2. Distribution dynamique si groupe dans Sotusfa
-                    elif grp_k in sot_clean:
+                    if grp_k in sot_clean:
                         grp_total_intrants = sot_clean[grp_k]
                         membres_tons = {_cn(m): base_tons.get(_cn(m), 1.0) for m in membres}
                         tot = sum(membres_tons.values()) or 1.0
@@ -1251,17 +1241,28 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
                         result[client_raw] = round(grp_total_intrants * mon_ton / tot, 3)
                         assigned = True
                         break
+                    elif ck in _ACHREF_DIST_CN:
+                        result[client_raw] = _ACHREF_DIST_CN[ck]
+                        assigned = True
+                        break
             if assigned:
                 continue
 
-            # 3. Fuzzy match (seuil 0.55)
-            best_k = max(sot_keys, key=lambda k: _sco(ck, k), default=None)
+            # 4. Fuzzy match Sotusfa plus permissif (seuil 0.65)
             if best_k and _sco(ck, best_k) >= 0.65:
-                # Vérification supplémentaire : les noms sont vraiment proches
                 result[client_raw] = sot_clean[best_k]
                 continue
 
-            # 4. Pas trouvé → 0
+            # 5. FALLBACK : _INTRANTS_2026 codé (si agri absent du fichier SOTUSFA)
+            if ck in _INTRANTS_2026:
+                result[client_raw] = _INTRANTS_2026[ck]
+                continue
+            best_pre = max(_INTRANTS_2026.keys(), key=lambda k: _sco(ck,k), default=None)
+            if best_pre and _sco(ck, best_pre) >= 0.70:
+                result[client_raw] = _INTRANTS_2026[best_pre]
+                continue
+
+            # 6. Pas trouvé → 0
             result[client_raw] = 0.0
 
         # ════════════════════════════════════════ Assigner les intrants ════════════════════════════════════════
@@ -2966,18 +2967,22 @@ padding:16px 20px;margin-bottom:18px'>
                 best = max(_prv_keys, key=lambda k: _sco_pp(ck,k), default=None)
                 return _PREVISION_2026[best].get(key,"") if best and _sco_pp(ck,best)>=0.65 else ""
 
-            # ════════════════ Intrants : calcul depuis _INTRANTS_2026 ════════════════
-            _int_series = df[_agri_col].apply(_get_intrant)
-            _mask_int   = _int_series.notna()
-            # Mettre à jour TOUTES les colonnes intrants (interne + affichage)
+            # ════════════════ Intrants : GARDER les valeurs du fichier SOTUSFA uploadé ════════════════
+            # ⚠️ FIX : NE PLUS écraser avec _INTRANTS_2026 (valeurs codées incomplètes)
+            # Les intrants viennent déjà du merge SOTUSFA (fonction _sot_merge).
+            # On applique _INTRANTS_2026 UNIQUEMENT si l'agri n'a pas d'intrant du tout (fallback).
             if "charge_intrants" not in df.columns:
                 df["charge_intrants"] = 0.0
-            df.loc[_mask_int, "charge_intrants"] = _int_series[_mask_int].astype(float)
-            # Mettre à jour la colonne affichée "Intrants (DT)" directement
+            _int_actuel = pd.to_numeric(df["charge_intrants"], errors="coerce").fillna(0)
+            _int_fallback = df[_agri_col].apply(_get_intrant)
+            # Remplir SEULEMENT les agri qui ont charge_intrants = 0
+            _mask_vide = (_int_actuel == 0) & _int_fallback.notna()
+            df.loc[_mask_vide, "charge_intrants"] = _int_fallback[_mask_vide].astype(float)
+            # Mettre à jour la colonne affichée
             _int_display_col = next((c for c in df.columns
                                     if c.strip().lower() in ["intrants (dt)","intrants(dt)"]), None)
             if _int_display_col:
-                df.loc[_mask_int, _int_display_col] = _int_series[_mask_int].astype(float)
+                df[_int_display_col] = df["charge_intrants"]
 
             # ════════════ Recalculer Charge Totale avec intrants réels ════════════
             _cp_col  = next((c for c in df.columns if c.strip().lower() in ["plants (dt)","charge_plants","plants(dt)"]), None)
