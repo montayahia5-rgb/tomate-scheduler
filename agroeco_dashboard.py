@@ -1483,6 +1483,8 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     df["prix_vente"] = g("prix_vente")
     df["prix_vente"] = df["prix_vente"].where(df["prix_vente"]>0,
                         params.get("prix_vente_global", 270))
+    # ⚠️ FIX UNITÉ : si prix < 10 → c'est en TND/kg (ex: 0.270) → convertir en TND/tonne (×1000)
+    df["prix_vente"] = df["prix_vente"].apply(lambda p: p*1000 if 0 < p < 10 else p)
 
     # ═════════════════════════════════ Tonnage livré et MO récolte ═════════════════════════════════
     df["tonnage_livre"] = g("tonnage_livre")
@@ -1545,7 +1547,7 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     if "ingenieur" not in df.columns or df["ingenieur"].fillna("").astype(str).eq("").all():
         df["ingenieur"] = ("ING. " + df["commercial"].astype(str).str[:8]).str.upper()
 
-    # Alertes
+    # Alertes — logique adaptée SAISON EN COURS
     def _alerte(row):
         ecart      = row.get("ecart_tonnage", 0) or 0
         taux       = row.get("taux_prise", 100) or 100
@@ -1553,20 +1555,30 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
         charge     = row.get("charge_totale", 1) or 1
         prev_mai   = row.get("prevision_mai", 0) or 0
         recouvr    = row.get("tonnage_recouvrement", 0) or 0
+        livre      = row.get("tonnage_livre", 0) or 0
 
-        if ecart < -5:
-            return "🔴 DÉFICIT RECOUVREMENT"
-        if taux < 85:
-            return "🟡 PRISE FAIBLE"
-        if report_v > charge * 0.5:
-            return "🔴 RISQUE FINANCIER"
-        if recouvr > 0 and prev_mai > 0:
-            ratio = prev_mai / recouvr
-            if ratio < 0.90: return "🔴 PRÉVISION INSUFFISANTE"
-            if ratio < 1.00: return "🟡 ATTENTION"
-        if ecart >= 0:
-            return "🟢 OK"
-        return "🟡 ATTENTION"
+        # ⚠️ SAISON EN COURS : un agri qui n'a pas encore livré (livre=0)
+        # n'est PAS en déficit — il n'a juste pas commencé sa récolte
+        if livre == 0:
+            return "⏳ EN ATTENTE RÉCOLTE"
+
+        # Taux de recouvrement = Livré / Recouvrement nécessaire
+        taux_recouv = (livre / recouvr * 100) if recouvr > 0 else 100
+
+        # Alertes basées sur le % de recouvrement atteint
+        if taux_recouv >= 100:
+            return "🟢 RECOUVERT"          # a déjà recouvré ses charges
+        elif taux_recouv >= 70:
+            return "🟢 OK"                  # en bonne voie (>70%)
+        elif taux_recouv >= 40:
+            return "🟡 EN COURS"            # à mi-chemin
+        elif taux_recouv >= 15:
+            return "🟡 ATTENTION"           # début de récolte
+        else:
+            # Très peu livré par rapport aux charges → vérifier
+            if report_v > charge * 0.5:
+                return "🔴 RISQUE FINANCIER"
+            return "🔴 FAIBLE RECOUVREMENT"
 
     df["alerte"] = df.apply(_alerte, axis=1)
 
@@ -2574,7 +2586,7 @@ padding:16px 20px;margin-bottom:18px'>
                     # 1. Supprimer la session sauvegardée dans Supabase
                     if sb:
                         try:
-                            sb.table("shared_sessions").delete().eq(
+                            sb.table("agroeco_session").delete().eq(
                                 "user_name","SHARED_2026").execute()
                         except Exception:
                             pass
@@ -2858,6 +2870,7 @@ padding:16px 20px;margin-bottom:18px'>
                     n_r = (df_merged["alerte"].str.contains("🔴")).sum()
                     n_y = (df_merged["alerte"].str.contains("🟡")).sum()
                     n_g = (df_merged["alerte"].str.contains("🟢")).sum()
+                    n_w = (df_merged["alerte"].str.contains("⏳")).sum()
 
                     # ══ AUTO-SAVE dans Supabase (session partagée) ══
                     _save_ok = False
@@ -2880,7 +2893,7 @@ padding:16px 20px;margin-bottom:18px'>
 
                     st.success(
                         f"✅ {len(df_merged)} agriculteurs · "
-                        f"🔴 {n_r} critiques · 🟡 {n_y} attention · 🟢 {n_g} OK · {_save_icon}")
+                        f"🟢 {n_g} OK · 🟡 {n_y} en cours · 🔴 {n_r} faibles · ⏳ {n_w} en attente récolte · {_save_icon}")
 
                     if not _save_ok and sb is not None:
                         st.warning(f"⚠️ Sauvegarde échouée : **{_save_err}**")
@@ -2982,6 +2995,8 @@ padding:16px 20px;margin-bottom:18px'>
             _pv_col = next((c for c in df.columns if c.strip().lower() in ["prix vente","prix_vente"]), None)
             _pv = pd.to_numeric(df[_pv_col], errors="coerce").fillna(270) if _pv_col else pd.Series([270.0]*len(df), index=df.index, dtype=float)
             _pv = _pv.where(_pv>0, 270)
+            # ⚠️ FIX UNITÉ : si prix < 10 → TND/kg (ex: 0.270) → convertir en TND/tonne (×1000)
+            _pv = _pv.apply(lambda p: p*1000 if 0 < p < 10 else p)
 
             # ══════ Recalculer Charges totales (avec consignes et MO) ══════
             # Consigne Plateau = 0 (données non encore saisies — décalage plateaux pris/retournés)
@@ -3209,7 +3224,7 @@ padding:16px 20px;margin-bottom:18px'>
                         f"Le total affiché dans les tableaux = valeurs matchées uniquement.")
 
             fc1,fc2,fc3,fc4 = st.columns(4)
-            alerte_f = fc1.selectbox("Alerte",["Toutes","🔴","🟡","🟢"],key="t1a")
+            alerte_f = fc1.selectbox("Alerte",["Toutes","🟢","🟡","🔴","⏳"],key="t1a")
             comm_f   = fc2.selectbox("Commercial",
                 ["Tous"]+sorted(df["commercial"].dropna().unique().tolist())
                 if "commercial" in df.columns else ["Tous"],key="t1c")
