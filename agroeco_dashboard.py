@@ -1016,6 +1016,15 @@ def merge_and_calculate(df_bourak, df_royal, df_sotusfa_raw,
     # ════════════════════════════════════════════════ Recouvrement ════════════════════════════════════════════════
     df["tonnage_recouvrement"] = np.where(df["prix_vente"]>0,
                                   (charges_totales / df["prix_vente"]).round(2), 0)
+    # ══ RECOUVREMENT PAR PLANT (en KG) ══
+    # Formule : (Charges ÷ Prix_kg) ÷ Nb_plants = kg que chaque plant doit produire
+    # prix_vente est en TND/tonne → prix_kg = prix_vente / 1000
+    _prix_kg = df["prix_vente"] / 1000.0                       # ex: 270 TND/t → 0.270 TND/kg
+    _kg_total_recouvrir = np.where(_prix_kg > 0,
+                                    charges_totales / _prix_kg, 0)   # kg total à recouvrir
+    _nb_plants = pd.to_numeric(df.get("qte_royal", df.get("qte_livree", 0)), errors="coerce").fillna(0)
+    df["recouvrement_par_plan"] = np.where(_nb_plants > 0,
+                                    (_kg_total_recouvrir / _nb_plants).round(3), 0)  # kg/plant
 
     # ══ Charges à recouvrir (= tout ce que l'agri doit récupérer) ═
     df["charge_a_recouvrir"] = (charges_totales + df["report"].fillna(0)).round(0)
@@ -1157,6 +1166,7 @@ def export_excel(df, df_sotusfa_raw=None):
         "Livré (T)"           : ["Livré (T)","tonnage_livre"],
         "Prix Vente"          : ["Prix Vente","prix_vente"],
         "RECOUVREMENT (T)"    : ["RECOUVREMENT (T)","tonnage_recouvrement"],
+        "Recouv./Plant (kg)"  : ["Recouv./Plant (kg)","recouvrement_par_plan"],
         "Recouv./ha"          : ["Recouv./ha","recouvrement_ha"],
         "Écart (T)"           : ["Écart (T)","ecart_tonnage"],
         "T/ha réalisé"        : ["T/ha réalisé","rendement_ha_reel"],
@@ -1185,7 +1195,7 @@ def export_excel(df, df_sotusfa_raw=None):
         "PRÉVISIONS (T)": [
             "Prév. Mai (T)","Livré (T)"],
         "RECOUVREMENT": [
-            "Prix Vente","RECOUVREMENT (T)","Recouv./ha","Écart (T)"],
+            "Prix Vente","RECOUVREMENT (T)","Recouv./Plant (kg)","Recouv./ha","Écart (T)"],
         "RÉSULTAT": [
             "T/ha réalisé","Coût/ha","Coût/plant",
             "Valeur Livrée","Solde Final","Alerte"],
@@ -1326,7 +1336,7 @@ def export_excel(df, df_sotusfa_raw=None):
                 c.fill = hf(row_bg)
                 # Formats numériques
                 if isinstance(val, (int, float)) and val != "" and not _np.isnan(float(val) if isinstance(val,float) else 0):
-                    if col_display in ("Ha","T/ha réalisé","Recouv./ha","Coût/plant"):
+                    if col_display in ("Ha","T/ha réalisé","Recouv./ha","Coût/plant","Recouv./Plant (kg)"):
                         c.number_format = "0.00"
                     elif col_display in ("Plants Livrés","Plants Actifs","Extra (pertes)",
                                           "Densité/ha"):
@@ -1502,6 +1512,7 @@ def export_excel(df, df_sotusfa_raw=None):
         ("Prév. Juin (T)",   ["Prév. Juin (T)","prevision_juin"]),
         ("Livré (T)",        ["Livré (T)","tonnage_livre"]),
         ("RECOUVREMENT (T)", ["RECOUVREMENT (T)","tonnage_recouvrement"]),
+        ("Recouv./Plant (kg)", ["Recouv./Plant (kg)","recouvrement_par_plan"]),
         ("Recouv./ha",       ["Recouv./ha","recouvrement_ha"]),
         ("Écart (T)",        ["Écart (T)","ecart_tonnage"]),
     ]
@@ -2521,6 +2532,7 @@ padding:16px 20px;margin-bottom:18px'>
             df["charges_totales"]     = _charges_tot.round(0)
             df["charge_a_recouvrir"]  = (_charges_tot + _rep).round(0)
             df["tonnage_recouvrement"]= (_charges_tot / _pv.where(_pv>0,1)).round(2)
+            df["recouvrement_par_plan"]= (df["tonnage_recouvrement"] * 1000).round(0)
 
             # ════════════════════════ Recalculer Solde, Valeur, Écart ════════════════════════
             _ton_col = next((c for c in df.columns
@@ -2815,7 +2827,7 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
             VIEW = [c for c in ["agriculteur","commercial","ingenieur","centre","variete",
                                   "hectares","affectation_caisse","detail_caisse","taux_prise",
                                   "report","charge_a_recouvrir","consigne_caisse","consigne_plateau",
-                                  "mo_recolte","tonnage_recouvrement","tonnage_livre",
+                                  "mo_recolte","tonnage_recouvrement","recouvrement_par_plan","tonnage_livre",
                                   "ecart_tonnage","valeur_livree","solde_final",
                                   "alerte"] if c in df_f.columns]
             st.dataframe(df_f[VIEW].round(1),
@@ -2823,6 +2835,7 @@ padding:10px;text-align:center;border-top:3px solid {uc2}'>
                 column_config={
                     "taux_prise":st.column_config.ProgressColumn(
                         "Taux prise %",min_value=0,max_value=100,format="%.1f%%"),
+                    "recouvrement_par_plan":st.column_config.NumberColumn("Recouv./Plant (kg)",format="%.3f"),
                     "ecart_tonnage":st.column_config.NumberColumn("Écart (T)",format="%+.1f"),
                     "solde_final":st.column_config.NumberColumn("Solde (DT)",format="%+,.0f"),
                 })
